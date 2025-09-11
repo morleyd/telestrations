@@ -5,10 +5,6 @@ import { pbService } from '@/services/pocketbase'
 export const useUserStore = defineStore('user', {
   persist: {
     storage: sessionStorage,
-    // pick: [
-    //   "gameCode",
-    //   "username",
-    // ],
   },
   state: () => ({
     user: null,
@@ -44,7 +40,7 @@ export const useUserStore = defineStore('user', {
       console.log(code)
       return code;
     },
-    async newGame(username, time) {
+    async newGame(username, color, time) {
       let gameCode = this.generateGameCode()
       let resp = await pbService.games.createGame({
         "game_code": gameCode,
@@ -54,13 +50,14 @@ export const useUserStore = defineStore('user', {
         return resp
       }
 
-      resp = await this.newUser(username, resp.data.id, true)
+      resp = await this.newUser(username, color, resp.data.id, true)
       resp["gameCode"] = gameCode
       return resp
     },
-    async newUser(username, gameId, isHost) {
+    async newUser(username, color, gameId, isHost) {
       let userResp = await pbService.users.createUser({
         "username": username,
+        "color": color,
         "game_id": gameId,
         "is_host": isHost,
       })

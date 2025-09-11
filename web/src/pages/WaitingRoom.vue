@@ -39,14 +39,12 @@
       </v-btn>
     </v-card-actions>
   </v-card>
+
   <v-dialog v-model="showEditUsernameDialog" max-width="500" persistent>
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
       <v-card-title class="text-center text-h4">Enter your Username!</v-card-title>
       <v-form ref="form" @submit.prevent="onUsernameSubmit">
-        <v-row class="pa-2">
-          <v-text-field v-model="username" label="Userame" @input="username = username.toLowerCase()"
-            @keyup.enter="onUsernameSubmit" :rules="[v => v && v.trim || 'Userame cannot be empty!']" />
-        </v-row>
+        <SetUsername ref="username" @username="onUsernameSubmit" />
         <v-row class="pa-2" style="justify-content: center;">
           <v-btn size="x-large" color="primary" elevation="2" @click="onUsernameSubmit">
             Submit
@@ -180,8 +178,11 @@ export default {
       console.log('Changed:', event)
     },
     async onUsernameSubmit() {
-      console.log("onUsernameSubmit", Boolean(this.userStore.username))
       let validation = await this.$refs.form.validate()
+      if (!validation.valid) {
+        return
+      }
+      validation = await this.$refs.username.validate()
       if (!validation.valid) {
         return
       }
@@ -189,18 +190,17 @@ export default {
       if (this.userStore.username) {
         await this.updateUser()
       } else {
-        await this.createUser()
+        await this.createUser(validation.username, validation.color)
       }
     },
-    async createUser() {
-      console.log("entering createUser")
-      let user = await pbService.users.getUser(this.username, this.gameId)
-      console.log("createUser search user", user)
+    async createUser(username, color) {
+      let user = await pbService.users.getUser(username, this.gameId)
+
       if (user.hasOwnProperty("id")) {
         this.userStore.user = user
         this.$emit("snack", "Username already exists. Assuming it's yours.", "warning")
       } else {
-        let error = await this.userStore.newUser(this.username, this.gameId, false)
+        let error = await this.userStore.newUser(username, color, this.gameId, false)
         if (error.errMsg) {
           this.$emit("snack", error.errMsg, "error")
         } else {
@@ -208,10 +208,8 @@ export default {
         }
       }
     },
-    async updateUser() {
-      console.log("entering updateUser")
-      let user = await pbService.users.getUser(this.username, this.gameId)
-      console.log("updateUser user search", user)
+    async updateUser(username, color) {
+      let user = await pbService.users.getUser(username, this.gameId)
       if (user.hasOwnProperty("id") && user.username != this.userStore.username) {
         this.$emit("snack", "Username already exists. Please enter a new one (or ignore if it's you).", "warning")
         return
@@ -220,7 +218,8 @@ export default {
         this.showEditUsernameDialog = false
       } else {
         let updateData = {
-          "username": this.username,
+          "username": username,
+          "color": color,
           "game": this.userStore.gameId,
           "is_host": this.userStore.is_host,
           "position": this.userStore.position,

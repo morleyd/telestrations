@@ -1,3 +1,6 @@
+// Copyright (2025- ) David C. Morley
+
+// DrawingTurn handles a users turn when drawing
 <template>
   <v-card>
     <v-card-title style="text-align: center; white-space: break-spaces; word-break: normal; word-wrap: break-word;">
@@ -25,12 +28,14 @@ export default {
   data() {
     return {
       tab: 'draw',
-      // prompt: "this is my very long prompt this is my very long prompt this is my very long prompt this is my very long prompt this is my very long prompt this is my very long prompt"
     }
   },
   methods: {
+    /**
+     * saveDrawing accepts a drawing (uploaded or draw) and emits it to PromptTurn
+     * @param {Blob} blob - the drawing to save in the database
+     */
     async saveDrawing(blob) {
-      console.log("saveDrawing", blob)
       this.$emit("drawing", blob)
     },
   },

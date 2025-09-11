@@ -20,17 +20,12 @@
   <v-dialog v-model="showLoginDialog" max-width="500" persistent>
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
       <v-card-title class="text-center text-h4">Enter Your Username</v-card-title>
-      <v-form ref="form" @submit.prevent="onLoginClicked">
-        <v-row class="pa-2">
-          <v-text-field v-model="username" label="Userame" @input="username = username.toLowerCase()"
-            @keyup.enter="onLoginClicked" :rules="[v => v && v.trim || 'Userame cannot be empty!']" />
-        </v-row>
-        <v-row class="pa-2" style="justify-content: center;">
-          <v-btn size="x-large" color="primary" elevation="2" @click="onLoginClicked">
-            Join!
-          </v-btn>
-        </v-row>
-      </v-form>
+      <SetUsername ref="username" @username="onLoginClicked" />
+      <v-row class="pa-2" style="justify-content: center;">
+        <v-btn size="x-large" color="primary" elevation="2" @click="onLoginClicked">
+          Join!
+        </v-btn>
+      </v-row>
     </v-card>
   </v-dialog>
 </template>
@@ -56,14 +51,12 @@ export default {
     ...mapStores(useUserStore),
   },
   async mounted() {
-    console.log("gameCode", this.$route.params.gameCode)
-    let resp = await pbService.games.getGameId(this.$route.params.gameCode)
-    if (resp.errMsg) {
-      this.$emit("snack", resp.errMsg, "error")
+    // Check if game code is valid and game is active
+    this.gameId = await this.isValidGame()
+    if (!this.gameId) {
+      return
     }
-    this.gameId = resp.data
 
-    console.log("cur_user", this.userStore.user)
     if (!this.userStore.username || !this.gameId) {
       this.showLoginDialog = true
       return
@@ -90,18 +83,24 @@ export default {
     emitSnack(msg, color) {
       this.$emit("snack", msg, color)
     },
-    async onLoginClicked() {
-      // Check if game code is valid and game is active
+    async isValidGame() {
       let validGame = await pbService.games.checkGameStatus(this.$route.params.gameCode)
       if (validGame.errMsg) {
         this.$emit("snack", validGame.errMsg, "error")
-        return
+        return false
       } else if (!validGame.gameId) {
         this.$emit("snack", "Invalid Game Code. Please try again.", "error")
-        return
+        return false
       } else if (!validGame.isStarted) {
         this.$emit("snack", "Sorry, this game has not been started yet.", "error")
-        this.$router.push({ path: this.$route.params.gameCode });
+        this.$router.push({ name: "WaitingRoom", params: { gameCode: this.$route.params.gameCode } });
+        return false
+      }
+      return validGame.gameId
+    },
+    async onLoginClicked() {
+      let validation = await this.$refs.username.validate()
+      if (!validation.valid) {
         return
       }
 
@@ -111,13 +110,16 @@ export default {
         this.$emit("snack", resp.errMsg, "error")
         return;
       }
+
       let users = resp.data
-      if (!users.filter(o => o.username == this.username).length) {
-        this.$emit("snack", "Invalid Game Code. Please try again.", "error")
+      if (!users.filter(o => o.username == validation.username).length) {
+        this.$emit("snack", "Not an active user in this game.", "error")
         return
       }
-      this.userStore.user = await pbService.users.getUser(this.username, validGame.gameId)
+
+      this.userStore.user = await pbService.users.getUser(validation.username, this.gameId)
       this.showLoginDialog = false
+      await this.getTurns()
     },
     async checkNumTurns() {
       const numTurns = await pbService.progress.getUserTurnCount(this.userStore.userId)

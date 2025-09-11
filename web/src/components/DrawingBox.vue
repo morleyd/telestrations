@@ -1,3 +1,6 @@
+// Copyright (2025- ) David C. Morley
+
+// DrawingBox provides a simple interface to draw & submit pictures
 <template>
   <v-card class="py-4 overflow-y-auto elevation-0" style="justify-items: center; justify-self: center; display: grid;"
     max-height="calc(100vh - 124px)" width="100vw">
@@ -97,6 +100,11 @@ export default {
     },
   },
   methods: {
+    /**
+     * onColorSelect accepts an emitted color from ColorPicker
+     * @param {string} hex - the hexcode color selected
+     * @param {string} parent - the target for where the color attaches to
+     */
     onColorSelect(hex, parent) {
       switch (parent) {
         case "line":
@@ -113,6 +121,9 @@ export default {
           break;
       }
     },
+    /**
+     * onSaveClicked converts the drawing to an image and emits it to DrawingTurn
+     */
     async onSaveClicked() {
       function base64ToBlob(base64, mimeType) {
         // Extract the base64 data part (remove "data:image/png;base64," prefix if present)
@@ -132,11 +143,17 @@ export default {
 
       this.$refs.canvas.reset()
     },
+    /**
+     * decreaseLine is a helper function to change the line size
+     */
     decreaseLine() {
       if (this.lineWidth > 1) {
         this.lineWidth -= 2
       }
     },
+    /**
+     * increaseLine is a helper function to change the line size
+     */
     increaseLine() {
       if (this.lineWidth < 25) {
         this.lineWidth += 2

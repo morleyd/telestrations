@@ -1,4 +1,7 @@
-<!-- Adapted from https://www.w3schools.com/colors/colors_picker.asp -->
+// Copyright (2025- ) David C. Morley
+
+// A custom color picker with swatches to choose from
+// Adapted from https://www.w3schools.com/colors/colors_picker.asp
 <template>
   <v-menu v-model="visible" location="center" :close-on-content-click="false">
     <template v-slot:activator="{ props }">
@@ -291,6 +294,9 @@ export default {
     }
   },
   methods: {
+    /**
+     * onOpen displays the color picker menu and sets the hexagon on the appropriate color
+     */
     onOpen() {
       this.visible = true
       this.$nextTick(() => {
@@ -305,15 +311,25 @@ export default {
         }
       });
     },
+    /**
+     * clickColor sets the chosen color and places the hexagon
+     * @param {string} hex - the hexcode color selected
+     * @param {number} seltop - the top position of the color selected
+     * @param {number} selleft - the left position of the color selected
+     */
     clickColor(hex, seltop, selleft) {
       this.hexColor = hex
       let hexagon = document.getElementById("selectedhexagon")
       hexagon.style.top = seltop + "px";
       hexagon.style.left = selleft + "px";
     },
+    /**
+     * onSubmit emits the color to the parent prop
+     */
     onSubmit() {
       this.outerPreviewColor = this.hexColor
       this.visible = false
+      // this.parent helps the parent prop to disambiguate which color to change 
       this.$emit("selected", this.hexColor, this.parent)
     },
   },

@@ -1,7 +1,6 @@
-// Copyright (2024) Cobalt Speech and Language Inc.
+// Copyright (2025- ) David C. Morley
 
 // InfoSnackbar displays a temporary "snackbar" to display messages to the user
-
 <template>
   <v-snackbar v-model="visible" timer :text="text" :color="color" :timeout="timeout">
     <template v-slot:actions>
