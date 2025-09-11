@@ -1,0 +1,16 @@
+{
+	servers {
+		protocols h1 h2 h2c
+	}
+}
+
+:9085 {
+	# VDIRS Server
+	handle /api/db/* {
+		reverse_proxy localhost:9080
+	}
+	# Telestrations Frontend
+	handle /* {
+		reverse_proxy localhost:3000
+	}
+}
