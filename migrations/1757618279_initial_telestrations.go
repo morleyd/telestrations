@@ -158,18 +158,18 @@ func init() {
 						"type": "number"
 					},
 					{
+						"autogeneratePattern": "",
 						"hidden": false,
-						"id": "kcby59pi",
-						"maxSelect": 1,
-						"maxSize": 5242880,
-						"mimeTypes": null,
+						"id": "text376926767",
+						"max": 0,
+						"min": 0,
 						"name": "avatar",
+						"pattern": "",
 						"presentable": false,
-						"protected": false,
+						"primaryKey": false,
 						"required": false,
 						"system": false,
-						"thumbs": null,
-						"type": "file"
+						"type": "text"
 					},
 					{
 						"autogeneratePattern": "",
@@ -725,7 +725,7 @@ func init() {
 			}
 		]`
 
-		return app.ImportCollectionsByMarshaledJSON([]byte(jsonData), false)
+		return app.ImportCollectionsByMarshaledJSON([]byte(jsonData), true)
 	}, func(app core.App) error {
 		return nil
 	})

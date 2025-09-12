@@ -1,26 +1,29 @@
 <template>
   <AppBar />
-  <v-card class="pa-4 overflow-y-auto" height="calc(100vh - 48px)" style="justify-items: center;">
-    <v-card-title v-if="userStore.username" class="wrap text-h3">
-      Welcome {{ userStore.username }}!
-    </v-card-title>
-    <v-card-title class="wrap" v-if="userStore.is_host">
-      Set the order of players and then hit <strong>Begin</strong> once everyone has arrived!
-    </v-card-title class="wrap">
-    <v-card-title v-else>
-      Waiting for host to Start Game:
-    </v-card-title>
-    <v-card-title>
-      <span class="text-primary text-uppercase text-high-emphasis wrap">
-        Game Code: {{ $route.params.gameCode }}
-      </span>
-    </v-card-title>
+  <v-card class="pa-4 overflow-y-auto" height="calc(100vh - 48px)" style="justify-items: center; display: grid;">
+    <div style="justify-items: center; display: grid; align-content: start;">
+      <v-card-title v-if="userStore.username" class="wrap text-h3">
+        Welcome {{ userStore.username }}!
+      </v-card-title>
+      <v-card-title class="wrap" v-if="userStore.is_host">
+        Set the order of players and then hit <strong>Begin</strong> once everyone has arrived!
+      </v-card-title class="wrap">
+      <v-card-title v-else>
+        Waiting for host to Start Game:
+      </v-card-title>
+      <v-card-title>
+        <span class="text-primary text-uppercase text-high-emphasis wrap">
+          Game Code: {{ $route.params.gameCode }}
+        </span>
+      </v-card-title>
+    </div>
     <div class="pa-4 waiting-box">
-      <draggable :list="users" :animation="200" @change="handleChange" :disabled="!userStore.is_host">
+      <draggable :list="users" :animation="200" :disabled="!userStore.is_host">
         <div v-for="[index, item] of users.entries()" :key="item.id" class="d-flex align-center ga-4">
           <v-icon :icon="getIndexIcon(index)" size="x-large" />
           <div class="drag-item" :class="{ grab: userStore.is_host }">
             <span v-if="userStore.is_host" class="drag-handle">⋮⋮</span>
+            <AvatarIcon :user="item" />
             <span class="item-content wrap">{{ item.username }}</span>
             <v-btn v-if="item.username == userStore.username" icon="mdi-pencil" size="small" variant="text"
               @click="onEditUserClick()" />
@@ -40,9 +43,9 @@
     </v-card-actions>
   </v-card>
 
-  <v-dialog v-model="showEditUsernameDialog" max-width="500" persistent>
+  <v-dialog v-model="showEditUsernameDialog" max-width="500">
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
-      <v-card-title class="text-center text-h4">Enter your Username!</v-card-title>
+      <v-card-title class="text-center text-h4">Edit your Username!</v-card-title>
       <v-form ref="form" @submit.prevent="onUsernameSubmit">
         <SetUsername ref="username" @username="onUsernameSubmit" />
         <v-row class="pa-2" style="justify-content: center;">
@@ -79,7 +82,6 @@ export default {
   async created() {
     // Get gameCode from path
     let gameCode = this.$route.params.gameCode
-    console.log("Waiting Room", gameCode)
 
     // Check game status
     let validGame = await pbService.games.checkGameStatus(gameCode)
@@ -99,7 +101,6 @@ export default {
 
     this.gameId = validGame.gameId
 
-    console.log("waiting room begin data", this.userStore.username, this.userStore.game, this.userStore.is_host)
     if (!this.userStore.username) {
       this.showEditUsernameDialog = true
     } else {
@@ -137,6 +138,9 @@ export default {
   methods: {
     onEditUserClick() {
       this.showEditUsernameDialog = true
+      this.$nextTick(() => {
+        this.$refs.username.set(this.userStore.username, this.userStore.avatar)
+      })
     },
     async deleteItem(id) {
       if (confirm("Are you sure you want to remove this user?")) {
@@ -174,9 +178,6 @@ export default {
     getIndexIcon(idx) {
       return `mdi-numeric-${idx + 1}-circle`
     },
-    handleChange(event) {
-      console.log('Changed:', event)
-    },
     async onUsernameSubmit() {
       let validation = await this.$refs.form.validate()
       if (!validation.valid) {
@@ -188,38 +189,37 @@ export default {
       }
 
       if (this.userStore.username) {
-        await this.updateUser()
+        await this.updateUser(validation.username, validation.avatar, validation.color)
       } else {
-        await this.createUser(validation.username, validation.color)
+        await this.createUser(validation.username, validation.avatar, validation.color)
       }
     },
-    async createUser(username, color) {
+    async createUser(username, avatar, color) {
       let user = await pbService.users.getUser(username, this.gameId)
 
       if (user.hasOwnProperty("id")) {
         this.userStore.user = user
         this.$emit("snack", "Username already exists. Assuming it's yours.", "warning")
       } else {
-        let error = await this.userStore.newUser(username, color, this.gameId, false)
-        if (error.errMsg) {
+        let resp = await this.userStore.newUser(username, avatar, color, this.gameId, false)
+        if (resp.errMsg) {
           this.$emit("snack", error.errMsg, "error")
         } else {
           this.showEditUsernameDialog = false
         }
       }
     },
-    async updateUser(username, color) {
+    async updateUser(username, avatar, color) {
+      // Check if user exists (they just need to re-login)
       let user = await pbService.users.getUser(username, this.gameId)
       if (user.hasOwnProperty("id") && user.username != this.userStore.username) {
         this.$emit("snack", "Username already exists. Please enter a new one (or ignore if it's you).", "warning")
         return
-      } else if (user.hasOwnProperty("id") && user.username == this.userStore.username) {
-        // No change, just close the dialog
-        this.showEditUsernameDialog = false
       } else {
         let updateData = {
           "username": username,
           "color": color,
+          "avatar": avatar,
           "game": this.userStore.gameId,
           "is_host": this.userStore.is_host,
           "position": this.userStore.position,

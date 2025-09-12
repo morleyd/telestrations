@@ -22,6 +22,9 @@ export const useUserStore = defineStore('user', {
     is_host() {
       return this.user?.is_host
     },
+    avatar() {
+      return this.user?.avatar
+    },
     position() {
       return this.user?.position
     },
@@ -37,10 +40,10 @@ export const useUserStore = defineStore('user', {
       for (let i = 0; i < 5; i++) {
         code += abc.charAt(randInt(26))
       }
-      console.log(code)
+
       return code;
     },
-    async newGame(username, color, time) {
+    async newGame(username, avatar, color, time) {
       let gameCode = this.generateGameCode()
       let resp = await pbService.games.createGame({
         "game_code": gameCode,
@@ -50,13 +53,14 @@ export const useUserStore = defineStore('user', {
         return resp
       }
 
-      resp = await this.newUser(username, color, resp.data.id, true)
+      resp = await this.newUser(username, avatar, color, resp.data.id, true)
       resp["gameCode"] = gameCode
       return resp
     },
-    async newUser(username, color, gameId, isHost) {
+    async newUser(username, avatar, color, gameId, isHost) {
       let userResp = await pbService.users.createUser({
         "username": username,
+        "avatar": avatar,
         "color": color,
         "game_id": gameId,
         "is_host": isHost,
@@ -68,11 +72,5 @@ export const useUserStore = defineStore('user', {
       this.user = userResp.data
       return userResp
     },
-    // update(username, gameCode, isHost=false) {
-    //   console.log("updata", username, gameCode, isHost)
-    //   this.username = username || this.username
-    //   this.gameCode = gameCode || this.gameCode
-    //   this.isHost = isHost
-    // },
   },
 })

@@ -12,7 +12,8 @@
       <v-container id="chat-scroll" class="overflow-y-auto" height="calc(100vh - 96px)">
         <v-row v-for="(item, index) in users" no-gutters :key="index">
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
-            <span>{{ userMap[item.starter_user_id] }}</span>
+            <AvatarIcon :user="userMap[item.starter_user_id]" />
+            <span>{{ userMap[item.starter_user_id]?.username }}</span>
             <span>({{ item.turns_taken }} / {{ item.total_players }})</span>
           </div>
         </v-row>
@@ -20,13 +21,12 @@
     </v-card>
   </v-slide-x-transition>
   <div style="display: grid;">
-  <v-carousel v-if="story" height="calc(100vh - 48px)" progress="surface" style="justify-self: right;"
-    :style="getWindowWidth">
-    <v-carousel-item v-for="(turn, idx) in story" :key="idx" lazy-src="@/assets/logo.svg" gradient="#2c5ea3, #e3eefc">
-      <!-- <v-sheet height="100%"> -->
+    <v-carousel v-if="story" height="calc(100vh - 48px)" progress="surface" style="justify-self: right;"
+      :style="getWindowWidth">
+      <v-carousel-item v-for="(turn, idx) in story" :key="idx" lazy-src="@/assets/logo.svg" gradient="#2c5ea3, #e3eefc">
         <div class="d-flex fill-height justify-center align-center">
           <v-card-title class="position-absolute right-0 bottom-0 mb-12">
-            {{ userMap[turn.turn_user_id] }}
+            {{ userMap[turn.turn_user_id].username }}
           </v-card-title>
           <div v-if="turn.drawing" class="pa-4" :style="getWindowWidth">
             <v-img :src="turn.drawing" width="100%" max-height="calc(100vh - 130px)" />
@@ -35,9 +35,8 @@
             <v-card-title class="wrap text-h4">{{ turn.prompt }}</v-card-title>
           </div>
         </div>
-      <!-- </v-sheet> -->
-    </v-carousel-item>
-  </v-carousel>
+      </v-carousel-item>
+    </v-carousel>
   </div>
 </template>
 
@@ -75,8 +74,7 @@ export default {
     if (resp.errMsg) {
       this.$emit("snack", resp.errMsg, "error")
     }
-    this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj.username]))
-    console.log("this.userMap", this.userMap)
+    this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
 
     this.getProgress()
 
@@ -121,6 +119,7 @@ export default {
   padding: 10px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin: 5px 0;
   background: white;
   border: 1px solid #ddd;

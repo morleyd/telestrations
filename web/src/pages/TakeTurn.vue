@@ -64,12 +64,6 @@ export default {
 
     await this.getTurns()
 
-    console.log("starting turn", {
-      userState: this.userState,
-      isDraw: this.isDraw,
-      username: this.userStore.username,
-      gameId: this.gameId
-    })
     let that = this
     pb.collection('turns').subscribe('*', async function (e) {
       console.log("turns subscription event", e)
@@ -130,7 +124,6 @@ export default {
       if (numUsers.errMsg) {
         this.$emit("snack", numUsers.errMsg, "error")
       }
-      console.log("checkNumTurns", numTurns.data, numUsers.data)
       return numTurns.data >= numUsers.data
     },
     async getTurns() {
@@ -138,12 +131,10 @@ export default {
       // 1. Check if they've started their own story, if not it's their first turn
       let userStory = await pbService.progress.getStory(this.userStore.userId, this.gameId)
       if (userStory.errMsg) {
-        console.log("TakeTurn is new")
         this.userState = "firstTurn"
         this.isDraw = false
         this.curPrompt = await pbService.progress.createStory(this.userStore.userId, this.gameId)
         if (this.curPrompt.errMsg) {
-          console.log("TakeTurn error creating new")
           this.$emit("snack", this.curPrompt.errMsg, "error")
         }
         return
@@ -151,7 +142,7 @@ export default {
         // 1.5 Check that they actually took a turn with this story they started
         let turn = await pbService.progress.getTurn(this.userStore.userId, userStory.id)
         if (turn.errMsg) {
-          console.log("Missing first turn", turn.errMsg)
+          console.warn("Missing first turn", turn.errMsg)
           this.userState = "firstTurn"
           this.isDraw = false
           this.curPrompt = userStory
@@ -165,11 +156,9 @@ export default {
       console.error("It shouldn't be possible to get here?")
     },
     async queryMorePrompts() {
-      console.log("queryMorePrompts")
       // 3. Check if the user has done a turn for each user
       let finishedAllStories = await this.checkNumTurns()
       if (finishedAllStories) {
-        console.log("finishedAllStories")
         this.userState = "finished"
         this.$router.push({ name: "Review", params: { gameCode: this.$route.params.gameCode } });
         return
@@ -184,7 +173,6 @@ export default {
         })
         // 5. They have prompts, so they're still playing
       } else {
-        console.log("TakeTurn has prompts", this.nextPrompts.length)
         this.userState = "playing"
         this.curPrompt = this.nextPrompts.pop()
         this.isDraw = Boolean(this.curPrompt.prev_prompt)
@@ -194,7 +182,6 @@ export default {
       }
     },
     getNextTurn() {
-      console.log("getNextTurn", this.nextPrompts)
       if (this.nextPrompts.length) {
         this.curPrompt = this.nextPrompts.pop()
       } else {
@@ -202,7 +189,6 @@ export default {
       }
     },
     async getDrawing() {
-      console.log("getDrawing", this.curPrompt)
       const record = await pb.collection('turns').getOne(this.curPrompt.prev_turn_id);
       let drawing_url = await pb.files.getUrl(record, this.curPrompt.prev_drawing)
       this.$refs.prompt.setDrawing(drawing_url)
@@ -220,7 +206,6 @@ export default {
       formData.append("user_id", this.userStore.userId);
       formData.append("story_id", this.curPrompt.story_id || this.curPrompt.id);
       formData.append("game_id", this.gameId);
-      // formData.append("position", this.curPrompt.next_position || 0);
       formData.append("drawing", this.isDraw ? data : "");
       formData.append("prompt", this.isDraw ? "" : data);
       formData.append("is_drawing", this.isDraw);

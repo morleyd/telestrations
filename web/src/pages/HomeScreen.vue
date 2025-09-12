@@ -113,8 +113,8 @@ export default {
         this.userStore.user = user
         this.$emit("snack", "Username already exists. Assuming it's yours.", "warning")
       } else {
-        let error = await this.userStore.newUser(validation.username, validation.color, validGame.gameId, false)
-        if (error) {
+        let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, validGame.gameId, false)
+        if (resp.errMsg) {
           this.$emit("snack", error, "error")
           return
         }
@@ -133,7 +133,7 @@ export default {
 
       let time = this.setTimer ? this.computeTimeSeconds() : 0
 
-      let resp = await this.userStore.newGame(validation.username, validation.color, time)
+      let resp = await this.userStore.newGame(validation.username, validation.avatar, validation.color, time)
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
         return
