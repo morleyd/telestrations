@@ -12,10 +12,10 @@
     </v-tabs>
     <v-tabs-window v-model="tab">
       <v-tabs-window-item value="draw">
-        <DrawingBox @drawing="saveDrawing" />
+        <DrawingBox ref="box" @drawing="saveDrawing" />
       </v-tabs-window-item>
       <v-tabs-window-item value="upload">
-        <DrawingUpload @drawing="saveDrawing" />
+        <DrawingUpload ref="upload" @drawing="saveDrawing" />
       </v-tabs-window-item>
     </v-tabs-window>
   </v-card>
@@ -35,8 +35,21 @@ export default {
      * saveDrawing accepts a drawing (uploaded or draw) and emits it to PromptTurn
      * @param {Blob} blob - the drawing to save in the database
      */
-    async saveDrawing(blob) {
+    saveDrawing(blob) {
+      if (!blob) {
+        console.log("here")
+        this.$emit("snack", "No drawing to submit!", "error")
+        return
+      }
+
       this.$emit("drawing", blob)
+    },
+    async getDrawing() {
+      if (this.tab == 'draw') {
+        return await this.$refs.box.getDrawing()
+      } else {
+        return this.$refs.upload.file
+      }
     },
   },
 };

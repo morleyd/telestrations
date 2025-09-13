@@ -121,10 +121,7 @@ export default {
           break;
       }
     },
-    /**
-     * onSaveClicked converts the drawing to an image and emits it to DrawingTurn
-     */
-    async onSaveClicked() {
+    async getDrawing() {
       function base64ToBlob(base64, mimeType) {
         // Extract the base64 data part (remove "data:image/png;base64," prefix if present)
         const base64Data = base64.split(',')[1] || base64;
@@ -136,9 +133,20 @@ export default {
         const byteArray = new Uint8Array(byteNumbers);
         return new Blob([byteArray], { type: mimeType });
       }
-      let raw = await this.$refs.canvas.save()
-      let blob = base64ToBlob(raw, "image/png");
 
+      let strokes = this.$refs.canvas.getAllStrokes()
+      if (!strokes.length) {
+        return null
+      } else {
+        let raw = await this.$refs.canvas.save()
+        return base64ToBlob(raw, "image/png");
+      }
+    },
+    /**
+     * onSaveClicked converts the drawing to an image and emits it to DrawingTurn
+     */
+    async onSaveClicked() {
+      let blob = await this.getDrawing()
       this.$emit("drawing", blob)
 
       this.$refs.canvas.reset()

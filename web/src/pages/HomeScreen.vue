@@ -22,15 +22,15 @@
               <v-card-title class="text-center text-h4">Let's Get Started!</v-card-title>
               <v-form ref="form" @submit.prevent="onBeginClicked">
                 <SetUsername ref="username" @username="onBeginClicked" />
-                <!-- TODO: Allow users to set round time limits
-                  <v-row class="pa-2" style="justify-content: center;">
-                    <v-switch v-model="setTimer" color="primary" label="Set Timed Rounds" hide-details />
-                  </v-row>
-                  <v-row v-if="setTimer" class="pa-2">
-                    <v-text-field v-model="timeValue" :rules="[timeValueRule]" label="Time" class="me-2" />
-                    <v-select v-model="timeUnit" label="Unit" :rules="[timeUnitRule]" @keyup.enter="onBeginClicked"
-                      :items="['Seconds', 'Minutes', 'Hours']" />
-                  </v-row> -->
+                <v-row class="pa-2" style="justify-content: center;">
+                  <v-switch v-model="setTimer" color="primary" label="Set Timed Rounds" hide-details />
+                </v-row>
+                <v-row v-if="setTimer" class="mx-4 ga-4">
+                  <v-text-field v-model="timeValue" type="number" label="Round Duration" @keyup.enter="onBeginClicked"
+                    :rules="[v => v && v.trim || 'Duration cannot be empty!']" />
+                  <v-select v-model="timeUnit" label="Unit" :items="['Seconds', 'Minutes', 'Hours']"
+                    @keyup.enter="onBeginClicked" :rules="[v => v && v.trim || 'Time Unit cannot be empty!']" />
+                </v-row>
                 <v-row class="pa-2" style="justify-content: center;">
                   <v-btn size="x-large" color="primary" elevation="2" @click="onBeginClicked">Begin!</v-btn>
                 </v-row>
@@ -76,8 +76,8 @@ export default {
   name: 'InfoSnackbar',
   data() {
     return {
-      timeValue: 0,
-      timeUnit: "",
+      timeValue: 90,
+      timeUnit: "Seconds",
       setTimer: false,
       gameCode: "",
     }
@@ -131,7 +131,7 @@ export default {
         return
       }
 
-      let time = this.setTimer ? this.computeTimeSeconds() : 0
+      let time = this.setTimer ? this.computeTimeSeconds() : -1
 
       let resp = await this.userStore.newGame(validation.username, validation.avatar, validation.color, time)
       if (resp.errMsg) {

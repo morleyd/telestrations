@@ -3,13 +3,14 @@
   <AppBar />
   <div v-if="userState == 'waiting'" style="justify-self: center;">
     <WaitingScreen ref="waiting" />
-    <!-- <span>Waiting...</span> -->
   </div>
   <div v-else-if="userState == 'finished'" style="justify-self: center;">
     <span>Finished...</span>
   </div>
   <div v-else-if="['firstTurn', 'playing'].includes(userState)">
-    <DrawingTurn v-if="isDraw" :prompt="curPrompt.prev_prompt" @snack="emitSnack" @drawing="saveResponse" />
+    <CountdownTimer :duration="duration" @finished="onTimerFinished" />
+
+    <DrawingTurn v-if="isDraw" ref="draw" :prompt="curPrompt.prev_prompt" @snack="emitSnack" @drawing="saveResponse" />
     <PromptTurn v-else ref="prompt" :isFirst="userState == 'firstTurn'" :drawing="prevDrawing" @snack="emitSnack"
       @prompt="saveResponse" />
   </div>
@@ -45,6 +46,7 @@ export default {
       showLoginDialog: false,
       username: "",
       gameId: "",
+      duration: -1,
     }
   },
   computed: {
@@ -90,6 +92,7 @@ export default {
         this.$router.push({ name: "WaitingRoom", params: { gameCode: this.$route.params.gameCode } });
         return false
       }
+      this.duration = validGame.duration
       return validGame.gameId
     },
     async onLoginClicked() {
@@ -194,21 +197,23 @@ export default {
       this.$refs.prompt.setDrawing(drawing_url)
     },
     async saveResponse(data) {
+      let isDrawing = typeof data == "object"
+
       console.log("saveResponse", {
         user_id: this.userStore.userId,
         story_id: this.curPrompt.story_id,
-        drawing: this.isDraw ? data : "",
-        prompt: this.isDraw ? "" : data,
-        is_drawing: this.isDraw,
+        drawing: isDrawing ? data : "",
+        prompt: isDrawing ? "" : data,
+        is_drawing: isDrawing,
       })
       // Create a new entry with the single photo
       let formData = new FormData();
       formData.append("user_id", this.userStore.userId);
       formData.append("story_id", this.curPrompt.story_id || this.curPrompt.id);
       formData.append("game_id", this.gameId);
-      formData.append("drawing", this.isDraw ? data : "");
-      formData.append("prompt", this.isDraw ? "" : data);
-      formData.append("is_drawing", this.isDraw);
+      formData.append("drawing", isDrawing ? data : "");
+      formData.append("prompt", isDrawing ? "" : data);
+      formData.append("is_drawing", isDrawing);
       let resp = await pbService.progress.createTurn(formData)
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
@@ -216,6 +221,27 @@ export default {
       }
 
       this.getNextTurn()
+    },
+    async onTimerFinished() {
+      let data
+      if (this.isDraw) {
+        data = await this.$refs.draw.getDrawing()
+        if (!data) {
+          data = this.curPrompt.prev_prompt
+        }
+      } else {
+        if (this.$refs.prompt.prompt.trim() || this.userState == "firstTurn") {
+          if (!this.$refs.prompt.prompt.trim()) {
+            data = this.userStore.username
+          } else {
+            data = this.$refs.prompt.prompt
+          }
+        } else {
+          data = this.$refs.prompt.prevDrawing
+        }
+      }
+
+      this.saveResponse(data)
     },
   },
 };
