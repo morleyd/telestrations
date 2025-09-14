@@ -17,10 +17,12 @@
         </span>
       </v-card-title>
     </div>
-    <div class="pa-4 waiting-box">
+    <div class="mb-4 pa-4 waiting-box" style="min-height: 112px;">
       <draggable :list="users" :animation="200" :disabled="!userStore.is_host">
         <div v-for="[index, item] of users.entries()" :key="item.id" class="d-flex align-center ga-4">
-          <v-icon :icon="getIndexIcon(index)" size="x-large" />
+           <v-avatar color="primary">
+            <span class="text-h5 font-weight-bold">{{ index + 1 }}</span>
+          </v-avatar>
           <div class="drag-item" :class="{ grab: userStore.is_host }">
             <span v-if="userStore.is_host" class="drag-handle">⋮⋮</span>
             <AvatarIcon :user="item" />
@@ -33,7 +35,7 @@
         </div>
       </draggable>
     </div>
-    <v-card-actions>
+    <v-card-actions :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
       <v-btn v-if="userStore.is_host" class="bg-primary" size="x-large" variant="elevated" @click="onBeginClicked">
         Begin!
       </v-btn>
@@ -94,7 +96,6 @@ export default {
       this.$router.push({ name: "Home" });
       return
     } else if (validGame.isStarted) {
-      this.$emit("snack", "Sorry, this game has already been started.", "error")
       this.$router.push({ name: "TakeTurn", params: { gameCode: gameCode } });
       return
     }
@@ -174,9 +175,6 @@ export default {
     },
     leaveParty() {
       this.deleteItem(this.userStore.userId)
-    },
-    getIndexIcon(idx) {
-      return `mdi-numeric-${idx + 1}-circle`
     },
     async onUsernameSubmit() {
       let validation = await this.$refs.form.validate()
@@ -292,5 +290,9 @@ export default {
   background: white;
   border: 1px solid #ddd;
   border-radius: 8px;
+}
+
+.safe-bottom {
+  margin-bottom: 64px;
 }
 </style>

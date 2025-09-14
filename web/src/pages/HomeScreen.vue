@@ -1,5 +1,5 @@
 <template>
-  <v-card class="overflow-y-auto pa-0 align-content-space-evenly" height="100vh" width="100vw" color="background"
+  <v-card class="overflow-y-auto pb-16 align-content-space-evenly" height="100vh" width="100vw" color="background"
     style="justify-items: center; display: grid;">
     <v-img class="my-4" min-width="150" min-height="150" src="@/assets/logo.svg" />
 
@@ -9,7 +9,7 @@
       <h1 class="text-h2 font-weight-bold">Telestrations!</h1>
     </div>
 
-    <v-card class="pa-4 ma-4" height="176px" width="900" max-width="calc(100vw - 32px)">
+    <v-card class="pa-4 ma-4" height="176px" width="900" max-width="calc(100vw - 32px)" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
       <v-row class="justify-center align-center">
         <v-dialog max-width="500">
           <template v-slot:activator="{ props: activatorProps }">
@@ -103,15 +103,20 @@ export default {
       } else if (!validGame.gameId) {
         this.$emit("snack", "Invalid Game Code. Try again or create a new game.", "error")
         return
-      } else if (validGame.isStarted) {
-        this.$emit("snack", "Sorry, this game has already been started.", "error")
-        return
       }
 
       let user = await pbService.users.getUser(validation.username, validGame.gameId)
       if (user.hasOwnProperty("id")) {
         this.userStore.user = user
         this.$emit("snack", "Username already exists. Assuming it's yours.", "warning")
+        if (validGame.isStarted) {
+          this.$router.push({ name: "TakeTurn", params: { gameCode: this.gameCode } });
+        } else {
+          this.$router.push({ path: this.gameCode });
+        }
+      } else if (validGame.isStarted) {
+        this.$emit("snack", "Sorry, this game has already been started.", "error")
+        return
       } else {
         let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, validGame.gameId, false)
         if (resp.errMsg) {
@@ -119,7 +124,6 @@ export default {
           return
         }
       }
-      this.$router.push({ path: this.gameCode });
     },
     async onBeginClicked() {
       let validation = await this.$refs.form.validate()
@@ -178,5 +182,9 @@ export default {
   white-space: break-spaces;
   word-break: break-word;
   word-wrap: break-word;
+}
+
+.safe-bottom {
+  margin-bottom: 64px;
 }
 </style>

@@ -343,7 +343,7 @@ export default {
   padding: 8px;
   border: 1px solid black;
   background: #ffffe6;
-  position: fixed;
+  position: relative;
   z-index: 1000;
   bottom: 100px;
 }
@@ -351,6 +351,7 @@ export default {
 #selectedhexagon {
   visibility: visible;
   position: relative;
+  margin-left: 2px;
   width: 21px;
   height: 21px;
   background-image: url('@/assets/img_selectedcolor.gif');

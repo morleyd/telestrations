@@ -1,6 +1,6 @@
 import PocketBase from 'pocketbase';
 
-export const pb = new PocketBase("http://127.0.0.1:8090/")
+export const pb = new PocketBase("http://192.168.0.133:9085/")
 export const pbService = {
   games: {
     async getGameId(gameCode) {
@@ -45,6 +45,7 @@ export const pbService = {
       return await pb.collection('games').getFirstListItem(`game_code="${gameCode}"`).then(function (resp) {
         console.log("checkGameStatus resp", resp)
         return {
+          duration: resp.roundDuration,
           gameId: resp.id,
           isStarted: resp.isStarted,
         }

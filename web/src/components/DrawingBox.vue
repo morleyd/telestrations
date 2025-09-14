@@ -2,19 +2,20 @@
 
 // DrawingBox provides a simple interface to draw & submit pictures
 <template>
-  <v-card class="py-4 overflow-y-auto elevation-0" style="justify-items: center; justify-self: center; display: grid;"
+  <v-card class="py-4 overflow-y-auto elevation-0 justify-center"
+    style="justify-items: center; justify-self: center;justify-content: center; display: grid;"
     max-height="calc(100vh - 124px)" width="100vw">
     <div class="flex-grow-1 d-flex justify-center align-center">
       <div class="canvas-wrapper">
-        <vue-drawing-canvas ref="canvas" v-model:image="image" :width="600" :height="400" :stroke-type="strokeType"
-          :line-cap="lineCap" :line-join="lineJoin" :eraser="eraser" :lineWidth="lineWidth" :color="color"
-          :background-color="bgColor" :fill-shape="true" saveAs="png" :styles="{
+        <vue-drawing-canvas ref="canvas" v-model:image="image" :width="canvasWidth" :height="canvasHeight"
+          :stroke-type="strokeType" :line-cap="lineCap" :line-join="lineJoin" :eraser="eraser" :lineWidth="lineWidth"
+          :color="color" :background-color="bgColor" :fill-shape="true" saveAs="png" :styles="{
             border: 'solid 1px #000',
           }" />
       </div>
     </div>
     <div class="actions-row">
-      <div class="actions-inner pa-4 d-flex justify-space-between">
+      <div class="actions-inner pa-4 d-flex">
         <v-select v-model="strokeType" class="ms-4" :items="strokes" item-title="title" item-value="value"
           density="compact" hide-details label="Stroke">
         </v-select>
@@ -50,7 +51,7 @@
         </v-btn>
       </div>
     </div>
-    <div class="actions-row">
+    <div class="actions-row" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''" style="display: flex; justify-content: center;">
       <v-btn prepend-icon="mdi-content-save" size="x-large" variant="elevated" color="primary" @click="onSaveClicked">
         Submit
       </v-btn>
@@ -98,6 +99,44 @@ export default {
         "background-color": this.bgColor,
       }
     },
+    bestRatio() {
+      // Subtract 32 for horizontal margins
+      let wRatio = (this.$vuetify.display.width - 32) / 600
+      // Subtract 332 for all the vertical components, but make sure it's atleast 160px
+      let hRatio = (Math.max(this.$vuetify.display.height - 332, 160)) / 400
+      return Math.min(wRatio, hRatio)
+    },
+    canvasWidth() {
+      return 600 * this.bestRatio
+    },
+    canvasHeight() {
+      return 400 * this.bestRatio
+    },
+    size() {
+      let size = {
+        smAndDown: this.$vuetify.display.smAndDown,
+        xs: this.$vuetify.display.xs,
+        sm: this.$vuetify.display.sm,
+        md: this.$vuetify.display.md,
+        lg: this.$vuetify.display.lg,
+        xl: this.$vuetify.display.xl,
+        xxl: this.$vuetify.display.xxl,
+      }
+      console.log("size", size)
+      return size
+    },
+  },
+  mounted() {
+      let size = {
+        smAndDown: this.$vuetify.display.smAndDown,
+        xs: this.$vuetify.display.xs,
+        sm: this.$vuetify.display.sm,
+        md: this.$vuetify.display.md,
+        lg: this.$vuetify.display.lg,
+        xl: this.$vuetify.display.xl,
+        xxl: this.$vuetify.display.xxl,
+      }
+      console.log("size", size)
   },
   methods: {
     /**
@@ -190,16 +229,20 @@ export default {
 }
 
 .actions-row {
-  height: 74px;
-  width: 100%;
+  height: 85px;
+  width: 840px;
   overflow-x: auto;
-  /* enables horizontal scroll */
-  display: flex;
-  justify-content: center;
+  overflow-y: clip;
+  display: block;
+  max-width: 100vw;
 }
 
 .actions-inner {
   min-width: 840px;
   gap: .5em;
+}
+
+.safe-bottom {
+  margin-bottom: 64px;
 }
 </style>

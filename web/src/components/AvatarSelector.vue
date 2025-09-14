@@ -1,14 +1,14 @@
 <template>
-  <div v-if="localAvatar" id="avatar" class="avatar-circle cursor-pointer elevation-2" @click="show"
+  <div v-if="localAvatar" id="avatar" class="avatar-circle me-4 cursor-pointer elevation-2" @click="show"
     style="width: 54px; height: 54px;" :style="{ 'background-color': avatarColor }" v-html="localAvatar">
   </div>
-  <v-avatar v-else class="cursor-pointer elevation-2" :color="avatarColor" size="54" @click="show">
+  <v-avatar v-else class="cursor-pointer me-4 elevation-2" :color="avatarColor" size="54" @click="show">
     <span class="text-h4 font-weight-bold icon-text">
       {{ getInitials(username) }}
     </span>
   </v-avatar>
   <v-dialog v-model="visible" max-width="500">
-    <v-item-group mandatory @update:modelValue="storeIndex">
+    <v-item-group v-model="selectedIndex" mandatory>
       <v-card class="pa-4 overflow-auto" style="justify-self: center;" max-height="calc(100vh - 48px)">
         <v-row style="text-align: -webkit-center;">
           <v-col v-for="n in 16" :key="col" cols="12" md="3" class="pa-0">
@@ -29,7 +29,7 @@
             </v-item>
           </v-col>
         </v-row>
-        <v-row class="mb-1 justify-center">
+        <v-row class="justify-center" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
           <v-btn size="large" color="primary" @click="onSubmit">
             Submit
           </v-btn>
@@ -62,7 +62,7 @@ export default {
   ],
   data() {
     return {
-      selectedIndex: 1,
+      selectedIndex: 0,
       visible: false,
       idxMap: {
         2: glee,
@@ -125,6 +125,12 @@ export default {
     },
   },
   mounted() {
+    if (this.localAvatar) {
+      let foundIndex = Object.values(this.idxMap).indexOf(this.localAvatar)
+      if (foundIndex >-1) {
+        this.selectedIndex = foundIndex + 1
+      }
+    }
   },
   methods: {
     selectedStyle(isSelected) {
@@ -137,11 +143,8 @@ export default {
       }
       return {}
     },
-    storeIndex(idx) {
-      this.selectedIndex = idx + 1
-    },
     onSubmit() {
-      this.localAvatar = this.idxMap[this.selectedIndex]
+      this.localAvatar = this.idxMap[this.selectedIndex + 1]
       this.visible = false
     },
     getInitials(string) {
@@ -178,5 +181,9 @@ export default {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.safe-bottom {
+  margin-bottom: 64px;
 }
 </style>
