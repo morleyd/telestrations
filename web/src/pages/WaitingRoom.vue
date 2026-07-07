@@ -152,12 +152,14 @@ export default {
       }
     },
     async onBeginClicked() {
-      for (let idx = 0; idx < this.users.length; idx++) {
-        let user = this.users[idx];
+      // Snapshot the roster before assigning positions: the `users` realtime
+      // subscription reassigns this.users on every user event (including our own
+      // updateUser writes below), so iterating the live array could skip or
+      // double-number players and corrupt the 0..N-1 ordering.
+      const roster = [...this.users]
+      for (let idx = 0; idx < roster.length; idx++) {
+        let user = roster[idx];
         let updateData = {
-          "username": user.username,
-          "game": user.game,
-          "is_host": user.is_host,
           "position": idx,
         }
         let resp = await pbService.users.updateUser(user.id, updateData)
