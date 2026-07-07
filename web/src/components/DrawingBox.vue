@@ -112,31 +112,6 @@ export default {
     canvasHeight() {
       return 400 * this.bestRatio
     },
-    size() {
-      let size = {
-        smAndDown: this.$vuetify.display.smAndDown,
-        xs: this.$vuetify.display.xs,
-        sm: this.$vuetify.display.sm,
-        md: this.$vuetify.display.md,
-        lg: this.$vuetify.display.lg,
-        xl: this.$vuetify.display.xl,
-        xxl: this.$vuetify.display.xxl,
-      }
-      console.log("size", size)
-      return size
-    },
-  },
-  mounted() {
-      let size = {
-        smAndDown: this.$vuetify.display.smAndDown,
-        xs: this.$vuetify.display.xs,
-        sm: this.$vuetify.display.sm,
-        md: this.$vuetify.display.md,
-        lg: this.$vuetify.display.lg,
-        xl: this.$vuetify.display.xl,
-        xxl: this.$vuetify.display.xxl,
-      }
-      console.log("size", size)
   },
   methods: {
     /**

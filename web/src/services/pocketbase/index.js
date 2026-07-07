@@ -1,6 +1,6 @@
 import PocketBase from 'pocketbase';
 
-export const pb = new PocketBase("http://192.168.0.133:9085/")
+export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://127.0.0.1:8090/")
 export const pbService = {
   games: {
     async getGameId(gameCode) {

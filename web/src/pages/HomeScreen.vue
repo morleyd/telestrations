@@ -120,9 +120,10 @@ export default {
       } else {
         let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, validGame.gameId, false)
         if (resp.errMsg) {
-          this.$emit("snack", error, "error")
+          this.$emit("snack", resp.errMsg, "error")
           return
         }
+        this.$router.push({ path: this.gameCode });
       }
     },
     async onBeginClicked() {
