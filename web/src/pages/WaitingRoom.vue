@@ -152,22 +152,12 @@ export default {
       }
     },
     async onBeginClicked() {
-      for (let idx = 0; idx < this.users.length; idx++) {
-        let user = this.users[idx];
-        let updateData = {
-          "username": user.username,
-          "game": user.game,
-          "is_host": user.is_host,
-          "position": idx,
-        }
-        let resp = await pbService.users.updateUser(user.id, updateData)
-        if (resp.errMsg) {
-          this.$emit("snack", resp.errMsg, "error")
-          return;
-        }
-      }
-
-      let resp = await pbService.games.updateGame(this.gameId, { isStarted: true })
+      // Assign positions and start the game in one server-side transaction over
+      // the authoritative roster. We send the current display order (the host's
+      // drag order) as a preference; the server seats those players first and
+      // appends anyone our local snapshot missed, so a late joiner can no longer
+      // corrupt the 0..N-1 ordering.
+      let resp = await pbService.games.beginGame(this.gameId, this.users.map(u => u.id))
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
         return

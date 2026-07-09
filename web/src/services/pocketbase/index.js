@@ -41,6 +41,18 @@ export const pbService = {
         return { errMsg: "updateGame:" + JSON.stringify(err.response.message || err) }
       })
     },
+    async beginGame(gameId, order) {
+      console.log("beginGame request", { gameId, order })
+      return await pb.send(`/api/games/${gameId}/begin`, {
+        method: "POST",
+        body: { order },
+      }).then(function (resp) {
+        console.log("beginGame resp", resp)
+        return { data: resp }
+      }).catch(function (err) {
+        return { errMsg: "beginGame:" + JSON.stringify(err?.response?.message || err) }
+      })
+    },
     async checkGameStatus(gameCode) {
       return await pb.collection('games').getFirstListItem(`game_code="${gameCode}"`).then(function (resp) {
         console.log("checkGameStatus resp", resp)

@@ -130,7 +130,14 @@ export default {
       return numTurns.data >= numUsers.data
     },
     async getTurns() {
-      // Determing which turn the user is on. 
+      // The game-wide `turns` subscription calls this on every turn any player
+      // submits. If we're already showing a turn, don't re-fetch and re-pop
+      // curPrompt out from under the user — that would swap the active story and
+      // saveResponse would write their drawing/prompt to the wrong story_id.
+      if (['playing', 'firstTurn'].includes(this.userState) && this.curPrompt) {
+        return
+      }
+      // Determing which turn the user is on.
       // 1. Check if they've started their own story, if not it's their first turn
       let userStory = await pbService.progress.getStory(this.userStore.userId, this.gameId)
       if (userStory.errMsg) {
