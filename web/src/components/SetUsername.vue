@@ -7,7 +7,7 @@
         </v-col>
         <v-col cols="10">
           <v-text-field v-model="username" label="Username" @keyup.enter="onSubmit"
-            :rules="[v => v && v.trim || 'Name cannot be empty!']" @input="username = username.toLowerCase()" />
+            :rules="[v => !!v?.trim() || 'Name cannot be empty!']" @input="username = username.toLowerCase()" />
         </v-col>
       </v-row>
     </v-form>

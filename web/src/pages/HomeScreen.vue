@@ -29,7 +29,7 @@
                   <v-text-field v-model="timeValue" type="number" label="Round Duration" @keyup.enter="onBeginClicked"
                     :rules="[v => (v !== null && v !== undefined && String(v).trim() !== '' && Number(v) > 0) || 'Duration must be a positive number!']" />
                   <v-select v-model="timeUnit" label="Unit" :items="['Seconds', 'Minutes', 'Hours']"
-                    @keyup.enter="onBeginClicked" :rules="[v => v && v.trim || 'Time Unit cannot be empty!']" />
+                    @keyup.enter="onBeginClicked" :rules="[v => !!v?.trim() || 'Time Unit cannot be empty!']" />
                 </v-row>
                 <v-row class="pa-2" style="justify-content: center;">
                   <v-btn size="x-large" color="primary" elevation="2" @click="onBeginClicked">Begin!</v-btn>
@@ -52,7 +52,7 @@
               <v-form ref="form" @submit.prevent="onJoinClicked">
                 <v-row class="pa-2">
                   <v-text-field v-model="gameCode" label="Game Code" @input="gameCode = gameCode.toLowerCase()"
-                    @keyup.enter="onJoinClicked" :rules="[v => v && v.trim || 'Game Code cannot be empty!']" />
+                    @keyup.enter="onJoinClicked" :rules="[v => !!v?.trim() || 'Game Code cannot be empty!']" />
                 </v-row>
                 <SetUsername ref="username" @username="onJoinClicked" />
                 <v-row class="pa-2" style="justify-content: center;">
