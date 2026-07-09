@@ -27,7 +27,7 @@
                 </v-row>
                 <v-row v-if="setTimer" class="mx-4 ga-4">
                   <v-text-field v-model="timeValue" type="number" label="Round Duration" @keyup.enter="onBeginClicked"
-                    :rules="[v => v && v.trim || 'Duration cannot be empty!']" />
+                    :rules="[v => (v !== null && v !== undefined && String(v).trim() !== '' && Number(v) > 0) || 'Duration must be a positive number!']" />
                   <v-select v-model="timeUnit" label="Unit" :items="['Seconds', 'Minutes', 'Hours']"
                     @keyup.enter="onBeginClicked" :rules="[v => v && v.trim || 'Time Unit cannot be empty!']" />
                 </v-row>
