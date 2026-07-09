@@ -44,5 +44,16 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    // Precompile the route components on server start so the first navigation
+    // isn't a slow cold on-demand compile (keeps dev snappy and E2E stable).
+    warmup: {
+      clientFiles: [
+        './src/pages/HomeScreen.vue',
+        './src/pages/WaitingRoom.vue',
+        './src/pages/TakeTurn.vue',
+        './src/pages/Review.vue',
+        './src/pages/PageNotFound.vue',
+      ],
+    },
   },
 })
