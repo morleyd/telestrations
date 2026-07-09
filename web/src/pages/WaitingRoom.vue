@@ -120,21 +120,24 @@ export default {
     resp = pb.collection('users').subscribe('*', async function (e) {
       console.log("users subscription event", e)
       let resp = await pbService.users.getUsers(gameCode)
-      if (resp.errMsg) {
-        that.$emit("snack", resp.errMsg, "error")
-        return;
+      if (resp.data) {
+        that.users = resp.data
       }
-      that.users = resp.data
+      if (resp.errMsg) {
+        console.error("users subscription err", resp.errMsg)
+      }
     }, { filter: `game_id.game_code="${gameCode}"` })
 
     // Subscribe to the game to know when to redirect
-    resp = pb.collection('games').subscribe('*', async function (e) {
+    resp = pb.collection('games').subscribe(this.gameId, async function (e) {
       console.log("games subscription event", e)
+      pb.collection('users').unsubscribe();
       that.$router.push({ name: "TakeTurn", params: { gameCode: gameCode } });
-    }, { filter: `game_code="${gameCode}"` })
+    })
   },
   unmounted() {
     pb.collection('users').unsubscribe();
+    pb.collection('games').unsubscribe();
   },
   methods: {
     onEditUserClick() {

@@ -6,6 +6,7 @@
   </div>
   <div v-else-if="userState == 'finished'" style="justify-self: center;">
     <span>Finished...</span>
+    <span v-if="reviewPath">Review results at: <a :href="reviewPath">{{ reviewPath }}</a></span>
   </div>
   <div v-else-if="['firstTurn', 'playing'].includes(userState)">
     <CountdownTimer :duration="duration" @finished="onTimerFinished" />
@@ -47,12 +48,14 @@ export default {
       username: "",
       gameId: "",
       duration: -1,
+      reviewPath: "",
     }
   },
   computed: {
     ...mapStores(useUserStore),
   },
   async mounted() {
+    this.reviewPath = this.getReviewPath()
     // Check if game code is valid and game is active
     this.gameId = await this.isValidGame()
     if (!this.gameId) {
@@ -76,6 +79,14 @@ export default {
     pb.collection('turns').unsubscribe();
   },
   methods: {
+    getReviewPath() {
+      let curPath = window.location.href
+      let parts = curPath?.split("/")
+      if (parts?.at(-1) == "draw") {
+        return parts.slice(0, -1).join("/") + "/review"
+      }
+      return ""
+    },
     emitSnack(msg, color) {
       this.$emit("snack", msg, color)
     },

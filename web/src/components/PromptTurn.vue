@@ -5,7 +5,7 @@
     </v-card-title>
     <div v-else class="mb-4 d-flex" style="height: 248px;">
       <!-- <span>{{prevUser}}'s' image:</span> -->
-      <v-img :src="prevDrawing" width="100%" style="justify-self: center;" />
+      <v-img :src="prevDrawing || sadCow" width="100%" style="justify-self: center;" />
     </div>
     <v-textarea v-model="prompt" bg-color="white" label="Your Prompt Here..." hide-details />
     <v-btn class="ma-4" color="primary" variant="elevated" size="x-large" @click="onSaveClicked">
@@ -14,6 +14,8 @@
   </v-card>
 </template>
 <script>
+import sadCow from "@/assets/sad_cow_icon.svg"
+
 export default {
   name: "UploadPhoto",
   props: ["isFirst"],
@@ -21,6 +23,7 @@ export default {
     return {
       prompt: "",
       prevDrawing: "",
+      sadCow,
     }
   },
   methods: {
