@@ -6,23 +6,7 @@ import { createGame, joinGame, startGame, driveGameToReview } from './helpers.js
 // the opening prompt, a drawing, and a guess of someone's drawing — plus the
 // realtime rotation that hands each story to the next player and the final
 // results reveal.
-//
-// NOTE: this test currently surfaces a real, unresolved backend concurrency bug,
-// not a flaky test. When several players start a game near-simultaneously,
-// filtered PocketBase reads intermittently return empty for records that
-// demonstrably exist (a 200 with items:[]), which strands players on the
-// "Error..." / first-turn screens or deadlocks a turn. The client-side hardening
-// in this branch (retry-on-empty for game/story lookups, a polling fallback for
-// the waiting state, first-turn/own-story idempotency) makes the happy path
-// succeed in a majority of runs — up from never completing — but cannot fully
-// close the gap; the empty reads can outlast any reasonable retry budget. See the
-// investigation notes for the reproduction. Fixing it for good needs a
-// backend-level fix, after which this test should pass reliably.
-// Skipped by default: it reliably reproduces the unresolved backend bug above,
-// and the concurrency storm it generates also degrades the shared backend enough
-// that tests running after it time out. Remove `.fixme` to run it directly while
-// working on the backend fix; it should pass once the empty-read race is closed.
-test.fixme('three players play a full game and reach the results screen', async ({ browser }) => {
+test('three players play a full game and reach the results screen', async ({ browser }) => {
   test.setTimeout(120_000)
 
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])

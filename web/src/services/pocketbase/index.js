@@ -11,14 +11,14 @@ export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://
 // so global auto-cancellation only causes harm here.
 pb.autoCancellation(false)
 
-// getFirstListItem, but retried. When a player navigates into a game we KNOW the
-// game exists, yet a lookup fired the instant the realtime "game started" event
-// arrives can momentarily come back empty (a 200 with items=[]) — the write that
-// started the game isn't visible to this read yet. Treating that single empty
-// read as "no such game" is what stranded players on the "Error..." screen and
-// made joins flaky. A couple of quick retries rides over the gap; a code that is
-// genuinely missing still ends up throwing after the last attempt.
-async function getFirstListItemRetry(collection, filter, { tries = 8, delayMs = 250 } = {}) {
+// getFirstListItem, but retried a few times on an empty result. The root cause of
+// the empty reads — a stale snapshot served by one of PocketBase's pooled read
+// connections just after a write — is fixed on the backend (data.db is now capped
+// at a single read connection; see main.go). This is kept as cheap defense in
+// depth: a dropped realtime event or transient blip can still make one lookup for
+// a record we know exists come back empty, and a couple of quick retries ride over
+// it. A genuinely missing code still throws after the last attempt (~0.5s).
+async function getFirstListItemRetry(collection, filter, { tries = 3, delayMs = 150 } = {}) {
   let lastErr
   for (let attempt = 0; attempt < tries; attempt++) {
     try {
@@ -46,7 +46,9 @@ function isTransientRelationError(err) {
 
 // create(), retried past the transient relation race. A 400 means nothing was
 // written, so re-issuing can't duplicate; other errors propagate immediately.
-async function createWithRetry(collection, data, { tries = 8, delayMs = 250 } = {}) {
+// Like getFirstListItemRetry, this is now defense in depth on top of the backend
+// fix (see main.go) rather than the primary guard.
+async function createWithRetry(collection, data, { tries = 3, delayMs = 150 } = {}) {
   let lastErr
   for (let attempt = 0; attempt < tries; attempt++) {
     try {
