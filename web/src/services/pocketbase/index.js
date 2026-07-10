@@ -1,6 +1,65 @@
 import PocketBase from 'pocketbase';
 
 export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://127.0.0.1:8090/")
+// Disable the SDK's auto-cancellation. It cancels an in-flight request whenever
+// a second one with the same resource key starts, which the app hits constantly:
+// the shared client fires overlapping reads (e.g. checkGameStatus / getUsers) as
+// components mount and realtime callbacks fire. When the host starts the game and
+// every player navigates WaitingRoom -> TakeTurn at once, those reads abort
+// ("ClientResponseError 0"), isValidGame() sees the error and bails, and the
+// player is stranded on the "Error..." screen. We manage subscriptions manually,
+// so global auto-cancellation only causes harm here.
+pb.autoCancellation(false)
+
+// getFirstListItem, but retried. When a player navigates into a game we KNOW the
+// game exists, yet a lookup fired the instant the realtime "game started" event
+// arrives can momentarily come back empty (a 200 with items=[]) — the write that
+// started the game isn't visible to this read yet. Treating that single empty
+// read as "no such game" is what stranded players on the "Error..." screen and
+// made joins flaky. A couple of quick retries rides over the gap; a code that is
+// genuinely missing still ends up throwing after the last attempt.
+async function getFirstListItemRetry(collection, filter, { tries = 8, delayMs = 250 } = {}) {
+  let lastErr
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      return await pb.collection(collection).getFirstListItem(filter)
+    } catch (err) {
+      lastErr = err
+      if (err?.isAbort) continue // autocancelled — just try again
+      if (err?.status && err.status !== 404) throw err // real error (auth, 5xx) — don't paper over it
+      if (attempt < tries - 1) await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
+  throw lastErr
+}
+
+// True when a create failed only because a related record it points at (game,
+// story, user) wasn't visible to the validation read yet — the write-side twin
+// of the empty-read race above. The record definitely exists (we just created or
+// navigated into it), so this is safe to retry; a genuinely bad relation id keeps
+// failing the same way and surfaces after the last attempt.
+function isTransientRelationError(err) {
+  const data = err?.response?.data
+  if (err?.status !== 400 || !data) return false
+  return Object.values(data).some((f) => f?.code === 'validation_missing_rel_records')
+}
+
+// create(), retried past the transient relation race. A 400 means nothing was
+// written, so re-issuing can't duplicate; other errors propagate immediately.
+async function createWithRetry(collection, data, { tries = 8, delayMs = 250 } = {}) {
+  let lastErr
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      return await pb.collection(collection).create(data)
+    } catch (err) {
+      lastErr = err
+      if (!isTransientRelationError(err)) throw err
+      if (attempt < tries - 1) await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
+  throw lastErr
+}
+
 export const pbService = {
   games: {
     async getGameId(gameCode) {
@@ -54,7 +113,7 @@ export const pbService = {
       })
     },
     async checkGameStatus(gameCode) {
-      return await pb.collection('games').getFirstListItem(`game_code="${gameCode}"`).then(function (resp) {
+      return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
         console.log("checkGameStatus resp", resp)
         return {
           duration: resp.roundDuration,
@@ -193,7 +252,7 @@ export const pbService = {
         "game_id": gameId
       }
       console.log("createStory request", data)
-      return await pb.collection('stories').create(data).then(function (resp) {
+      return await createWithRetry('stories', data).then(function (resp) {
         console.log("createStory resp", resp)
         return resp
       }).catch(function (err) {
@@ -222,7 +281,7 @@ export const pbService = {
     },
     async createTurn(data) {
       // console.log("creatTurn data", data.getAll())
-      return await pb.collection('turns').create(data).then(function (resp) {
+      return await createWithRetry('turns', data).then(function (resp) {
         console.log("createTurn resp", resp)
         return resp
       }).catch(function (err) {
