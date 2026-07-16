@@ -74,7 +74,9 @@ export default {
     if (resp.errMsg) {
       this.$emit("snack", resp.errMsg, "error")
     }
-    this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
+    if (resp.data) {
+      this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
+    }
 
     this.getProgress()
 

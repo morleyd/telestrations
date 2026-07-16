@@ -1,36 +1,48 @@
 import PocketBase from 'pocketbase';
 
 export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://127.0.0.1:8090/")
-// Disable the SDK's auto-cancellation. It cancels an in-flight request whenever
-// a second one with the same resource key starts, which the app hits constantly:
-// the shared client fires overlapping reads (e.g. checkGameStatus / getUsers) as
-// components mount and realtime callbacks fire. When the host starts the game and
-// every player navigates WaitingRoom -> TakeTurn at once, those reads abort
-// ("ClientResponseError 0"), isValidGame() sees the error and bails, and the
-// player is stranded on the "Error..." screen. We manage subscriptions manually,
-// so global auto-cancellation only causes harm here.
-pb.autoCancellation(false)
+// A note on the SDK's auto-cancellation: it aborts an in-flight request whenever
+// a second one with the same resource key starts. That is exactly right for the
+// recurring state refreshes (e.g. WaitingRoom's roster refetch on every realtime
+// event — latest response wins, stale ones can never land out of order and stick),
+// so we keep it globally ON and callers treat an aborted refresh as "superseded".
+// It is exactly wrong for one-shot lookups fired during navigation (when the host
+// starts the game, every player's WaitingRoom -> TakeTurn transition runs
+// checkGameStatus at once and the aborts stranded players on the "Error..."
+// screen), so those lookups opt out per-request with `requestKey: null` below
+// instead of disabling cancellation for the whole client.
 
-// getFirstListItem, but retried a few times on an empty result. The root cause of
-// the empty reads — a stale snapshot served by one of PocketBase's pooled read
-// connections just after a write — is fixed on the backend (data.db is now capped
-// at a single read connection; see main.go). This is kept as cheap defense in
-// depth: a dropped realtime event or transient blip can still make one lookup for
-// a record we know exists come back empty, and a couple of quick retries ride over
-// it. A genuinely missing code still throws after the last attempt (~0.5s).
-async function getFirstListItemRetry(collection, filter, { tries = 3, delayMs = 150 } = {}) {
+// One retry loop for every helper below, so the policy can't drift between them.
+// isRetryable decides which failures are worth re-issuing; everything else
+// propagates immediately. Gives up (throws the last error) after `tries`.
+async function retry(fn, isRetryable, { tries = 3, delayMs = 150 } = {}) {
   let lastErr
   for (let attempt = 0; attempt < tries; attempt++) {
     try {
-      return await pb.collection(collection).getFirstListItem(filter)
+      return await fn()
     } catch (err) {
       lastErr = err
-      if (err?.isAbort) continue // autocancelled — just try again
-      if (err?.status && err.status !== 404) throw err // real error (auth, 5xx) — don't paper over it
+      if (!isRetryable(err)) throw err
       if (attempt < tries - 1) await new Promise((r) => setTimeout(r, delayMs))
     }
   }
   throw lastErr
+}
+
+// getFirstListItem, but retried a few times on an empty (404) result. The root
+// cause of the empty reads — a stale snapshot served by one of PocketBase's
+// pooled read connections just after a write — is fixed on the backend (data.db
+// is now capped at a single read connection; see main.go). This is kept as cheap
+// defense in depth: a transient blip can still make one lookup for a record we
+// know exists come back empty, and a couple of quick retries ride over it. A
+// genuinely missing code still throws after the last attempt (~0.5s later).
+// `requestKey: null` opts out of auto-cancellation: these are one-shot lookups
+// that legitimately overlap during navigation (see the note on the client above).
+function getFirstListItemRetry(collection, filter) {
+  return retry(
+    () => pb.collection(collection).getFirstListItem(filter, { requestKey: null }),
+    (err) => !err?.status || err.status === 404,
+  )
 }
 
 // True when a create failed only because a related record it points at (game,
@@ -46,26 +58,20 @@ function isTransientRelationError(err) {
 
 // create(), retried past the transient relation race. A 400 means nothing was
 // written, so re-issuing can't duplicate; other errors propagate immediately.
-// Like getFirstListItemRetry, this is now defense in depth on top of the backend
-// fix (see main.go) rather than the primary guard.
-async function createWithRetry(collection, data, { tries = 3, delayMs = 150 } = {}) {
-  let lastErr
-  for (let attempt = 0; attempt < tries; attempt++) {
-    try {
-      return await pb.collection(collection).create(data)
-    } catch (err) {
-      lastErr = err
-      if (!isTransientRelationError(err)) throw err
-      if (attempt < tries - 1) await new Promise((r) => setTimeout(r, delayMs))
-    }
-  }
-  throw lastErr
+// Defense in depth on top of the backend fix (see main.go), plus the schema's
+// unique indexes now make duplicate stories/turns impossible server-side.
+// `requestKey: null`: creates must never cancel each other.
+function createWithRetry(collection, data) {
+  return retry(
+    () => pb.collection(collection).create(data, { requestKey: null }),
+    isTransientRelationError,
+  )
 }
 
 export const pbService = {
   games: {
     async getGameId(gameCode) {
-      return await pb.collection('games').getFirstListItem(`game_code="${gameCode}"`).then(function (resp) {
+      return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
         console.log("getGameId resp", resp)
         if (resp.hasOwnProperty("id")) {
           return { data: resp.id }
@@ -210,6 +216,10 @@ export const pbService = {
         console.log("getUsers resp", resp)
         return { data: resp }
       }).catch(function (err) {
+        // Auto-cancellation aborted this fetch because a newer identical one
+        // started (e.g. back-to-back roster events). The newer request's
+        // response supersedes this one — not an error, just skip.
+        if (err?.isAbort) return { aborted: true }
         return { errMsg: "getUsers:" + JSON.stringify(err?.response?.message || err) }
       })
     },
@@ -264,21 +274,25 @@ export const pbService = {
     async getStory(userId, gameId) {
       let filter = `starter_id="${userId}"&&game_id="${gameId}"`
       console.log("getStory filter", filter)
-      return await pb.collection('stories').getFirstListItem(filter).then(function (resp) {
+      return await getFirstListItemRetry('stories', filter).then(function (resp) {
         console.log("getStory resp", resp)
         return resp
       }).catch(function (err) {
-        return { errMsg: "getStory:" + JSON.stringify(err?.response?.message || err) }
+        // notFound lets callers tell "record really doesn't exist" (safe to
+        // create one) apart from a transient failure (retry later — creating
+        // now would mint a duplicate story).
+        return { errMsg: "getStory:" + JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }
       });
     },
     async getTurn(userId, storyId) {
       let filters = `user_id="${userId}"&&story_id="${storyId}"`
       console.log("getTurn filter", filters)
-      return await pb.collection('turns').getFirstListItem(filters).then(function (resp) {
+      return await getFirstListItemRetry('turns', filters).then(function (resp) {
         console.log("getTurn resp", resp)
         return resp
       }).catch(function (err) {
-        return { errMsg: "getTurn:" + JSON.stringify(err?.response?.message || err) }
+        // Same contract as getStory: only notFound means "no such turn".
+        return { errMsg: "getTurn:" + JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }
       });;
     },
     async createTurn(data) {
