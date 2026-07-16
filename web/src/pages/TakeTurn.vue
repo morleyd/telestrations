@@ -51,7 +51,8 @@ export default {
       reviewPath: "",
       pollTimer: null,
       ownStory: null,
-      resolvingStory: false,
+      turnsInFlight: null,
+      tornDown: false,
       firstTurnTaken: false,
       totalPlayers: 0,
     }
@@ -67,35 +68,54 @@ export default {
       return
     }
 
-    if (!this.userStore.username || !this.gameId) {
+    if (!this.userStore.username) {
       this.showLoginDialog = true
       return
     }
 
+    this.startTurnSync()
     await this.getTurns()
-
-    let that = this
-    pb.collection('turns').subscribe('*', async function (e) {
-      console.log("turns subscription event", e)
-      that.getTurns()
-    }, { filter: `game_id="${that.gameId}"` })
-
-    // Polling fallback for the "waiting" state. Advancing a turn is driven by the
-    // realtime subscription above, but a wake-up event can arrive while we're
-    // mid-transition into "waiting" and be dropped, leaving the player stranded
-    // even though their next prompt is already available — and once everyone
-    // ahead of them has finished, no further turn events fire to re-trigger it.
-    // Re-checking on a timer while waiting makes progress self-heal (this is what
-    // the API simulator does implicitly by re-polling every round).
-    this.pollTimer = setInterval(function () {
-      if (that.userState === "waiting") that.getTurns()
-    }, 2500)
   },
   unmounted() {
+    // mounted()'s awaits may still be in flight; the flag stops their
+    // continuations from arming the subscription/timer after this cleanup ran.
+    this.tornDown = true
     pb.collection('turns').unsubscribe();
     clearInterval(this.pollTimer);
+    this.pollTimer = null
   },
   methods: {
+    // Arm the two things that re-check turn state: the realtime `turns`
+    // subscription and a polling fallback. Called from mounted() for returning
+    // players and from onLoginClicked() for players who land via the login
+    // dialog — that path previously got neither, so after their first turn
+    // nothing ever re-checked and they (and everyone waiting on them) stalled.
+    startTurnSync() {
+      // The component can unmount while mounted()'s awaits are still in flight;
+      // if cleanup already ran (or the timer is somehow armed), don't register
+      // a subscription and interval nothing will ever tear down.
+      if (this.tornDown || this.pollTimer) {
+        return
+      }
+      let that = this
+      pb.collection('turns').subscribe('*', async function (e) {
+        console.log("turns subscription event", e)
+        that.getTurns()
+      }, { filter: `game_id="${that.gameId}"` })
+
+      // Polling fallback. Advancing a turn is driven by the realtime
+      // subscription above, but a wake-up event can arrive while we're
+      // mid-transition into "waiting" and be dropped, leaving the player
+      // stranded even though their next prompt is already available — and once
+      // everyone ahead of them has finished, no further turn events fire to
+      // re-trigger it. Re-checking on a timer makes progress self-heal. The ""
+      // state (the Error screen, e.g. a createStory attempt that failed at the
+      // start burst) is retried too — at game start no turn events exist yet,
+      // so without the poll that screen was a dead end until manual refresh.
+      this.pollTimer = setInterval(function () {
+        if (that.userState === "waiting" || that.userState === "") that.getTurns()
+      }, 2500)
+    },
     getReviewPath() {
       let curPath = window.location.href
       let parts = curPath?.split("/")
@@ -135,6 +155,9 @@ export default {
         this.$emit("snack", resp.errMsg, "error")
         return;
       }
+      if (!resp.data) {
+        return;
+      }
 
       let users = resp.data
       if (!users.filter(o => o.username == validation.username).length) {
@@ -144,6 +167,7 @@ export default {
 
       this.userStore.user = await pbService.users.getUser(validation.username, this.gameId)
       this.showLoginDialog = false
+      this.startTurnSync()
       await this.getTurns()
     },
     async checkNumTurns() {
@@ -163,7 +187,21 @@ export default {
       this.totalPlayers = Math.max(this.totalPlayers, numUsers.data || 0)
       return this.totalPlayers > 0 && numTurns.data >= this.totalPlayers
     },
-    async getTurns() {
+    getTurns() {
+      // The subscription and the polling fallback can both fire while a
+      // previous pass is still awaiting its reads. Serialize the whole state
+      // machine: late callers join the pass already in flight instead of
+      // interleaving with it — two concurrent passes could each assign
+      // curPrompt/userState after their awaits and the slower one would swap
+      // the active story out from under the user mid-turn.
+      if (!this.turnsInFlight) {
+        this.turnsInFlight = this.resolveTurns().finally(() => {
+          this.turnsInFlight = null
+        })
+      }
+      return this.turnsInFlight
+    },
+    async resolveTurns() {
       // The game-wide `turns` subscription calls this on every turn any player
       // submits. If we're already showing a turn, don't re-fetch and re-pop
       // curPrompt out from under the user — that would swap the active story and
@@ -172,42 +210,49 @@ export default {
         return
       }
       // Determine which turn the user is on.
-      // 1. Resolve our own story exactly once and cache it. getStory / createStory
-      //    can be re-entered by the realtime subscription and the polling fallback;
-      //    without a cache + in-flight guard, a stale empty read (see the retry
-      //    helpers in the pocketbase service) would spawn a duplicate story or
-      //    bounce the player back to the first-turn screen mid-game.
+      // 1. Resolve our own story exactly once and cache it, so a later failed
+      //    read can't bounce the player back to the first-turn screen mid-game.
       if (!this.ownStory) {
-        if (this.resolvingStory) return
-        this.resolvingStory = true
-        try {
-          let userStory = await pbService.progress.getStory(this.userStore.userId, this.gameId)
-          if (userStory.errMsg) {
-            // No story yet — genuinely our first turn. Create it and only reveal
-            // the prompt UI once curPrompt is populated, so an early submit can't
-            // reference a not-yet-created story.
-            let created = await pbService.progress.createStory(this.userStore.userId, this.gameId)
-            if (created.errMsg) {
-              this.$emit("snack", created.errMsg, "error")
-              return
-            }
-            this.ownStory = created
-            this.curPrompt = created
-            this.isDraw = false
-            this.userState = "firstTurn"
+        let userStory = await pbService.progress.getStory(this.userStore.userId, this.gameId)
+        if (userStory.errMsg && !userStory.notFound) {
+          // Transient failure (network blip, 5xx) — NOT "no story yet".
+          // Creating a story here would mint a duplicate; leave state alone
+          // and let the poll re-enter this pass.
+          console.warn("getStory failed, will retry", userStory.errMsg)
+          return
+        }
+        if (userStory.errMsg) {
+          // Genuinely no story yet (404 past the retries) — our first turn.
+          // Create it and only reveal the prompt UI once curPrompt is
+          // populated, so an early submit can't reference a missing story.
+          let created = await pbService.progress.createStory(this.userStore.userId, this.gameId)
+          if (created.errMsg) {
+            // userState stays "" (the Error screen); the poll retries that
+            // state, so a transient create failure at the start burst
+            // self-heals instead of dead-ending until a manual refresh.
+            this.$emit("snack", created.errMsg, "error")
             return
           }
-          this.ownStory = userStory
-        } finally {
-          this.resolvingStory = false
+          this.ownStory = created
+          this.curPrompt = created
+          this.isDraw = false
+          this.userState = "firstTurn"
+          return
         }
+        this.ownStory = userStory
       }
 
       // 1.5 Did we actually take the first turn on our own story? Latch this once
-      // taken: a stale empty read here (after we've already submitted) would
-      // otherwise drop us back onto the first-turn prompt and duplicate the turn.
+      // taken, so a later failed read (after we've already submitted) can't
+      // drop us back onto the first-turn prompt and duplicate the turn.
       if (!this.firstTurnTaken) {
         let turn = await pbService.progress.getTurn(this.userStore.userId, this.ownStory.id)
+        if (turn.errMsg && !turn.notFound) {
+          // Transient failure — re-showing the first-turn UI on it would
+          // invite a duplicate submission. Let the poll retry instead.
+          console.warn("getTurn failed, will retry", turn.errMsg)
+          return
+        }
         if (turn.errMsg) {
           this.curPrompt = this.ownStory
           this.isDraw = false
@@ -218,7 +263,8 @@ export default {
       }
 
       // 2. Our story is underway — see what prompts are waiting on us.
-      this.queryMorePrompts()
+      // Awaited so the in-flight promise in getTurns() covers the whole pass.
+      await this.queryMorePrompts()
     },
     async queryMorePrompts() {
       // 3. Check if the user has done a turn for each user

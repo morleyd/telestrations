@@ -35,6 +35,12 @@ func main() {
 	// Reads are sub-millisecond and the game is turn-based with small lobbies, so
 	// serializing them is not a meaningful throughput cost. Writes are unaffected
 	// (they already run through the separate single NonconcurrentDB connection).
+	//
+	// CAVEAT: this fix is empirical — WHY pooled connections served snapshots
+	// that stale (seconds, not the instant of a WAL transition) is undiagnosed,
+	// which is abnormal for SQLite in WAL mode and may be a driver/PocketBase
+	// pooling bug. Re-verify with the full-game e2e test after any PocketBase
+	// upgrade before assuming this cap still holds.
 	app := pocketbase.NewWithConfig(pocketbase.Config{DataMaxOpenConns: 1, DataMaxIdleConns: 1})
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
