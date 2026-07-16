@@ -113,7 +113,11 @@ export default {
       this.$emit("snack", resp.errMsg, "error")
       return;
     }
-    this.users = resp.data
+    // resp.aborted means a newer roster fetch (a subscription event that fired
+    // during mount) superseded this one — its handler will set the roster.
+    if (resp.data) {
+      this.users = resp.data
+    }
 
     let that = this
     // Subscribe to users
