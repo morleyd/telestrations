@@ -42,6 +42,9 @@ func TestRotationViews(t *testing.T) {
 func checkRotation(t *testing.T, app core.App, n int, position func(i, n int) int) {
 	t.Helper()
 	game := save(t, app, "games", map[string]any{"game_code": security.RandomString(8), "isStarted": true})
+	// Each layout gets the tables to itself: the views scan whole tables, so
+	// games left behind would slow every one after them.
+	t.Cleanup(func() { deleteGame(t, app, game.Id) })
 	users := make([]*core.Record, n)
 	stories := make([]*core.Record, n)
 	for i := range n {
