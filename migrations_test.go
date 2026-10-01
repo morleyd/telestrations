@@ -128,14 +128,22 @@ func TestMigrationsRevertAndReapply(t *testing.T) {
 // unique indexes existed: it keeps each player's first story and first turn
 // per story, and drops turns on a story it removed, so the indexes can build.
 func TestSchemaIndexMigrationCleansUpDuplicates(t *testing.T) {
+	const schemaIndexes = "1784200000_schema_indexes.go"
 	app := newTestApp(t)
 	runner := core.NewMigrationsRunner(app, core.AppMigrations)
-	reverted, err := runner.Down(1)
+
+	// Back to just before the schema-index migration: it and every later one.
+	items := core.AppMigrations.Items()
+	at := slices.IndexFunc(items, func(m *core.Migration) bool { return m.File == schemaIndexes })
+	if at < 0 {
+		t.Fatalf("no %s among the app migrations", schemaIndexes)
+	}
+	reverted, err := runner.Down(len(items) - at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(reverted, []string{"1784200000_schema_indexes.go"}) {
-		t.Fatalf("reverted %v, want the schema-index migration (the last one applied)", reverted)
+	if len(reverted) == 0 || reverted[len(reverted)-1] != schemaIndexes {
+		t.Fatalf("reverted %v, want everything back to and including %s", reverted, schemaIndexes)
 	}
 
 	g := newGame(t, app, "ann", "ben")
