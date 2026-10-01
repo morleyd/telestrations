@@ -14,7 +14,7 @@
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
             <AvatarIcon :user="userMap[item.starter_user_id]" />
             <span>{{ userMap[item.starter_user_id]?.username }}</span>
-            <span>({{ item.turns_taken }} / {{ item.total_players }})</span>
+            <span>({{ storyProgress(item).label }})</span>
           </div>
         </v-row>
       </v-container>
@@ -71,6 +71,7 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
+import { storyProgress } from '@/services/progress'
 export default {
   name: "TakeTurn",
   data() {
@@ -117,6 +118,7 @@ export default {
     pb.collection('turns').unsubscribe();
   },
   methods: {
+    storyProgress,
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
       if (resp.aborted) return // a newer refresh is on its way

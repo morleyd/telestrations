@@ -13,10 +13,10 @@
       <v-col md="10">
         <v-tooltip text="Tooltip" location="bottom" open-on-click open-delay="250">
           <template v-slot:activator="{ props }">
-            <v-progress-linear v-bind="props" color="secondary" height="30" :model-value="progressPercent(user)"
+            <v-progress-linear v-bind="props" color="secondary" height="30" :model-value="storyProgress(user).percent"
               striped>
               <template v-slot:default>
-                <strong>{{ user.turns_taken }} / {{ user.total_players }}</strong>
+                <strong>{{ storyProgress(user).label }}</strong>
               </template>
             </v-progress-linear>
           </template>
@@ -30,6 +30,7 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
+import { storyProgress } from '@/services/progress'
 export default {
   name: "TakeTurn",
   data() {
@@ -53,9 +54,7 @@ export default {
     await this.getProgress()
   },
   methods: {
-    progressPercent(user) {
-      return (user.turns_taken / user.total_players) * 100
-    },
+    storyProgress,
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
       if (resp.aborted) return // a newer refresh is on its way

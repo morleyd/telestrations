@@ -5,11 +5,15 @@ const CODE_RE = /\/[a-zA-Z]{5}$/
 
 // Drive the "New Game" dialog on the home screen through to the waiting room.
 // Returns the generated 5-letter game code.
-// `seconds` sets the round length of a timed game (in seconds).
-export async function createGame(page, { username = 'hosty', timed = false, seconds } = {}) {
+// `seconds` sets the round length of a timed game (in seconds). `rounds` is
+// how many times each story goes round; `endless` keeps them going until the
+// host ends the game.
+export async function createGame(page, { username = 'hosty', timed = false, seconds, rounds, endless = false } = {}) {
   await page.goto('/')
   await page.getByRole('button', { name: 'New Game' }).click()
   await page.getByLabel('Username').fill(username)
+  if (rounds) await page.getByLabel('Rounds', { exact: true }).fill(String(rounds))
+  if (endless) await page.getByLabel('Infinite').check()
   if (timed) {
     // v-switch: clicking its label toggles it.
     await page.getByText('Set Timed Rounds').click()

@@ -149,7 +149,7 @@ func (g *testGame) nextTurn(t *testing.T, starter, name string) map[string]any {
 	}
 	return map[string]any{
 		"story_id": story.Id, "user_id": player.Id, "game_id": g.game.Id,
-		"is_drawing": isDrawing, "prompt": prompt,
+		"is_drawing": isDrawing, "prompt": prompt, "turn_index": s.Taken,
 	}
 }
 
@@ -175,6 +175,38 @@ func (g *testGame) timed(t *testing.T) *testGame {
 		t.Fatal(err)
 	}
 	return g
+}
+
+// withRounds sets how many times each story goes round the table, or keeps
+// them going until the host ends the game.
+func (g *testGame) withRounds(t *testing.T, rounds int, endless bool) *testGame {
+	t.Helper()
+	g.game.Set("rounds", rounds)
+	g.game.Set("endless", endless)
+	if err := g.app.Save(g.game); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+// end sends host's End Game.
+func (g *testGame) end(api http.Handler, host *core.Record) *httptest.ResponseRecorder {
+	return call(api, http.MethodPost, "/api/games/"+g.game.Id+"/end", map[string]any{"host_id": host.Id})
+}
+
+// timeUp moves an ending game's deadline back past the grace after it, as if
+// the players' countdown had run out a while ago.
+func (g *testGame) timeUp(t *testing.T) {
+	t.Helper()
+	game, err := g.app.FindRecordById("games", g.game.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	game.Set("ends_at", time.Now().Add(-time.Minute))
+	if err := g.app.Save(game); err != nil {
+		t.Fatal(err)
+	}
+	g.game = game
 }
 
 // turn is a turn by name on starter's story, of the kind given, whether or not
@@ -261,6 +293,17 @@ func (g *testGame) turnsBy(t *testing.T, starter, name string) []*core.Record {
 		t.Fatal(err)
 	}
 	return turns
+}
+
+// lastTurnBy is name's latest turn on the story started by starter.
+func (g *testGame) lastTurnBy(t *testing.T, starter, name string) *core.Record {
+	t.Helper()
+	turns, err := g.app.FindRecordsByFilter("turns", "story_id = {:s} && user_id = {:u}", "-turn_index", 1, 0,
+		dbx.Params{"s": g.stories[starter].Id, "u": g.players[name].Id})
+	if err != nil || len(turns) == 0 {
+		t.Fatalf("%s has no turn on %s's story (%v)", name, starter, err)
+	}
+	return turns[0]
 }
 
 // requireSkippedOnce checks that name has exactly one turn on each story,
