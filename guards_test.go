@@ -232,3 +232,57 @@ func TestOnlyTheCreatorHosts(t *testing.T) {
 		t.Errorf("ben skipping cat as host: %d, want 403", rec.Code)
 	}
 }
+
+// A rename writes the whole player back, so it must not write back a seat or
+// a dropped flag older than the write: a /begin or a drop that lands after
+// PocketBase loaded the player keeps what it wrote, and the rename still
+// changes the name.
+func TestRenameKeepsABeginOrADropThatLandedUnderIt(t *testing.T) {
+	rename := func(t *testing.T, api http.Handler, user *core.Record) {
+		t.Helper()
+		rec := call(api, http.MethodPatch, "/api/collections/users/records/"+user.Id,
+			map[string]any{"username": "benny"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("rename: %d %s", rec.Code, rec.Body)
+		}
+	}
+	reload := func(t *testing.T, app core.App, user *core.Record) *core.Record {
+		t.Helper()
+		after, err := app.FindRecordById("users", user.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.GetString("username") != "benny" {
+			t.Errorf("the rename didn't land: username %q", after.GetString("username"))
+		}
+		return after
+	}
+
+	t.Run("begin", func(t *testing.T) {
+		app := newTestApp(t)
+		api := serveAPI(t, app)
+		g := newLobby(t, app, "ann", "ben")
+		beforeTheGuard(app.OnRecordUpdateRequest("users"), func() { g.begin(t, api, "ann", "ben") })
+
+		rename(t, api, g.players["ben"])
+		if seat := reload(t, app, g.players["ben"]).GetInt("position"); seat != 1 {
+			t.Errorf("ben is in seat %d after renaming, want the 1 /begin gave him", seat)
+		}
+	})
+	t.Run("drop", func(t *testing.T) {
+		app := newTestApp(t)
+		api := serveAPI(t, app)
+		g := newGame(t, app, "ann", "ben", "cat")
+		ann, ben := g.players["ann"], g.players["ben"]
+		beforeTheGuard(app.OnRecordUpdateRequest("users"), func() {
+			if rec := g.hostAct(api, "drop", ann, ben); rec.Code != http.StatusOK {
+				t.Fatalf("drop: %d %s", rec.Code, rec.Body)
+			}
+		})
+
+		rename(t, api, ben)
+		if !reload(t, app, ben).GetBool("dropped") {
+			t.Error("ben's rename undid his drop")
+		}
+	})
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/security"
 )
 
@@ -330,6 +331,34 @@ func together(fns ...func()) {
 	}
 	close(start)
 	wg.Wait()
+}
+
+// beforeTheGuard runs fn in each request through h after PocketBase has
+// checked the API rules (and loaded the record an update or delete changes)
+// but before the game's guard: where another request's write lands in a
+// race. The soaks find that window by chance; this opens it every time.
+func beforeTheGuard(h *hook.TaggedHook[*core.RecordRequestEvent], fn func()) {
+	h.Bind(&hook.Handler[*core.RecordRequestEvent]{
+		Priority: -1, // the guards bind at the default, 0
+		Func: func(e *core.RecordRequestEvent) error {
+			fn()
+			return e.Next()
+		},
+	})
+}
+
+// begin starts the game as the host's Begin does, seating the players in the
+// order given.
+func (g *testGame) begin(t *testing.T, api http.Handler, names ...string) {
+	t.Helper()
+	order := make([]string, len(names))
+	for i, name := range names {
+		order[i] = g.players[name].Id
+	}
+	rec := call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", map[string]any{"order": order})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("begin: %d %s", rec.Code, rec.Body)
+	}
 }
 
 // soak skips a concurrent soak under -short.
