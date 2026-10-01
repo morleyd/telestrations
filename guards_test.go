@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -231,6 +232,42 @@ func TestOnlyTheCreatorHosts(t *testing.T) {
 	if rec := g.hostAct(api, "skip", ben, cat); rec.Code != http.StatusForbidden {
 		t.Errorf("ben skipping cat as host: %d, want 403", rec.Code)
 	}
+}
+
+// The roster is fixed once the game begins. The users API rules refuse a join
+// or a leave by then, but PocketBase checks them before the write, so the
+// guard checks again inside it: a /begin that lands after the rule check
+// must still stop the join or the leave.
+func TestJoinOrLeaveUnderABeginIsRefused(t *testing.T) {
+	t.Run("join", func(t *testing.T) {
+		app := newTestApp(t)
+		api := serveAPI(t, app)
+		g := newLobby(t, app, "ann", "ben")
+		beforeTheGuard(app.OnRecordCreateRequest("users"), func() { g.begin(t, api, "ann", "ben") })
+
+		rec := call(api, http.MethodPost, "/api/collections/users/records",
+			map[string]any{"username": "cat", "game_id": g.game.Id})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("cat's join: %d %s, want 400", rec.Code, rec.Body)
+		}
+		if seats := g.seats(t); !slices.Equal(seats, []int{0, 1}) {
+			t.Fatalf("seats %v, want ann and ben's only", seats)
+		}
+	})
+	t.Run("leave", func(t *testing.T) {
+		app := newTestApp(t)
+		api := serveAPI(t, app)
+		g := newLobby(t, app, "ann", "ben", "cat")
+		beforeTheGuard(app.OnRecordDeleteRequest("users"), func() { g.begin(t, api, "ann", "ben", "cat") })
+
+		rec := call(api, http.MethodDelete, "/api/collections/users/records/"+g.players["cat"].Id, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("cat's leave: %d %s, want 400", rec.Code, rec.Body)
+		}
+		if seats := g.seats(t); !slices.Equal(seats, []int{0, 1, 2}) {
+			t.Fatalf("seats %v, want all three still seated", seats)
+		}
+	})
 }
 
 // A rename writes the whole player back, so it must not write back a seat or
