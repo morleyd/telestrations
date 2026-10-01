@@ -97,3 +97,7 @@ In dev, the frontend points at `http://127.0.0.1:8090/` unless you set
 - Browser E2E (Playwright): `cd web && npm run test:e2e`. See `web/tests/e2e/README.md`.
   `run-e2e.sh` is NixOS-specific; on other systems, run `npx playwright test`.
 - Rotation soak test: see `sim/README.md`.
+
+CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, ESLint, the Go tests and
+the E2E suite on every PR and every push to master. The checks are advisory:
+none is required, so a red check flags a problem without blocking the merge.

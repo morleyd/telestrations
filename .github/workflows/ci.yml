@@ -1,0 +1,109 @@
+name: CI
+
+# These checks are advisory: a failing job marks the PR red but does not block
+# merging, because none of them is a required status check on master. Making
+# one required is a branch-protection setting, not something this file controls.
+# (Don't reach for continue-on-error to soften a job: it turns a failure green.)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fmt:
+    name: Format (gofmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt -w on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  lint-go:
+    name: Lint (go vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+
+  lint-web:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      # Not `npm run lint`, which passes --fix. --quiet reports errors only; the
+      # warnings are Vue template-layout rules that `npm run lint` fixes.
+      - run: npx eslint . --quiet
+
+  test-go:
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      # The concurrent soaks are too slow under the race detector to run on
+      # every PR, so -race gets the -short suite.
+      - run: go test -race -short ./...
+        if: ${{ !cancelled() }}
+
+  test-e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # Warm the build cache so the backend's `go run` starts well inside
+      # Playwright's webServer timeout.
+      - run: go build -o /dev/null .
+        working-directory: .
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Not `npm run test:e2e`, which wraps the NixOS-only run-e2e.sh.
+      - run: npx playwright test --reporter=list,github
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-traces
+          path: web/test-results/
+          retention-days: 14
