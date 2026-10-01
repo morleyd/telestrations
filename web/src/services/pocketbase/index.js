@@ -392,7 +392,10 @@ export const pbService = {
         filter: `starter_id="${userId}"`,
       }
       console.log("getUserStoryWithTurns request", data)
-      return await pb.collection('results').getFullList(data).then(async function (resp) {
+      // requestKey: null: opening a story while Download all reads them all
+      // mustn't cancel either. (Review drops a late answer for a story it has
+      // moved on from.)
+      return await pb.collection('results').getFullList({ ...data, requestKey: null }).then(async function (resp) {
         console.log("getUserStoryWithTurns resp", resp)
         // No turns is an empty story (opened, not started yet), not an error.
         for (let record of resp) {

@@ -16,6 +16,10 @@
           :to="{ name: 'TakeTurn', params: { gameCode: $route.params.gameCode } }">
           Back to game
         </v-btn>
+        <v-btn v-if="users.length" block variant="tonal" class="mb-2" prepend-icon="mdi-folder-download"
+          :loading="downloading == 'all'" :disabled="Boolean(downloading)" @click="downloadAll">
+          Download all stories
+        </v-btn>
         <v-row v-for="(item, index) in users" no-gutters :key="index">
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
             <AvatarIcon :user="userMap[item.starter_user_id]" />
@@ -39,7 +43,7 @@
           </div>
           <!-- A skipped turn after the opening word just repeats the one before
                it; say what happened instead of showing it twice. -->
-          <div v-if="turn.skipped && turn.turn_number > 0" class="slide-main">
+          <div v-if="ranOutOfTime(turn)" class="slide-main">
             <v-card-title class="wrap text-h4">
               ⏱ {{ userMap[turn.turn_user_id].username }} ran out of time
             </v-card-title>
@@ -69,6 +73,22 @@
           </div>
         </div>
       </v-carousel-item>
+      <!-- The end of the story: save it. Next still wraps round to the start. -->
+      <v-carousel-item key="end" gradient="#2c5ea3, #e3eefc">
+        <div class="slide">
+          <div class="slide-main align-center ga-4">
+            <v-card-title class="wrap text-h4">That's {{ starterName }}'s story!</v-card-title>
+            <v-btn color="primary" size="x-large" prepend-icon="mdi-download" :loading="downloading == 'story'"
+              :disabled="Boolean(downloading)" @click="downloadStory">
+              Download this story
+            </v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-folder-download" :loading="downloading == 'all'"
+              :disabled="Boolean(downloading)" @click="downloadAll">
+              Download all stories
+            </v-btn>
+          </div>
+        </div>
+      </v-carousel-item>
     </v-carousel>
   </div>
 </template>
@@ -78,6 +98,8 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
 import { storyProgress } from '@/services/progress'
+import { reviewTurns, ranOutOfTime, turnBanner } from '@/services/story'
+import { storyImage, zipFiles, fileSafe, saveFile } from '@/services/storyImage'
 export default {
   name: "TakeTurn",
   data() {
@@ -91,12 +113,22 @@ export default {
       gameId: "",
       // This viewer's row from /players, if they're in this game.
       me: null,
+      // Whose story is open.
+      starterId: "",
+      // The download being made: "story", "all", or "".
+      downloading: "",
     }
   },
   computed: {
     ...mapStores(useUserStore),
     getWindowWidth() {
       return { width: this.sidebarVisible ? "calc(100vw - 250px)" : "100vw" }
+    },
+    starterName() {
+      return this.userMap?.[this.starterId]?.username || "Someone"
+    },
+    gameCode() {
+      return String(this.$route.params.gameCode).toUpperCase()
     },
     // A player in this game who still has turns to play.
     stillPlaying() {
@@ -138,6 +170,8 @@ export default {
   },
   methods: {
     storyProgress,
+    ranOutOfTime,
+    turnBanner,
     // Where this viewer stands in the game, for "Back to game". The stored
     // user can be from an earlier game, so only one from this game counts.
     async getMe() {
@@ -163,10 +197,12 @@ export default {
     },
     async onUserClick(userId) {
       this.story = null // Reset the story while waiting so index resets
+      this.starterId = userId
       // On a phone the list leaves the story a sliver of the screen; get it
       // out of the way once they've picked one.
       if (this.$vuetify.display.xs) this.sidebarVisible = false
       let resp = await pbService.progress.getUserStoryWithTurns(userId)
+      if (this.starterId !== userId) return // another story was opened meanwhile
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }
@@ -175,30 +211,53 @@ export default {
         // Mid-game, a story can be opened but not started yet.
         this.$emit("snack", "Nothing in this story yet.", "info")
       }
-      // Each turn was made from the one before it (a skip carries that one's
-      // word or drawing forward unchanged), so pair them up here, before skips
-      // are dropped: the slide shows what the player was given.
-      //
-      // Host skips just carry the previous turn forward; leave them out. Keep
-      // timeouts (they get a "ran out of time" slide) and opening words (a story
-      // needs its first word, even a randomly picked one).
-      this.story = turns.length
-        ? turns
-          .map((turn, i) => ({ ...turn, prev: turns[i - 1] }))
-          .filter(turn => !turn.skipped || turn.timed_out || turn.turn_number == 0)
-        : null
+      this.story = turns.length ? reviewTurns(turns) : null
     },
-    // Banner over a turn's slide: how it came to be, when it wasn't simply
-    // played. Only on the review; during the game these turns look normal.
-    turnBanner(turn) {
-      if (turn.skipped && turn.turn_number == 0) {
-        return turn.timed_out
-          ? "⏱ Ran out of time, so we picked a random word"
-          : "Skipped by the host, so we picked a random word"
+    storyTitle(name) {
+      return { title: `${name}'s story`, subtitle: `Telestrations · game ${this.gameCode}` }
+    },
+    async downloadStory() {
+      // Taken now: another story can be opened while this one draws.
+      const [turns, name] = [this.story, this.starterName]
+      await this.download("story", async () => {
+        const blob = await storyImage(turns, this.userMap, this.storyTitle(name))
+        saveFile(blob, `telestrations-${fileSafe(this.gameCode)}-${fileSafe(name)}.png`)
+      })
+    },
+    // Every story in the game, one image each, in a zip.
+    async downloadAll() {
+      await this.download("all", async () => {
+        const files = []
+        const taken = new Set()
+        for (const row of this.users) {
+          const resp = await pbService.progress.getUserStoryWithTurns(row.starter_user_id)
+          if (resp.errMsg) throw new Error(resp.errMsg)
+          if (!resp.data.length) continue // opened, not started
+          const name = this.userMap?.[row.starter_user_id]?.username || "someone"
+          let file = fileSafe(name)
+          for (let k = 2; taken.has(file); k++) file = `${fileSafe(name)}-${k}`
+          taken.add(file)
+          files.push([`${file}.png`, await storyImage(reviewTurns(resp.data), this.userMap, this.storyTitle(name))])
+        }
+        if (!files.length) {
+          this.$emit("snack", "There are no stories to download yet.", "info")
+          return
+        }
+        saveFile(await zipFiles(files), `telestrations-${fileSafe(this.gameCode)}.zip`)
+      })
+    },
+    async download(kind, make) {
+      if (this.downloading) return
+      this.downloading = kind
+      try {
+        await make()
+      } catch (err) {
+        console.error("download failed", err)
+        this.$emit("snack", `Couldn't make the download: ${err?.message || err}`, "error")
+      } finally {
+        this.downloading = ""
       }
-      if (turn.timed_out && !turn.skipped) return "⏱ Ran out of time"
-      return ""
-    }
+    },
   },
 };
 </script>

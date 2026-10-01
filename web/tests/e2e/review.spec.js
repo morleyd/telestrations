@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test'
+import { Buffer } from 'node:buffer'
+import { readFile } from 'node:fs/promises'
+import { unzipSync } from 'fflate'
 import { createGame, joinGame, startGame, startThreePlayerGame, driveGameToReview, submitWord } from './helpers.js'
 
 // The review walks through a story one turn per slide. Each slide shows what the
@@ -104,6 +107,54 @@ test('the review is open mid-game, and players can get back to the game', async 
     await driveGameToReview([host, guest])
     await expect(host.locator('.user-item').first()).toBeVisible()
     await expect(host.getByRole('link', { name: 'Back to game' })).toHaveCount(0)
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// A PNG's width and height, from its header.
+function pngSize(bytes) {
+  const b = Buffer.from(bytes)
+  expect(b.subarray(1, 4).toString()).toBe('PNG')
+  return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) }
+}
+
+// Any player, not just the host, can save a story as an image from the card
+// at its end (next still wraps round to the start), or every story at once.
+test('any player can download a story, or every story in the game', async ({ browser, request }) => {
+  test.setTimeout(120_000)
+  const { contexts, seats, host } = await startThreePlayerGame(browser, request)
+  try {
+    await driveGameToReview(seats.map((s) => s.page))
+    const player = seats.find((s) => s.page !== host)
+    const page = player.page
+    const visible = (selector) => page.locator(`${selector}:visible`)
+
+    await page.locator('.user-item', { hasText: player.name }).click()
+    for (let k = 0; k < 3; k++) await page.locator('.v-window__right').click()
+    await expect(visible('.v-window-item')).toHaveCount(1)
+    await expect(page.getByText(`That's ${player.name}'s story!`)).toBeVisible()
+
+    const [story] = await Promise.all([
+      page.waitForEvent('download'),
+      visible('.v-window-item').getByRole('button', { name: 'Download this story' }).click(),
+    ])
+    expect(story.suggestedFilename()).toMatch(new RegExp(`^telestrations-[a-z]{5}-${player.name}\\.png$`))
+    expect(pngSize(await readFile(await story.path())).width).toBe(800)
+
+    // Next wraps round to the opening word.
+    await page.locator('.v-window__right').click()
+    await expect(visible('.v-window-item')).toHaveCount(1)
+    await expect(page.getByText(`That's ${player.name}'s story!`)).toBeHidden()
+
+    const [all] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#chat-scroll').getByRole('button', { name: 'Download all stories' }).click(),
+    ])
+    expect(all.suggestedFilename()).toMatch(/^telestrations-[a-z]{5}\.zip$/)
+    const files = unzipSync(new Uint8Array(await readFile(await all.path())))
+    expect(Object.keys(files).sort()).toEqual(seats.map((s) => `${s.name}.png`).sort())
+    for (const bytes of Object.values(files)) expect(pngSize(bytes).width).toBe(800)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
