@@ -38,9 +38,9 @@ async function retry(fn, isRetryable, { tries = 3, delayMs = 150 } = {}) {
 // genuinely missing code still throws after the last attempt (~0.5s later).
 // `requestKey: null` opts out of auto-cancellation: these are one-shot lookups
 // that legitimately overlap during navigation (see the note on the client above).
-function getFirstListItemRetry(collection, filter) {
+function getFirstListItemRetry(collection, filter, options = {}) {
   return retry(
-    () => pb.collection(collection).getFirstListItem(filter, { requestKey: null }),
+    () => pb.collection(collection).getFirstListItem(filter, { ...options, requestKey: null }),
     (err) => !err?.status || err.status === 404,
   )
 }
@@ -178,14 +178,32 @@ export const pbService = {
         return { errMsg: JSON.stringify(err?.response?.message || err) }
       })
     },
+    // Host-only Play again: a new game with the same players, straight into
+    // play. fields: roundDuration (seconds, -1 untimed), rounds, endless.
+    // Returns { game_id, game_code }.
+    async rematch(gameId, hostId, { roundDuration, rounds, endless }) {
+      return await pb.send(`/api/games/${gameId}/rematch`, {
+        method: "POST",
+        body: { host_id: hostId, round_duration: roundDuration, rounds, endless },
+        requestKey: null,
+      }).then(function (resp) {
+        return { data: resp }
+      }).catch(function (err) {
+        return { errMsg: JSON.stringify(err?.response?.message || err) }
+      })
+    },
     async checkGameStatus(gameCode) {
       return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
         console.log("checkGameStatus resp", resp)
         return {
           duration: resp.roundDuration,
+          rounds: resp.rounds,
+          endless: resp.endless,
           gameId: resp.id,
           isStarted: resp.isStarted,
           endsAt: endsAt(resp),
+          // The game the host started after this one (Play again), if any.
+          nextGame: resp.next_game || "",
         }
       }).catch(function (err) {
         return { errMsg: JSON.stringify(err.response.message || err) }
@@ -259,6 +277,14 @@ export const pbService = {
       }).catch(function (err) {
         return { errMsg: "getUser:" + JSON.stringify(err?.response?.message || err) }
       })
+    },
+    // userId's seat in the game the host started after theirs (Play again),
+    // with that game expanded: { seat }, or { notFound } if they don't have one
+    // (they were dropped), or { errMsg } if it couldn't be read.
+    async getNextSeat(userId) {
+      return await getFirstListItemRetry('users', `from_user="${userId}"`, { expand: "game_id" })
+        .then((seat) => ({ seat }))
+        .catch((err) => ({ errMsg: JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }))
     },
     async getUserById(userId) {
       return await pb.collection('users').getOne(userId, { requestKey: null }).catch(function (err) {

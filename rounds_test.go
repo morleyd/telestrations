@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -253,9 +254,16 @@ func TestEndGame(t *testing.T) {
 // rounds migration runs keeps its turns, numbered in the order they were
 // written, is a one-round game, and plays on.
 func TestRoundsMigrationUpgradesAGameInProgress(t *testing.T) {
+	const rounds = "1784300000_rounds.go"
 	app := newTestApp(t)
 	runner := core.NewMigrationsRunner(app, core.AppMigrations)
-	if _, err := runner.Down(1); err != nil {
+	// Back to just before the rounds migration: it and every later one.
+	items := core.AppMigrations.Items()
+	at := slices.IndexFunc(items, func(m *core.Migration) bool { return m.File == rounds })
+	if at < 0 {
+		t.Fatalf("no %s among the app migrations", rounds)
+	}
+	if _, err := runner.Down(len(items) - at); err != nil {
 		t.Fatal(err)
 	}
 	if hasField(t, app, "turns", "turn_index") || hasField(t, app, "games", "rounds") {
