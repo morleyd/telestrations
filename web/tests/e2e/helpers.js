@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test'
+import { Buffer } from 'node:buffer'
 
 const CODE_RE = /\/[a-zA-Z]{5}$/
 

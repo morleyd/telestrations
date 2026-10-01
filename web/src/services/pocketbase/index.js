@@ -83,7 +83,7 @@ export const pbService = {
     async getGameId(gameCode) {
       return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
         console.log("getGameId resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { data: resp.id }
         } else {
           throw new Error("Failed to find game ID.")
@@ -100,7 +100,7 @@ export const pbService = {
       // relation-race retry isn't needed here.
       return await pb.collection('games').create(data, { requestKey: null }).then(function (resp) {
         console.log("createGame resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { data: resp }
         } else {
           throw new Error("Failed to create game.")
@@ -113,7 +113,7 @@ export const pbService = {
       console.log("updateGame request", data)
       return await pb.collection('games').update(gameId, data).then(function (resp) {
         console.log("updateGame resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { data: resp }
         } else {
           throw new Error("Failed to create game.")
@@ -189,7 +189,7 @@ export const pbService = {
       // the unique index with "Failed to create record." See the note at the top.
       return await createWithRetry('users', data).then(function (resp) {
         console.log("createUser resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { data: resp }
         } else {
           throw new Error("Failed to create user.")
@@ -202,7 +202,7 @@ export const pbService = {
       console.log("updateUser request", data)
       return await pb.collection('users').update(userId, data).then(function (resp) {
         console.log("updateUser resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { data: resp }
         } else {
           throw new Error("Failed to update user.")
@@ -215,7 +215,7 @@ export const pbService = {
       let query = `game_id="${gameId}"&&username="${username}"`
       return await pb.collection('users').getFirstListItem(query).then(function (resp) {
         console.log("isUserInGame resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { exists: true, data: resp }
         } else {
           throw new Error("Failed to find user ID.")
@@ -229,7 +229,7 @@ export const pbService = {
       let query = `game_id="${gameId}"&&username="${username}"`
       return await pb.collection('users').getFirstListItem(query).then(function (resp) {
         console.log("getUser resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return resp
         } else {
           throw new Error(`Failed to find user "${username} for game "${gameId}"`)
@@ -248,10 +248,10 @@ export const pbService = {
       let query = `id="${userId}"`
       return await pb.collection('users').getFirstListItem(query).then(function (resp) {
         console.log("getUser resp", resp)
-        if (resp.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
           return { data: resp.username }
         } else {
-          throw new Error(`Failed to find user "${username} for game "${gameId}"`)
+          throw new Error(`Failed to find user "${userId}"`)
         }
       }).catch(function (err) {
         return { errMsg: "getUsername:" + JSON.stringify(err?.response?.message || err) }

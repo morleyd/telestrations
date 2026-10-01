@@ -7,7 +7,7 @@
       </v-card-title>
       <v-card-title class="wrap" v-if="userStore.is_host">
         Set the order of players and then hit <strong>Begin</strong> once everyone has arrived!
-      </v-card-title class="wrap">
+      </v-card-title>
       <v-card-title v-else>
         Waiting for host to Start Game:
       </v-card-title>
@@ -245,7 +245,7 @@ export default {
     async createUser(username, avatar, color) {
       let user = await pbService.users.getUser(username, this.gameId)
 
-      if (user.hasOwnProperty("id")) {
+      if (Object.prototype.hasOwnProperty.call(user, "id")) {
         // Name taken: rejoin only if they confirm it's them; otherwise keep the
         // join dialog open to pick another name.
         if (!(await this.$refs.rejoin.ask(user))) {
@@ -270,7 +270,7 @@ export default {
     async updateUser(username, avatar, color) {
       // Check if user exists (they just need to re-login)
       let user = await pbService.users.getUser(username, this.gameId)
-      if (user.hasOwnProperty("id") && user.username != this.userStore.username) {
+      if (Object.prototype.hasOwnProperty.call(user, "id") && user.username != this.userStore.username) {
         this.$emit("snack", "Username already exists. Please enter a new one (or ignore if it's you).", "warning")
         return
       } else {

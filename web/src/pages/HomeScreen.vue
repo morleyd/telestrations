@@ -17,7 +17,7 @@
               New Game
             </v-btn>
           </template>
-          <template v-slot:default="{ isActive }">
+          <template v-slot:default>
             <v-card class="pa-4 bg-white" width="500" max-width="100%">
               <v-card-title class="text-center text-h4">Let's Get Started!</v-card-title>
               <v-form ref="form" @submit.prevent="onBeginClicked">
@@ -46,7 +46,7 @@
               Join Game
             </v-btn>
           </template>
-          <template v-slot:default="{ isActive }">
+          <template v-slot:default>
             <v-card class="pa-4 bg-white" width="500" max-width="100%">
               <v-card-title class="text-center text-h4 wrap">Enter a Game Code</v-card-title>
               <v-form ref="form" @submit.prevent="onJoinClicked">
@@ -122,7 +122,7 @@ export default {
         }
 
         let user = await pbService.users.getUser(validation.username, validGame.gameId)
-        if (user.hasOwnProperty("id")) {
+        if (Object.prototype.hasOwnProperty.call(user, "id")) {
           // Name taken: rejoin only if they confirm it's them; otherwise leave the
           // join dialog open to pick another name.
           if (!(await this.$refs.rejoin.ask(user))) {

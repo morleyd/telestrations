@@ -29,7 +29,7 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pb, pbService } from '@/services/pocketbase'
+import { pbService } from '@/services/pocketbase'
 export default {
   name: "TakeTurn",
   data() {
