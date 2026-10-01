@@ -80,6 +80,12 @@ export default {
       users: [],
       username: "",
       showEditUsernameDialog: false,
+      // One Enter in the join form runs onUsernameSubmit several times
+      // (SetUsername emits @username on keydown and keyup, and its submit
+      // bubbles to this page's form; see SetUsername's onSubmit). This latches
+      // on the first in-flight submit so the duplicates no-op instead of racing
+      // two creates for the same player.
+      submitting: false,
     }
   },
   components: {
@@ -211,19 +217,29 @@ export default {
       this.deleteItem(this.userStore.userId)
     },
     async onUsernameSubmit() {
-      let validation = await this.$refs.form.validate()
-      if (!validation.valid) {
+      // Latch synchronously before the first await so a duplicate call (see
+      // `submitting`) returns here instead of starting a second join.
+      if (this.submitting) {
         return
       }
-      validation = await this.$refs.username.validate()
-      if (!validation.valid) {
-        return
-      }
+      this.submitting = true
+      try {
+        let validation = await this.$refs.form.validate()
+        if (!validation.valid) {
+          return
+        }
+        validation = await this.$refs.username.validate()
+        if (!validation.valid) {
+          return
+        }
 
-      if (this.userStore.username) {
-        await this.updateUser(validation.username, validation.avatar, validation.color)
-      } else {
-        await this.createUser(validation.username, validation.avatar, validation.color)
+        if (this.userStore.username) {
+          await this.updateUser(validation.username, validation.avatar, validation.color)
+        } else {
+          await this.createUser(validation.username, validation.avatar, validation.color)
+        }
+      } finally {
+        this.submitting = false
       }
     },
     async createUser(username, avatar, color) {

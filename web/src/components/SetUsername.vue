@@ -43,6 +43,11 @@ export default {
     onAvatarSelect(avatar) {
       this.avatar = avatar
     },
+    // One Enter in the field lands here twice: the form's implicit submit on
+    // keydown, then @keyup.enter on keyup. That submit also bubbles to a parent
+    // page's own @submit form. So a page handler on @username runs twice per
+    // Enter, more if it also handles its form's @submit, and each page latches
+    // it on the first in-flight call.
     onSubmit() {
       this.$emit("username")
     },

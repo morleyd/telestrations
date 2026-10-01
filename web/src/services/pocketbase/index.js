@@ -94,7 +94,11 @@ export const pbService = {
     },
     async createGame(data) {
       console.log("createGame request", data)
-      return await pb.collection('games').create(data).then(function (resp) {
+      // requestKey: null for the same reason as createUser/createWithRetry: a
+      // create must never auto-cancel another, which would strand a game that
+      // the server actually committed. Games point at no relations, so the
+      // relation-race retry isn't needed here.
+      return await pb.collection('games').create(data, { requestKey: null }).then(function (resp) {
         console.log("createGame resp", resp)
         if (resp.hasOwnProperty("id")) {
           return { data: resp }
@@ -178,7 +182,12 @@ export const pbService = {
     },
     async createUser(data) {
       console.log("createUser request", data)
-      return await pb.collection('users').create(data).then(function (resp) {
+      // createWithRetry (not the raw client) so a user create can never
+      // auto-cancel a concurrent one: the SDK aborts the first same-keyed POST
+      // when the second starts, but the server still commits it, leaving the
+      // record created while the client sees an abort and the second POST hits
+      // the unique index with "Failed to create record." See the note at the top.
+      return await createWithRetry('users', data).then(function (resp) {
         console.log("createUser resp", resp)
         if (resp.hasOwnProperty("id")) {
           return { data: resp }
