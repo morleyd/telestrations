@@ -95,6 +95,34 @@ func TestDropCarriesOnPastAFailedSkipAndCanBeRetried(t *testing.T) {
 	g.requireSkippedOnce(t, "dan", "ann", "ben", "cat")
 }
 
+// The drop deletes a dropped player's story that never got its opening word.
+// The turn guard refuses that word once they're dropped, but a write that
+// skips the guard can still land after the drop's snapshot; the story must
+// then stay, or the word is left as a turn with no story. This replays it:
+// the flag, the snapshot, the late word, then the loop.
+func TestDropKeepsAStoryOpenedAfterItsSnapshot(t *testing.T) {
+	app := newTestApp(t)
+	g := newGame(t, app, "ann", "ben", "cat")
+	ben := g.players["ben"]
+
+	markDropped(t, app, ben)
+	snapshot, err := loadGameStories(app, g.game.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.play(t, "ben", "ben") // his opening word, landing late
+
+	if _, err := skipOwedTurns(app, snapshot, g.game.Id, ben.Id, true); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if _, err := app.FindRecordById("stories", g.stories["ben"].Id); err != nil {
+		t.Fatalf("ben's story was deleted with his word in it: %v", err)
+	}
+	if n := g.orphanTurns(t); n != 0 {
+		t.Fatalf("%d turns have no story", n)
+	}
+}
+
 // The drop race for real: the host's drop and the submit that hands the
 // dropped player another story arrive together, as requests through the
 // actual routes and request guards. Whichever lands first, the drop must
