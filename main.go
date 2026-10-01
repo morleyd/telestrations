@@ -46,23 +46,7 @@ func main() {
 	// pooling bug. Re-verify with the full-game e2e test after any PocketBase
 	// upgrade before assuming this cap still holds.
 	app := pocketbase.NewWithConfig(pocketbase.Config{DataMaxOpenConns: 1, DataMaxIdleConns: 1})
-
-	// Audit every turn as it lands. The rotation is only visible across devices,
-	// so the server is the one place that can check each write against the
-	// game's shape and flag the first bad turn, rather than finding a garbled
-	// story at the review screen.
-	app.OnRecordAfterCreateSuccess("turns").BindFunc(func(e *core.RecordEvent) error {
-		s, err := loadStory(e.App, e.Record.GetString("story_id"))
-		if err != nil {
-			e.App.Logger().Error("turn: audit failed", "story", e.Record.GetString("story_id"),
-				"turn", e.Record.Id, "error", err.Error())
-			return e.Next()
-		}
-		auditTurn(e.App, e.Record, s)
-		skipIfNextIsDropped(e.App, s)
-		return e.Next()
-	})
-	bindTurnGuards(app)
+	bindGameHooks(app)
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// With no superuser yet, PocketBase's default installer opens the setup
@@ -206,6 +190,28 @@ func main() {
 
 	time.Sleep(500 * time.Millisecond)
 	log.Println("exit")
+}
+
+// bindGameHooks binds the record hooks the game relies on: the guards on
+// client writes (bindTurnGuards in host.go) and, after every turn, the audit
+// log and the auto-skip past dropped players. The Go tests bind the same set.
+func bindGameHooks(app core.App) {
+	// Audit every turn as it lands. The rotation is only visible across devices,
+	// so the server is the one place that can check each write against the
+	// game's shape and flag the first bad turn, rather than finding a garbled
+	// story at the review screen.
+	app.OnRecordAfterCreateSuccess("turns").BindFunc(func(e *core.RecordEvent) error {
+		s, err := loadStory(e.App, e.Record.GetString("story_id"))
+		if err != nil {
+			e.App.Logger().Error("turn: audit failed", "story", e.Record.GetString("story_id"),
+				"turn", e.Record.Id, "error", err.Error())
+			return e.Next()
+		}
+		auditTurn(e.App, e.Record, s)
+		skipIfNextIsDropped(e.App, s)
+		return e.Next()
+	})
+	bindTurnGuards(app)
 }
 
 // clientLogEntry is one event from web/src/services/log.js.
