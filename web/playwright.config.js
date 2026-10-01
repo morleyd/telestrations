@@ -38,6 +38,8 @@ export default defineConfig({
       // *before* globalSetup runs.
       command: `rm -rf .e2e-pb-data && go run . serve --dir .e2e-pb-data --http 127.0.0.1:${PB_PORT}`,
       cwd: repoRoot,
+      // AI players backed by the fake provider: instant, free, predictable.
+      env: { ...process.env, TELESTRATIONS_AI_CONFIG: path.join(webDir, 'tests/e2e/ai.fake.json') },
       url: `http://127.0.0.1:${PB_PORT}/api/health`,
       reuseExistingServer: false,
       timeout: 120_000,

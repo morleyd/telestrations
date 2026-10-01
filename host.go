@@ -83,9 +83,10 @@ var errNotTheirTurn = errors.New("not this player's turn")
 // skipTurn writes the turn `userID` owes on `storyID` on their behalf, passing
 // the previous turn on unchanged. timedOut marks it as the player's own round
 // timer running out with nothing entered (the review says so) rather than the
-// host skipping them. Returns errNotTheirTurn if that turn isn't theirs to
-// take (anymore).
-func skipTurn(app core.App, storyID, userID, reason string, timedOut bool) error {
+// host skipping them. note, if any, is shown on the review page (e.g. why an
+// AI player's turn was skipped). Returns errNotTheirTurn if that turn isn't
+// theirs to take (anymore).
+func skipTurn(app core.App, storyID, userID, reason string, timedOut bool, note string) error {
 	return app.RunInTransaction(func(tx core.App) error {
 		s, err := loadStory(tx, storyID)
 		if err != nil {
@@ -105,6 +106,7 @@ func skipTurn(app core.App, storyID, userID, reason string, timedOut bool) error
 		turn.Set("game_id", s.GameID)
 		turn.Set("skipped", true)
 		turn.Set("timed_out", timedOut)
+		turn.Set("note", note)
 
 		if s.Taken == 0 {
 			// Their own opening word: pick one so the story can start.
@@ -169,7 +171,7 @@ func skipPendingTurns(app core.App, gameID, userID string, dropped bool) (int, e
 		if dropped {
 			reason = "dropped"
 		}
-		if err := skipTurn(app, s.StoryID, userID, reason, false); err != nil {
+		if err := skipTurn(app, s.StoryID, userID, reason, false, ""); err != nil {
 			return n, err
 		}
 		n++
@@ -189,7 +191,7 @@ func skipIfNextIsDropped(app core.App, storyID string) {
 	if err != nil || !next.GetBool("dropped") {
 		return
 	}
-	if err := skipTurn(app, storyID, s.NextUser, "dropped", false); err != nil {
+	if err := skipTurn(app, storyID, s.NextUser, "dropped", false, ""); err != nil {
 		app.Logger().Error("host: auto-skip failed", "story", storyID, "user_id", s.NextUser, "error", err.Error())
 	}
 }
@@ -350,7 +352,7 @@ func bindHostRoutes(app core.App, se *core.ServeEvent) {
 		if u, err := e.App.FindRecordById("users", body.UserID); err == nil && u.GetBool("dropped") {
 			return e.BadRequestError(msgPlayerRemoved, nil)
 		}
-		err := skipTurn(e.App, storyID, body.UserID, "timed out", true)
+		err := skipTurn(e.App, storyID, body.UserID, "timed out", true, "")
 		if errors.Is(err, errNotTheirTurn) {
 			return e.BadRequestError(notYourTurnMessage(e.App, storyID, body.UserID), nil)
 		} else if err != nil {

@@ -76,6 +76,37 @@ During the game these look like any other turn to the next player. The review
 marks them: partial work gets a "⏱ Ran out of time" banner, and an empty turn
 gets a "⏱ *name* ran out of time" slide.
 
+## AI players (proof of concept)
+
+The host can seat AI players in the waiting room (**Add AI players**). The
+server takes their turns: it writes opening words, draws (as doodle strokes it
+renders to PNG), and guesses other players' drawings. Each AI's one-line
+"thought" shows in the review.
+
+To set it up, copy `ai.example.json` to `ai.json` (it's gitignored) and restart
+the server. Only Claude is supported so far. Its key comes from `api_key` in
+`ai.json`, or from `ANTHROPIC_API_KEY` if that's left empty. `models` lists what
+the host can choose from; the first is the default. Keys stay on the server.
+
+Before a game, check it works with a real round (word, drawing, guess):
+
+```sh
+./telestrations-server ai-smoke                 # first provider and model
+./telestrations-server ai-smoke --model claude-haiku-4-5 --persona "a pirate"
+```
+
+It prints the tokens each step used and saves the drawing to `ai-smoke.png`.
+
+Notes:
+
+- When adding AI players, the host picks a model, an optional personality (a
+  short prompt addition), a drawing style (`doodle` or `sketch`), and how many
+  seats.
+- If an AI call fails (bad key, outage), its turn is skipped like a host skip,
+  and the review says why.
+- Other services (ChatGPT, Gemini, Grok, ...) can be added as a new `kind`: see
+  `aiProvider` in `ai.go`.
+
 ## Development
 
 Run each of these in its own terminal:

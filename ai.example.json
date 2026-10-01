@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "id": "claude",
+      "kind": "anthropic",
+      "label": "Claude",
+      "api_key": "",
+      "models": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"]
+    }
+  ]
+}

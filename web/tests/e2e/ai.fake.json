@@ -1,0 +1,5 @@
+{
+  "providers": [
+    { "id": "fake", "kind": "fake", "label": "Fake", "models": ["fake-1"] }
+  ]
+}

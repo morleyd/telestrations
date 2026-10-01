@@ -35,7 +35,7 @@
                it; say what happened instead of showing it twice. -->
           <div v-if="turn.skipped && turn.turn_number > 0" class="fill-height align-content-center">
             <v-card-title class="wrap text-h4">
-              ⏱ {{ userMap[turn.turn_user_id].username }} ran out of time
+              {{ turn.note || `⏱ ${userMap[turn.turn_user_id].username} ran out of time` }}
             </v-card-title>
           </div>
           <div v-else-if="turn.drawing" class="pa-4" :style="getWindowWidth">
@@ -43,6 +43,10 @@
           </div>
           <div v-else class="fill-height align-content-center">
             <v-card-title class="wrap text-h4">{{ turn.prompt }}</v-card-title>
+          </div>
+          <!-- An AI player's one-line thought behind the turn. -->
+          <div v-if="turn.note && !turn.skipped" class="turn-note position-absolute bottom-0 mb-4 px-4 py-1">
+            🤖 “{{ turn.note }}”
           </div>
         </div>
       </v-carousel-item>
@@ -122,16 +126,18 @@ export default {
         this.$emit("snack", resp.errMsg, "error")
       }
       // Host skips just carry the previous turn forward; leave them out. Keep
-      // timeouts (they get a "ran out of time" slide) and opening words (a story
-      // needs its first word, even a randomly picked one).
+      // timeouts and AI turns that failed (they get a slide saying what
+      // happened) and opening words (a story needs its first word, even a
+      // randomly picked one).
       this.story = resp.data
-        ? resp.data.filter(turn => !turn.skipped || turn.timed_out || turn.turn_number == 0)
+        ? resp.data.filter(turn => !turn.skipped || turn.timed_out || turn.note || turn.turn_number == 0)
         : resp.data
     },
     // Banner over a turn's slide: how it came to be, when it wasn't simply
     // played. Only on the review; during the game these turns look normal.
     turnBanner(turn) {
       if (turn.skipped && turn.turn_number == 0) {
+        if (turn.note) return `${turn.note}, so we picked a random word`
         return turn.timed_out
           ? "⏱ Ran out of time, so we picked a random word"
           : "Skipped by the host, so we picked a random word"
@@ -176,6 +182,15 @@ export default {
   position: absolute;
   background-repeat: no-repeat;
   background-position: center center;
+}
+
+.turn-note {
+  z-index: 1;
+  max-width: 80%;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  font-style: italic;
+  text-align: center;
 }
 
 .turn-banner {

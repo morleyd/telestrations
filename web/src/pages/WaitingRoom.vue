@@ -35,7 +35,8 @@
         </div>
       </draggable>
     </div>
-    <v-card-actions :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+    <v-card-actions class="flex-wrap justify-center ga-2" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+      <AddBots v-if="userStore.is_host && gameId" :game-id="gameId" />
       <v-btn v-if="userStore.is_host" class="bg-primary" size="x-large" variant="elevated" @click="onBeginClicked">
         Begin!
       </v-btn>

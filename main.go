@@ -51,9 +51,14 @@ func main() {
 	// so the server is the one place that can check each write against the
 	// game's shape and flag the first bad turn, rather than finding a garbled
 	// story at the review screen.
+	// AI players (ai.go): providers come from ai.json at startup.
+	bots := newBotDriver(app, loadAIConfig(app))
+	app.RootCmd.AddCommand(aiSmokeCommand(app))
+
 	app.OnRecordAfterCreateSuccess("turns").BindFunc(func(e *core.RecordEvent) error {
 		auditTurn(e.App, e.Record)
 		skipIfNextIsDropped(e.App, e.Record.GetString("story_id"))
+		bots.kickGame(e.Record.GetString("game_id")) // a bot may be up next
 		return e.Next()
 	})
 	bindTurnGuards(app)
@@ -86,6 +91,9 @@ func main() {
 
 		// Host-only mid-game controls: skip or drop a player (see host.go).
 		bindHostRoutes(app, se)
+		bindAIRoutes(se, bots)
+		// Pick up bot turns left waiting by a restart.
+		go bots.kickAll()
 
 		se.Router.POST("/api/games/{gameId}/begin", func(e *core.RequestEvent) error {
 			gameID := e.Request.PathValue("gameId")
@@ -160,6 +168,9 @@ func main() {
 				return err
 			}
 
+			// AI players get their stories now (humans' pages create their own).
+			go bots.startGame(gameID)
+
 			return e.JSON(http.StatusOK, map[string]any{"ok": true})
 		})
 
@@ -187,18 +198,26 @@ func main() {
 		return se.Next()
 	})
 
-	// Run PocketBase server
+	// Run PocketBase. Start() runs whichever command was given: `serve` blocks
+	// until the server stops; one-shot commands (`superuser`, `ai-smoke`, ...)
+	// return when done, and then we exit instead of waiting for a signal.
+	done := make(chan struct{})
 	go func() {
 		if err := app.Start(); err != nil {
 			log.Fatalf("pocketbase start error: %v", err)
 		}
+		close(done)
 	}()
 
 	// Graceful shutdown on signal
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	s := <-sig
-	log.Printf("received signal %s - shutting down", s.String())
+	select {
+	case <-done:
+		return
+	case s := <-sig:
+		log.Printf("received signal %s - shutting down", s.String())
+	}
 
 	time.Sleep(500 * time.Millisecond)
 	log.Println("exit")

@@ -131,6 +131,27 @@ export const pbService = {
         return { errMsg: "getPlayers:" + JSON.stringify(err?.response?.message || err) }
       })
     },
+    // What AI players this server offers: providers (with models) and drawing
+    // styles. Empty when no AI is configured.
+    async getAIOptions() {
+      return await pb.send("/api/ai/options", { requestKey: null }).then(function (resp) {
+        return { data: resp }
+      }).catch(function (err) {
+        return { errMsg: "getAIOptions:" + JSON.stringify(err?.response?.message || err) }
+      })
+    },
+    // Host-only: add `count` AI players to a game that hasn't started.
+    async addBots(gameId, hostId, { provider, model, persona, style, count }) {
+      return await pb.send(`/api/games/${gameId}/bots`, {
+        method: "POST",
+        body: { host_id: hostId, provider, model, persona, style, count },
+        requestKey: null,
+      }).then(function (resp) {
+        return { data: resp }
+      }).catch(function (err) {
+        return { errMsg: JSON.stringify(err?.response?.message || err) }
+      })
+    },
     // Host-only: action is "skip" (their pending turns) or "drop" (from the game).
     async hostAction(gameId, userId, action, hostId) {
       console.log("hostAction request", { gameId, userId, action })
