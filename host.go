@@ -580,12 +580,18 @@ func bindTurnGuards(app core.App) {
 
 	// Clients may rename themselves and change their look. Everything else
 	// about a player is the server's: `dropped` (the host endpoints), hosting
-	// (game creation), the seat (/begin) and the game.
-	app.OnRecordUpdateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
-		orig := e.Record.Original()
+	// (game creation), the seat (/begin) and the game. The update writes every
+	// field, so those are read again inside the write: the copy PocketBase
+	// loaded before it may predate a /begin or a drop, and writing that copy
+	// back would undo it.
+	app.OnRecordUpdateRequest("users").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
+		current, err := e.App.FindRecordById("users", e.Record.Id)
+		if err != nil {
+			return e.NotFoundError("", err)
+		}
 		for _, field := range []string{"dropped", "is_host", "position", "game_id"} {
-			e.Record.Set(field, orig.Get(field))
+			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()
-	})
+	}))
 }
