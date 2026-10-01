@@ -12,6 +12,15 @@
       <v-container id="chat-scroll" class="overflow-y-auto" height="calc(100vh - 96px)">
         <!-- The review is open while the game is still going (the host has a
              button for it; anyone can use the link), so players can get back. -->
+        <!-- Play again: the same players, straight into a new game. -->
+        <v-btn v-if="canPlayAgain" block color="primary" class="mb-2" prepend-icon="mdi-replay" @click="openPlayAgain">
+          Start new game
+        </v-btn>
+        <v-alert v-if="joinOffer" class="mb-2" type="info" density="compact" text="The host started a new game.">
+          <v-btn class="mt-2" block color="primary" :loading="following" @click="followNextGame">
+            Join the new game
+          </v-btn>
+        </v-alert>
         <v-btn v-if="stillPlaying" block color="primary" class="mb-2" prepend-icon="mdi-arrow-left"
           :to="{ name: 'TakeTurn', params: { gameCode: $route.params.gameCode } }">
           Back to game
@@ -91,15 +100,37 @@
       </v-carousel-item>
     </v-carousel>
   </div>
+
+  <v-dialog v-model="showPlayAgain" max-width="500">
+    <v-card class="pa-4 bg-white" width="500" max-width="100%">
+      <v-card-title class="text-center text-h4">Play again!</v-card-title>
+      <v-card-subtitle class="text-center wrap">
+        Same players, same seats. Everyone goes straight to their first turn.
+      </v-card-subtitle>
+      <v-form ref="playAgainForm" @submit.prevent="playAgain">
+        <GameSettings v-model="playAgainSettings" @submit="playAgain" />
+        <v-row class="pa-2" style="justify-content: center;">
+          <v-btn size="x-large" color="primary" elevation="2" :loading="startingAgain" @click="playAgain">
+            Start!
+          </v-btn>
+        </v-row>
+      </v-form>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
+import { log } from '@/services/log'
 import { storyProgress } from '@/services/progress'
 import { reviewTurns, ranOutOfTime, turnBanner } from '@/services/story'
 import { storyImage, zipFiles, fileSafe, saveFile } from '@/services/storyImage'
+import { settingsOf, gameFields } from '@/services/settings'
+
+// How often the review re-checks the game (see created).
+const POLL_MS = 5000
 export default {
   name: "TakeTurn",
   data() {
@@ -111,8 +142,25 @@ export default {
       sidebarVisible: true,
       story: null,
       gameId: "",
-      // This viewer's row from /players, if they're in this game.
+      // This viewer's row from /players, if they're in this game, and everyone's.
       me: null,
+      players: [],
+      // The game, as checkGameStatus reads it (settings, nextGame).
+      game: null,
+      // Play again: the dialog, its settings, and the request in flight.
+      showPlayAgain: false,
+      playAgainSettings: null,
+      startingAgain: false,
+      // Moving this player to their seat in the next game: in flight, and
+      // wanted (the host started it while this page was open, so keep trying
+      // until it works).
+      following: false,
+      movingAcross: false,
+      // Show "Join the new game": a next game started before this page opened
+      // (we don't pull them away from the stories they came to look at), or
+      // moving them across failed and they can try again.
+      joinOffer: false,
+      pollTimer: null,
       // Whose story is open.
       starterId: "",
       // The download being made: "story", "all", or "".
@@ -130,20 +178,39 @@ export default {
     gameCode() {
       return String(this.$route.params.gameCode).toUpperCase()
     },
+    // This viewer is a player in this game (the stored user can be from an
+    // earlier one).
+    inThisGame() {
+      return Boolean(this.gameId && this.userStore.gameId === this.gameId)
+    },
+    // The host, once everyone is done and nobody has started another game.
+    canPlayAgain() {
+      return Boolean(this.me?.is_host && this.players.length && this.players.every(p => p.finished) &&
+        !this.game?.nextGame)
+    },
     // A player in this game who still has turns to play.
     stillPlaying() {
       return Boolean(this.me && !this.me.finished && !this.me.dropped)
     },
   },
   async created() {
-    let resp = await pbService.games.getGameId(this.$route.params.gameCode)
-    if (resp.errMsg) {
-      this.$emit("snack", resp.errMsg, "error")
+    const game = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+    if (game.errMsg) {
+      this.$emit("snack", game.errMsg, "error")
     }
-    this.gameId = resp.data
+    this.game = game
+    this.gameId = game.gameId
     this.getMe()
+    if (game.nextGame && this.inThisGame) {
+      this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId)).notFound
+    }
+    // Realtime brings the host's End Game and Play again, but a phone that
+    // slept through the event would never hear of them; and once End Game's
+    // time is up everyone is finished with nothing written to say so. So also
+    // check now and then.
+    this.pollTimer = setInterval(() => this.poll(), POLL_MS)
 
-    resp = await pbService.users.getUsers(this.$route.params.gameCode)
+    let resp = await pbService.users.getUsers(this.$route.params.gameCode)
     if (resp.errMsg) {
       this.$emit("snack", resp.errMsg, "error")
     }
@@ -159,14 +226,19 @@ export default {
       that.getProgress()
       that.getMe()
     }, { filter: `game_id.game_code="${that.$route.params.gameCode}"` })
-    // The host ending the game finishes everyone.
+    // The host ending the game finishes everyone; the host starting another
+    // takes everyone across to it.
     if (this.gameId) {
-      pb.collection('games').subscribe(this.gameId, () => that.getMe())
+      pb.collection('games').subscribe(this.gameId, (e) => {
+        that.getMe()
+        if (e.record?.next_game && !that.game?.nextGame) that.nextGameStarted(e.record.next_game)
+      })
     }
   },
   unmounted() {
     pb.collection('turns').unsubscribe();
     pb.collection('games').unsubscribe();
+    clearInterval(this.pollTimer)
   },
   methods: {
     storyProgress,
@@ -175,10 +247,70 @@ export default {
     // Where this viewer stands in the game, for "Back to game". The stored
     // user can be from an earlier game, so only one from this game counts.
     async getMe() {
-      if (!this.gameId || this.userStore.gameId !== this.gameId) return
+      if (!this.inThisGame) return
       const resp = await pbService.games.getPlayers(this.gameId)
       if (resp.errMsg) return // keep what we had; the next turn retries
+      this.players = resp.data
       this.me = resp.data.find(p => p.id === this.userStore.userId) || null
+    },
+    async poll() {
+      if (!this.inThisGame || this.following) return
+      if (this.movingAcross) {
+        this.followNextGame() // the last try failed
+        return
+      }
+      this.getMe()
+      if (this.game?.nextGame) return
+      const game = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+      if (game.nextGame && !this.game?.nextGame) this.nextGameStarted(game.nextGame)
+    },
+    // The host started the next game while this page was open: take the
+    // player across.
+    nextGameStarted(nextGame) {
+      this.game = { ...this.game, nextGame }
+      this.movingAcross = true
+      this.followNextGame()
+    },
+    openPlayAgain() {
+      this.playAgainSettings = settingsOf(this.game)
+      this.showPlayAgain = true
+    },
+    async playAgain() {
+      if (this.startingAgain) return // Enter fires the submit more than once
+      this.startingAgain = true
+      try {
+        if (!(await this.$refs.playAgainForm.validate()).valid) return
+        log.info("host.playAgain", gameFields(this.playAgainSettings))
+        const resp = await pbService.games.rematch(this.gameId, this.userStore.userId, gameFields(this.playAgainSettings))
+        if (resp.errMsg) {
+          this.$emit("snack", resp.errMsg, "error")
+          return
+        }
+        this.showPlayAgain = false
+        this.nextGameStarted(resp.data.game_id)
+      } finally {
+        this.startingAgain = false
+      }
+    },
+    // Moves this player to their seat in the game that followed this one, and
+    // into it. Someone who wasn't playing (or was dropped) has no seat there.
+    async followNextGame() {
+      if (this.following || !this.inThisGame) return
+      this.following = true
+      const { seat, notFound, errMsg } = await pbService.users.getNextSeat(this.userStore.userId)
+      if (!seat) {
+        this.following = false
+        // Not found: they weren't carried over (dropped). Otherwise they can
+        // try again, and the poll will.
+        this.joinOffer = !notFound
+        if (notFound) this.movingAcross = false
+        else log.warn("game.follow.failed", { err: errMsg })
+        return
+      }
+      log.info("game.follow", { game: seat.expand?.game_id?.game_code, userId: seat.id })
+      const { expand, ...user } = seat
+      this.userStore.user = user
+      this.$router.push({ name: "TakeTurn", params: { gameCode: expand.game_id.game_code } })
     },
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)

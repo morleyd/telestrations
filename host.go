@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"net/http"
 	"time"
@@ -437,6 +438,54 @@ func bindHostRoutes(se *core.ServeEvent) {
 	se.Router.POST("/api/games/{gameId}/players/{userId}/skip", hostAction(false))
 	se.Router.POST("/api/games/{gameId}/players/{userId}/drop", hostAction(true))
 
+	// Play again: a new game with the same players, in the same seats, straight
+	// into play. Only once everyone is done with this one; dropped players stay
+	// out. Pages still on this game see next_game set and move their player to
+	// their new seat (from_user). Starting again returns the same new game.
+	se.Router.POST("/api/games/{gameId}/rematch", func(e *core.RequestEvent) error {
+		body := struct {
+			HostID string `json:"host_id"`
+			// Seconds a turn lasts (whole seconds are kept); 0 or less for
+			// untimed.
+			RoundDuration float64 `json:"round_duration"`
+			Rounds        int     `json:"rounds"`
+			Endless       bool    `json:"endless"`
+		}{}
+		if err := e.BindBody(&body); err != nil {
+			return e.BadRequestError("Invalid body.", err)
+		}
+		gameID := e.Request.PathValue("gameId")
+		if _, err := requireHost(e, gameID, body.HostID, body.HostID); err != nil {
+			return err
+		}
+		var next *core.Record
+		err := e.App.RunInTransaction(func(tx core.App) error {
+			game, err := tx.FindRecordById("games", gameID)
+			if err != nil {
+				return err
+			}
+			if id := game.GetString("next_game"); id != "" {
+				next, err = tx.FindRecordById("games", id)
+				return err
+			}
+			players, err := gamePlayers(tx, gameID)
+			if err != nil {
+				return err
+			}
+			for _, p := range players {
+				if !p.Finished {
+					return e.BadRequestError("Everyone needs to finish this game first.", nil)
+				}
+			}
+			next, err = startRematch(tx, game, int(math.Round(body.RoundDuration)), body.Rounds, body.Endless)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		return e.JSON(http.StatusOK, map[string]any{"game_id": next.Id, "game_code": next.GetString("game_code")})
+	})
+
 	// End Game. Players get endCountdown to finish the turn they're on (their
 	// pages count it down and submit what they have), then the game is over:
 	// nobody is next on any story and every player is finished. Ending again
@@ -559,6 +608,86 @@ func requestedTurnIndex(e *core.RecordRequestEvent) int {
 		return -1
 	}
 	return e.Record.GetInt("turn_index")
+}
+
+// startRematch creates and starts the game after game (see /rematch): its
+// players who weren't dropped, seated in the same order, each new seat
+// pointing back at the player it continues.
+func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, endless bool) (*core.Record, error) {
+	games, err := tx.FindCollectionByNameOrId("games")
+	if err != nil {
+		return nil, err
+	}
+	code, err := newGameCode(tx)
+	if err != nil {
+		return nil, err
+	}
+	if roundDuration <= 0 {
+		roundDuration = -1
+	}
+	next := core.NewRecord(games)
+	next.Set("game_code", code)
+	next.Set("roundDuration", roundDuration)
+	next.Set("rounds", max(rounds, 1))
+	next.Set("endless", endless)
+	next.Set("isStarted", true)
+	if err := tx.Save(next); err != nil {
+		return nil, err
+	}
+
+	old, err := tx.FindRecordsByFilter("users", "game_id = {:g} && dropped = false", "position,id", 0, 0,
+		dbx.Params{"g": game.Id})
+	if err != nil {
+		return nil, err
+	}
+	users, err := tx.FindCollectionByNameOrId("users")
+	if err != nil {
+		return nil, err
+	}
+	seating := make([]string, 0, len(old))
+	for i, u := range old {
+		seat := core.NewRecord(users)
+		for _, field := range []string{"username", "avatar", "color", "is_host"} {
+			seat.Set(field, u.Get(field))
+		}
+		seat.Set("game_id", next.Id)
+		seat.Set("position", i)
+		seat.Set("from_user", u.Id)
+		if err := tx.Save(seat); err != nil {
+			return nil, err
+		}
+		seating = append(seating, u.GetString("username"))
+	}
+
+	game.Set("next_game", next.Id)
+	if err := tx.Save(game); err != nil {
+		return nil, err
+	}
+	tx.Logger().Info("game: rematch", "from_game", game.GetString("game_code"), "game", code,
+		"game_id", next.Id, "seating", seating, "rounds", next.GetInt("rounds"), "endless", endless,
+		"round_duration", roundDuration)
+	return next, nil
+}
+
+// newGameCode is a game code nobody's using: five lowercase letters, as the
+// client makes them (see generateGameCode in stores/user.js).
+func newGameCode(app core.App) (string, error) {
+	const letters = "abcdefghijklmnopqrstuvwxyz"
+	for range 20 {
+		b := make([]byte, 5)
+		for i := range b {
+			b[i] = letters[rand.Intn(len(letters))]
+		}
+		code := string(b)
+		_, err := app.FindFirstRecordByFilter("games", "game_code = {:c}", dbx.Params{"c": code})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return code, nil
+		case err != nil:
+			return "", err
+		}
+	}
+	return "", errors.New("no free game code")
 }
 
 // endCountdown is how long End Game gives players to finish the turn they're on.
@@ -686,15 +815,21 @@ func bindTurnGuards(app core.App) {
 	app.OnRecordCreateRequest("games").BindFunc(func(e *core.RecordRequestEvent) error {
 		e.Record.Set("isStarted", false)
 		e.Record.Set("ends_at", "")
+		e.Record.Set("next_game", "")
 		return e.Next()
 	})
-	app.OnRecordUpdateRequest("games").BindFunc(func(e *core.RecordRequestEvent) error {
-		orig := e.Record.Original()
-		for _, field := range []string{"isStarted", "ends_at", "rounds", "endless", "roundDuration"} {
-			e.Record.Set(field, orig.Get(field))
+	// Read inside the write, like a player's server fields below: writing back
+	// a copy loaded before an /end would undo it.
+	app.OnRecordUpdateRequest("games").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
+		current, err := e.App.FindRecordById("games", e.Record.Id)
+		if err != nil {
+			return e.NotFoundError("", err)
+		}
+		for _, field := range []string{"isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game"} {
+			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()
-	})
+	}))
 
 	// The roster is fixed once a game starts (the seats are). The users API
 	// rules say so too, but PocketBase checks those before the write, so a join
@@ -708,6 +843,7 @@ func bindTurnGuards(app core.App) {
 			return e.BadRequestError(msgGameStarted, nil)
 		}
 		e.Record.Set("dropped", false)
+		e.Record.Set("from_user", "") // only a rematch carries a player over
 		if e.Record.GetBool("is_host") {
 			_, err := e.App.FindFirstRecordByFilter("users", "game_id = {:g} && is_host = true",
 				dbx.Params{"g": e.Record.GetString("game_id")})
@@ -735,7 +871,7 @@ func bindTurnGuards(app core.App) {
 		if err != nil {
 			return e.NotFoundError("", err)
 		}
-		for _, field := range []string{"dropped", "is_host", "position", "game_id"} {
+		for _, field := range []string{"dropped", "is_host", "position", "game_id", "from_user"} {
 			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()

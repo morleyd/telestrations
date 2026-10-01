@@ -81,6 +81,14 @@ which saves it as one image: each turn in order, with who wrote or drew it.
 **Download all stories** (there and at the top of the player list) saves a zip
 of every story's image. Any player can download, not just the host.
 
+## Playing again
+
+When everyone's done, the host's review page has **Start new game**: the same
+players (minus anyone dropped) in the same seats, with the same settings or
+new ones. Everybody on the review goes straight to their first turn. Anyone
+who'd wandered off finds a **Join the new game** button on the old game's
+review page.
+
 ## Rounds
 
 The **New Game** dialog sets how many rounds to play: how many times each story
