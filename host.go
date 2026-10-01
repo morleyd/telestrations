@@ -490,10 +490,15 @@ func wrongTurnType(app core.App, s *storyState, turn *core.Record) string {
 // a game starting under a join, or a drop under a turn.
 func inWriteTx(guard func(e *core.RecordRequestEvent) error) func(e *core.RecordRequestEvent) error {
 	return func(e *core.RecordRequestEvent) error {
-		return e.App.RunInTransaction(func(tx core.App) error {
+		app := e.App
+		err := app.RunInTransaction(func(tx core.App) error {
 			e.App = tx
 			return guard(e)
 		})
+		// The event belongs to the whole request, so hand back the app the
+		// rest of it expects, not a finished transaction.
+		e.App = app
+		return err
 	}
 }
 
