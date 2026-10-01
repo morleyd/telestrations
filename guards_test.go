@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -132,5 +133,102 @@ func TestOneTurnPerPlayerPerStory(t *testing.T) {
 		if item, _ := data[field].(map[string]any); item["code"] != "validation_not_unique" {
 			t.Errorf("%s: %v, want validation_not_unique", field, data[field])
 		}
+	}
+}
+
+// The turn-kind rule end to end, timed game or not (timed games once
+// submitted the word again for a blank canvas): a story opens with a word,
+// then drawings and guesses alternate, and each right turn is accepted.
+func TestTurnKindsAlternateTimedOrNot(t *testing.T) {
+	app := newTestApp(t)
+	api := serveAPI(t, app)
+	for _, timed := range []bool{false, true} {
+		g := newGame(t, app, "ann", "ben", "cat")
+		if timed {
+			g.timed(t)
+		}
+		steps := []struct {
+			name      string
+			isDrawing bool
+			want      string // a refusal code, or "" for accepted
+		}{
+			{"ann", true, codeWrongTurnType},
+			{"ann", false, ""},
+			{"ben", false, codeWrongTurnType},
+			{"ben", true, ""},
+			{"cat", true, codeWrongTurnType},
+			{"cat", false, ""},
+		}
+		for i, s := range steps {
+			rec := call(api, http.MethodPost, turnsPath, g.turn("ann", s.name, s.isDrawing))
+			code, _ := refusal(rec)
+			if (s.want == "" && rec.Code != http.StatusOK) || code != s.want {
+				t.Fatalf("timed %v, step %d (%s, drawing %v): %d %s", timed, i, s.name, s.isDrawing, rec.Code, rec.Body)
+			}
+		}
+	}
+}
+
+// Once a story is done nothing more is written to it, not even a turn or a
+// timeout with no player (a finished story waits on no one).
+func TestFinishedStoryTakesNoMoreTurns(t *testing.T) {
+	app := newTestApp(t)
+	api := serveAPI(t, app)
+	g := newGame(t, app, "ann", "ben", "cat").timed(t)
+	g.play(t, "ann", "ann")
+	g.play(t, "ann", "ben")
+	g.play(t, "ann", "cat")
+
+	if rec := call(api, http.MethodPost, turnsPath, g.turn("ann", "nobody", true)); rec.Code != http.StatusBadRequest {
+		t.Errorf("a turn with no player: %d %s", rec.Code, rec.Body)
+	}
+	if rec := call(api, http.MethodPost, "/api/stories/"+g.stories["ann"].Id+"/timeout",
+		map[string]any{"user_id": ""}); rec.Code != http.StatusBadRequest {
+		t.Errorf("a timeout with no player: %d %s", rec.Code, rec.Body)
+	}
+	if s, _ := loadStory(app, g.stories["ann"].Id); s.Taken != 3 {
+		t.Fatalf("ann's finished story has %d turns, want 3", s.Taken)
+	}
+}
+
+// Host powers (Skip, Drop) go to whoever has is_host, so only the player who
+// created the game may have it: a later join can't claim it, and nobody can
+// promote themselves (or reseat themselves, or move games) afterwards.
+func TestOnlyTheCreatorHosts(t *testing.T) {
+	app := newTestApp(t)
+	api := serveAPI(t, app)
+
+	lobby := newLobby(t, app, "ann", "ben")
+	rec := call(api, http.MethodPost, "/api/collections/users/records",
+		map[string]any{"username": "dee", "game_id": lobby.game.Id, "is_host": true})
+	var joined struct {
+		IsHost bool `json:"is_host"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &joined); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("join: %d %s", rec.Code, rec.Body)
+	}
+	if joined.IsHost {
+		t.Error("a player joining as host became a second host")
+	}
+
+	g := newGame(t, app, "ann", "ben", "cat")
+	ben, cat := g.players["ben"], g.players["cat"]
+	rec = call(api, http.MethodPatch, "/api/collections/users/records/"+ben.Id, map[string]any{
+		"is_host": true, "position": 7, "game_id": lobby.game.Id, "username": "benny",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", rec.Code, rec.Body)
+	}
+	after, err := app.FindRecordById("users", ben.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.GetBool("is_host") || after.GetInt("position") != ben.GetInt("position") ||
+		after.GetString("game_id") != g.game.Id || after.GetString("username") != "benny" {
+		t.Errorf("after ben's update: is_host=%v position=%d game=%s username=%q; want only the name changed",
+			after.GetBool("is_host"), after.GetInt("position"), after.GetString("game_id"), after.GetString("username"))
+	}
+	if rec := g.hostAct(api, "skip", ben, cat); rec.Code != http.StatusForbidden {
+		t.Errorf("ben skipping cat as host: %d, want 403", rec.Code)
 	}
 }
