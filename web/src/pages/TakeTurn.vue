@@ -22,6 +22,10 @@
     <v-card-title class="wrap">The host removed you from this game.</v-card-title>
     <span v-if="reviewPath">You can still see the results at: <a :href="reviewPath">{{ reviewPath }}</a></span>
   </div>
+  <div v-else-if="userState == 'loading'" class="pa-4 text-center" style="justify-self: center;">
+    <v-progress-circular indeterminate color="primary" />
+    <div class="mt-2">Loading...</div>
+  </div>
   <div v-else style="justify-self: center;">
     <span>Error...</span>
   </div>
@@ -53,7 +57,11 @@ export default {
   name: "TakeTurn",
   data() {
     return {
-      userState: "",
+      // "loading" until the first pass decides which turn we're on. Kept apart
+      // from the Error screen (any unknown state): every player passes through
+      // here when the host starts, and showing "Error..." while the first
+      // turn loaded looked like the start had failed.
+      userState: "loading",
       nextPrompts: [],
       curPrompt: null,
       showLoginDialog: false,
@@ -102,6 +110,7 @@ export default {
     // Check if game code is valid and game is active
     this.gameId = await this.isValidGame()
     if (!this.gameId) {
+      this.userState = "error"
       return
     }
     log.setContext({ game: this.$route.params.gameCode, gameId: this.gameId })
@@ -166,16 +175,16 @@ export default {
       // mid-transition into "waiting" and be dropped, leaving the player
       // stranded even though their next prompt is already available — and once
       // everyone ahead of them has finished, no further turn events fire to
-      // re-trigger it. Re-checking on a timer makes progress self-heal. The ""
-      // state (the Error screen, e.g. a createStory attempt that failed at the
-      // start burst) is retried too — at game start no turn events exist yet,
-      // so without the poll that screen was a dead end until manual refresh.
+      // re-trigger it. Re-checking on a timer makes progress self-heal. The
+      // "loading" state (e.g. a createStory attempt that failed at the start
+      // burst) is retried too — at game start no turn events exist yet, so
+      // without the poll that screen was a dead end until manual refresh.
       //
       // Every DROPPED_CHECK_TICKS polls it also checks whether the host dropped
       // us: a player idling on a turn screen gets no event for that.
       let ticks = 0
       this.pollTimer = setInterval(async function () {
-        if (that.userState === "waiting" || that.userState === "") {
+        if (that.userState === "waiting" || that.userState === "loading") {
           that.getTurns()
         } else if (++ticks % DROPPED_CHECK_TICKS == 0 && ['playing', 'firstTurn'].includes(that.userState)) {
           if ((await pbService.users.getUserById(that.userStore.userId)).dropped) that.setRemoved()
@@ -324,9 +333,9 @@ export default {
             return
           }
           if (created.errMsg) {
-            // userState stays "" (the Error screen); the poll retries that
-            // state, so a transient create failure at the start burst
-            // self-heals instead of dead-ending until a manual refresh.
+            // userState stays "loading"; the poll retries that state, so a
+            // transient create failure at the start burst self-heals instead
+            // of dead-ending until a manual refresh.
             this.$emit("snack", created.errMsg, "error")
             return
           }
