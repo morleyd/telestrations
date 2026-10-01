@@ -134,13 +134,9 @@ func TestDropKeepsAStoryOpenedAfterItsSnapshot(t *testing.T) {
 // snapshot and its skip of that story, and dan's own story (never opened, so
 // the drop deletes it) comes after it, so losing the race strands something.
 func TestDropRacingASubmitOverHTTP(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	const rounds = 50
 	hostSkipped := map[int]int{} // rounds by how many stories the drop itself handled
-	for round := range rounds {
+	soakGames(t, rounds, func(round int, app core.App, api http.Handler) {
 		// dan owes ann's and ben's stories; cat's opening word hands him cat's.
 		g := newGame(t, app, "ann", "ben", "cat", "dan")
 		g.play(t, "ann", "ann")
@@ -178,7 +174,7 @@ func TestDropRacingASubmitOverHTTP(t *testing.T) {
 			t.Fatal(err)
 		}
 		hostSkipped[resp.Skipped]++
-	}
+	})
 	t.Logf("%d rounds: the drop handled all 4 of dan's stories in %d, 3 in %d (the after-turn auto-skip took cat's)",
 		rounds, hostSkipped[4], hostSkipped[3])
 }
