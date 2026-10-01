@@ -417,6 +417,22 @@ func isPermutation(seats []int) bool {
 	return true
 }
 
+// deleteGame removes gameID and everything in it, straight from the tables:
+// nothing cascades, and no hook needs to see it go.
+func deleteGame(t *testing.T, app core.App, gameID string) {
+	t.Helper()
+	for _, q := range []string{
+		"DELETE FROM turns WHERE game_id = {:g}",
+		"DELETE FROM stories WHERE game_id = {:g}",
+		"DELETE FROM users WHERE game_id = {:g}",
+		"DELETE FROM games WHERE id = {:g}",
+	} {
+		if _, err := app.DB().NewQuery(q).Bind(dbx.Params{"g": gameID}).Execute(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // orphanTurns counts the game's turns whose story is missing (blanked by a
 // story delete, or pointing at one that's gone).
 func (g *testGame) orphanTurns(t *testing.T) int {

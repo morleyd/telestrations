@@ -64,6 +64,9 @@ func playRandomGame(t *testing.T, app core.App, api http.Handler, rng *rand.Rand
 		names[i] = fmt.Sprintf("p%d", i)
 	}
 	g := newGame(t, app, names...).timed(t)
+	// Each game gets the tables to itself, as in a MODEL_SEED replay; the
+	// views scan whole tables, so games left behind would slow every later one.
+	t.Cleanup(func() { deleteGame(t, app, g.game.Id) })
 	host := g.players[names[0]]
 	// Some players haven't opened their story when the game starts.
 	for _, name := range names {
