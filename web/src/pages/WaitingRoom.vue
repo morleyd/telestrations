@@ -45,9 +45,15 @@
     </v-card-actions>
   </v-card>
 
-  <v-dialog v-model="showEditUsernameDialog" max-width="500">
+  <!-- Persistent while joining: dismissing it would leave the player in the
+       waiting room without a seat and no way to get one. -->
+  <ConfirmRejoin ref="rejoin" />
+
+  <v-dialog v-model="showEditUsernameDialog" max-width="500" :persistent="!userStore.userId">
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
-      <v-card-title class="text-center text-h4">Edit your Username!</v-card-title>
+      <v-card-title class="text-center text-h4">
+        {{ userStore.userId ? "Edit your Username!" : "Join the Game!" }}
+      </v-card-title>
       <v-form ref="form" @submit.prevent="onUsernameSubmit">
         <SetUsername ref="username" @username="onUsernameSubmit" />
         <v-row class="pa-2" style="justify-content: center;">
@@ -65,6 +71,7 @@ import { VueDraggableNext } from 'vue-draggable-next'
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
+import { log } from '@/services/log'
 export default {
   name: "TakeTurn",
   data() {
@@ -101,12 +108,8 @@ export default {
     }
 
     this.gameId = validGame.gameId
-
-    if (!this.userStore.username) {
-      this.showEditUsernameDialog = true
-    } else {
-      this.userStore.user = await pbService.users.getUser(this.userStore.username, validGame.gameId)
-    }
+    log.setContext({ game: gameCode, gameId: this.gameId })
+    await this.resolveUser()
 
     let resp = await pbService.users.getUsers(gameCode)
     if (resp.errMsg) {
@@ -144,6 +147,37 @@ export default {
     pb.collection('games').unsubscribe();
   },
   methods: {
+    // Work out who this tab is in *this* game. The stored user outlives a game
+    // (sessionStorage), so following a new game's link from the last game's
+    // review page arrives with a user that belongs to the old game. Only a user
+    // from this game is kept; anyone else gets the join dialog, pre-filled with
+    // their last name and avatar.
+    async resolveUser() {
+      const stored = this.userStore.user
+      if (stored?.id && stored.game_id === this.gameId) {
+        // Re-read it: the host may have removed us, or we renamed in another tab.
+        const fresh = await pbService.users.getUserById(stored.id)
+        if (fresh.id) {
+          this.userStore.user = fresh
+          log.setContext({ username: fresh.username, userId: fresh.id })
+          log.info("waitingRoom.user", { outcome: "member" })
+          return
+        }
+      }
+
+      log.info("waitingRoom.user", {
+        outcome: stored?.id ? "otherGame" : "none",
+        storedGameId: stored?.game_id,
+        storedUsername: stored?.username,
+      })
+      this.userStore.user = null
+      this.showEditUsernameDialog = true
+      if (stored?.username) {
+        this.$nextTick(() => {
+          this.$refs.username?.set(stored.username, stored.avatar)
+        })
+      }
+    },
     onEditUserClick() {
       this.showEditUsernameDialog = true
       this.$nextTick(() => {
@@ -193,16 +227,26 @@ export default {
       let user = await pbService.users.getUser(username, this.gameId)
 
       if (user.hasOwnProperty("id")) {
+        // Name taken: rejoin only if they confirm it's them; otherwise keep the
+        // join dialog open to pick another name.
+        if (!(await this.$refs.rejoin.ask(user))) {
+          return
+        }
         this.userStore.user = user
-        this.$emit("snack", "Username already exists. Assuming it's yours.", "warning")
+        this.showEditUsernameDialog = false
+        this.$emit("snack", `Welcome back, ${user.username}!`, "success")
+        log.info("waitingRoom.join", { outcome: "reattached", userId: user.id })
       } else {
         let resp = await this.userStore.newUser(username, avatar, color, this.gameId, false)
         if (resp.errMsg) {
-          this.$emit("snack", error.errMsg, "error")
+          log.warn("waitingRoom.join", { outcome: "failed", err: resp.errMsg })
+          this.$emit("snack", resp.errMsg, "error")
         } else {
           this.showEditUsernameDialog = false
+          log.info("waitingRoom.join", { outcome: "created", userId: resp.data.id })
         }
       }
+      log.setContext({ username: this.userStore.username, userId: this.userStore.userId })
     },
     async updateUser(username, avatar, color) {
       // Check if user exists (they just need to re-login)

@@ -10,6 +10,7 @@
     <v-spacer />
     <span class="me-4 font-weight-bold">{{ userStore.username }}</span>
     <AvatarIcon :user="userStore.user" />
+    <ManagePlayers />
     <v-btn icon="mdi-home" :to="{ name: 'Home' }" />
   </v-app-bar>
 </template>

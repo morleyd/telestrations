@@ -123,6 +123,7 @@ export default {
       switch (parent) {
         case "line":
           this.color = hex
+          this.eraser = false // picking a color means drawing with it
           break;
         case "background":
           this.bgColor = hex

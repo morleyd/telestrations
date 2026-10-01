@@ -58,6 +58,7 @@ export default {
     },
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
+      if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }

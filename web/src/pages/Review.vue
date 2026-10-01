@@ -25,10 +25,20 @@
       :style="getWindowWidth">
       <v-carousel-item v-for="(turn, idx) in story" :key="idx" lazy-src="@/assets/logo.svg" gradient="#2c5ea3, #e3eefc">
         <div class="d-flex fill-height justify-center align-center">
+          <div v-if="turnBanner(turn)" class="turn-banner position-absolute top-0 mt-4 px-4 py-1">
+            {{ turnBanner(turn) }}
+          </div>
           <v-card-title class="position-absolute right-0 bottom-0 mb-12">
             {{ userMap[turn.turn_user_id].username }}
           </v-card-title>
-          <div v-if="turn.drawing" class="pa-4" :style="getWindowWidth">
+          <!-- A skipped turn after the opening word just repeats the one before
+               it; say what happened instead of showing it twice. -->
+          <div v-if="turn.skipped && turn.turn_number > 0" class="fill-height align-content-center">
+            <v-card-title class="wrap text-h4">
+              ⏱ {{ userMap[turn.turn_user_id].username }} ran out of time
+            </v-card-title>
+          </div>
+          <div v-else-if="turn.drawing" class="pa-4" :style="getWindowWidth">
             <v-img :src="turn.drawing" width="100%" max-height="calc(100vh - 130px)" />
           </div>
           <div v-else class="fill-height align-content-center">
@@ -92,6 +102,7 @@ export default {
   methods: {
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
+      if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }
@@ -110,7 +121,23 @@ export default {
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }
+      // Host skips just carry the previous turn forward; leave them out. Keep
+      // timeouts (they get a "ran out of time" slide) and opening words (a story
+      // needs its first word, even a randomly picked one).
       this.story = resp.data
+        ? resp.data.filter(turn => !turn.skipped || turn.timed_out || turn.turn_number == 0)
+        : resp.data
+    },
+    // Banner over a turn's slide: how it came to be, when it wasn't simply
+    // played. Only on the review; during the game these turns look normal.
+    turnBanner(turn) {
+      if (turn.skipped && turn.turn_number == 0) {
+        return turn.timed_out
+          ? "⏱ Ran out of time, so we picked a random word"
+          : "Skipped by the host, so we picked a random word"
+      }
+      if (turn.timed_out && !turn.skipped) return "⏱ Ran out of time"
+      return ""
     }
   },
 };
@@ -149,6 +176,15 @@ export default {
   position: absolute;
   background-repeat: no-repeat;
   background-position: center center;
+}
+
+.turn-banner {
+  z-index: 1;
+  background: rgba(255, 243, 205, 0.95);
+  border: 1px solid #e0b252;
+  border-radius: 16px;
+  color: #6b4e00;
+  font-weight: 500;
 }
 
 .wrap {

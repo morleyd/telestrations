@@ -6,7 +6,8 @@ const webDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(webDir, '..')
 
 // Isolated ports/data so the suite never collides with a dev server or touches
-// the real pb_data (global-setup.js seeds .e2e-pb-data from a copy).
+// the real pb_data: the backend starts on an empty .e2e-pb-data, which
+// PocketBase builds from the migrations (schema + API rules).
 const PB_PORT = 8091
 const WEB_PORT = 5199
 
@@ -20,7 +21,6 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 1,
   workers: 1,
   reporter: [['list']],
-  globalSetup: './tests/e2e/global-setup.js',
   globalTeardown: './tests/e2e/global-teardown.js',
   timeout: 30_000,
   expect: { timeout: 10_000 },
@@ -33,8 +33,10 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // Real backend, but against a throwaway copy of pb_data on a test port.
-      command: `go run . serve --dir .e2e-pb-data --http 127.0.0.1:${PB_PORT}`,
+      // Real backend on a test port, against a fresh data dir. The wipe lives
+      // here rather than in a globalSetup because Playwright starts webServers
+      // *before* globalSetup runs.
+      command: `rm -rf .e2e-pb-data && go run . serve --dir .e2e-pb-data --http 127.0.0.1:${PB_PORT}`,
       cwd: repoRoot,
       url: `http://127.0.0.1:${PB_PORT}/api/health`,
       reuseExistingServer: false,
