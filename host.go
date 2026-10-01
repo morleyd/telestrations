@@ -35,6 +35,7 @@ const (
 	msgTurnSkipped    = "Your turn on this story was skipped by the host."
 	msgPlayerRemoved  = "You were removed from this game by the host."
 	msgNotYourTurn    = "It isn't your turn on this story."
+	msgGameStarted    = "This game has already started."
 	msgAlreadyTakenBy = "You already took your turn on this story."
 
 	// Wrong kind of turn. Only an out-of-date page does this, so say how to fix it.
@@ -215,17 +216,29 @@ func skipOwedTurns(app core.App, stories []storyState, gameID, userID string, dr
 }
 
 // deleteEmptyStory removes a dropped player's own story that never got its
-// opening word.
+// opening word. The turn guard already refuses a dropped player's word, so
+// one can't land after the snapshot; the check here, inside the delete's own
+// transaction, keeps it that way for any writer that skips the guard, since
+// deleting a story with a word would leave the word as a turn with no story.
 func deleteEmptyStory(app core.App, gameID, storyID, userID string) error {
-	story, err := app.FindRecordById("stories", storyID)
-	if err != nil {
-		return err
-	}
-	if err := app.Delete(story); err != nil {
-		return err
-	}
-	app.Logger().Info("host: empty story removed", "game_id", gameID, "story", storyID, "user_id", userID)
-	return nil
+	return app.RunInTransaction(func(tx core.App) error {
+		s, err := loadStory(tx, storyID)
+		if err != nil {
+			return err
+		}
+		if s.Taken != 0 || s.NextUser != userID {
+			return errNotTheirTurn
+		}
+		story, err := tx.FindRecordById("stories", storyID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Delete(story); err != nil {
+			return err
+		}
+		tx.Logger().Info("host: empty story removed", "game_id", gameID, "story", storyID, "user_id", userID)
+		return nil
+	})
 }
 
 // isDropped reports whether the host dropped userID from their game. An
@@ -470,13 +483,34 @@ func wrongTurnType(app core.App, s *storyState, turn *core.Record) string {
 	return ""
 }
 
+// inWriteTx runs a request guard's checks and the write they guard (e.Next())
+// in one transaction on the single write connection. PocketBase checks a
+// collection's API rules, and a guard does its reads, on a read connection
+// before the write happens; without this, another write can land in between:
+// a game starting under a join, or a drop under a turn.
+func inWriteTx(guard func(e *core.RecordRequestEvent) error) func(e *core.RecordRequestEvent) error {
+	return func(e *core.RecordRequestEvent) error {
+		return e.App.RunInTransaction(func(tx core.App) error {
+			e.App = tx
+			return guard(e)
+		})
+	}
+}
+
+// gameStarted reports whether gameID has begun. An unknown game hasn't;
+// relation validation reports that.
+func gameStarted(app core.App, gameID string) bool {
+	game, err := app.FindRecordById("games", gameID)
+	return err == nil && game.GetBool("isStarted")
+}
+
 // bindTurnGuards enforces the rotation on writes from clients. Server-side
 // writes (skips) go through app.Save and don't pass through these.
 func bindTurnGuards(app core.App) {
 	// A client may only write the turn the rotation is waiting on, and only if
 	// they're still in the game. Also the one place a late submit learns its
 	// turn was skipped in the meantime.
-	app.OnRecordCreateRequest("turns").BindFunc(func(e *core.RecordRequestEvent) error {
+	app.OnRecordCreateRequest("turns").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
 		e.Record.Set("skipped", false)
 		storyID, userID := e.Record.GetString("story_id"), e.Record.GetString("user_id")
 
@@ -501,19 +535,27 @@ func bindTurnGuards(app core.App) {
 		// The story decides the game; gamePlayers counts turns by game_id.
 		e.Record.Set("game_id", s.GameID)
 		return e.Next()
-	})
+	}))
 
 	// A dropped player's client mustn't start a fresh story.
-	app.OnRecordCreateRequest("stories").BindFunc(func(e *core.RecordRequestEvent) error {
+	app.OnRecordCreateRequest("stories").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
 		if isDropped(e.App, e.Record.GetString("starter_id")) {
 			return refuse(codePlayerRemoved, msgPlayerRemoved)
 		}
 		return e.Next()
-	})
+	}))
 
+	// The roster is fixed once a game starts (the seats are). The users API
+	// rules say so too, but PocketBase checks those before the write, so a join
+	// or a leave could still land just after /begin seated everyone; checking
+	// again inside the write closes that gap.
+	//
 	// A game's host is the player who created it: a later join can't claim it
 	// (requireHost trusts is_host), and nobody joins already dropped.
-	app.OnRecordCreateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
+	app.OnRecordCreateRequest("users").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
+		if gameStarted(e.App, e.Record.GetString("game_id")) {
+			return e.BadRequestError(msgGameStarted, nil)
+		}
 		e.Record.Set("dropped", false)
 		if e.Record.GetBool("is_host") {
 			_, err := e.App.FindFirstRecordByFilter("users", "game_id = {:g} && is_host = true",
@@ -523,7 +565,13 @@ func bindTurnGuards(app core.App) {
 			}
 		}
 		return e.Next()
-	})
+	}))
+	app.OnRecordDeleteRequest("users").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
+		if gameStarted(e.App, e.Record.GetString("game_id")) {
+			return e.BadRequestError(msgGameStarted, nil)
+		}
+		return e.Next()
+	}))
 
 	// Clients may rename themselves and change their look. Everything else
 	// about a player is the server's: `dropped` (the host endpoints), hosting
