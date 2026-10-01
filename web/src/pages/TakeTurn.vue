@@ -57,6 +57,11 @@ export default {
       nextPrompts: [],
       curPrompt: null,
       showLoginDialog: false,
+      // One Enter in the login dialog runs onLoginClicked twice (see
+      // SetUsername's onSubmit). Latch on the first in-flight call so the
+      // duplicate no-ops. Kept apart from `submitting`, the turn-write lock, so
+      // signing in can never hold or release a turn submit.
+      loggingIn: false,
       username: "",
       gameId: "",
       duration: -1,
@@ -224,34 +229,44 @@ export default {
       return validGame.gameId
     },
     async onLoginClicked() {
-      let validation = await this.$refs.username.validate()
-      if (!validation.valid) {
+      // Latch synchronously before the first await (see `loggingIn`) so a
+      // duplicate call returns here instead of racing a second sign-in.
+      if (this.loggingIn) {
         return
       }
+      this.loggingIn = true
+      try {
+        let validation = await this.$refs.username.validate()
+        if (!validation.valid) {
+          return
+        }
 
-      // Check user is in game
-      let resp = await pbService.users.getUsers(this.$route.params.gameCode)
-      if (resp.errMsg) {
-        this.$emit("snack", resp.errMsg, "error")
-        return;
-      }
-      if (!resp.data) {
-        return;
-      }
+        // Check user is in game
+        let resp = await pbService.users.getUsers(this.$route.params.gameCode)
+        if (resp.errMsg) {
+          this.$emit("snack", resp.errMsg, "error")
+          return;
+        }
+        if (!resp.data) {
+          return;
+        }
 
-      let user = resp.data.find(o => o.username == validation.username)
-      if (!user) {
-        this.$emit("snack", "Not an active user in this game.", "error")
-        return
-      }
-      // Signing in here always takes over an existing seat, so make sure it's theirs.
-      if (!(await this.$refs.rejoin.ask(user))) {
-        return
-      }
+        let user = resp.data.find(o => o.username == validation.username)
+        if (!user) {
+          this.$emit("snack", "Not an active user in this game.", "error")
+          return
+        }
+        // Signing in here always takes over an existing seat, so make sure it's theirs.
+        if (!(await this.$refs.rejoin.ask(user))) {
+          return
+        }
 
-      this.userStore.user = user
-      this.showLoginDialog = false
-      await this.startPlaying()
+        this.userStore.user = user
+        this.showLoginDialog = false
+        await this.startPlaying()
+      } finally {
+        this.loggingIn = false
+      }
     },
     // Where we stand, from the server: `finished` once we've taken a turn on
     // every story (and every active player has one), `dropped` if the host
