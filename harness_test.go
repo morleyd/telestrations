@@ -44,12 +44,19 @@ func newTestApp(t *testing.T) *tests.TestApp {
 // requests through the request hooks without opening a port.
 func serveAPI(t *testing.T, app core.App) http.Handler {
 	t.Helper()
+	return serve(t, app, bindAPIRoutes)
+}
+
+// serve builds app's handler the way `serve` does, with bind registering the
+// game's routes on top of PocketBase's own.
+func serve(t *testing.T, app core.App, bind func(se *core.ServeEvent)) http.Handler {
+	t.Helper()
 	router, err := apis.NewRouter(app)
 	if err != nil {
 		t.Fatal(err)
 	}
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		bindAPIRoutes(se)
+		bind(se)
 		return se.Next()
 	})
 	var handler http.Handler
