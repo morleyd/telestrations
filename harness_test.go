@@ -169,6 +169,30 @@ func (g *testGame) timed(t *testing.T) *testGame {
 	return g
 }
 
+// turn is a turn by name on starter's story, of the kind given, whether or not
+// it's theirs to take: for testing what the guards refuse. A name not in the
+// game sends an empty user_id.
+func (g *testGame) turn(starter, name string, isDrawing bool) map[string]any {
+	userID := ""
+	if p := g.players[name]; p != nil {
+		userID = p.Id
+	}
+	prompt := ""
+	if !isDrawing {
+		prompt = name + "'s word"
+	}
+	return map[string]any{
+		"story_id": g.stories[starter].Id, "user_id": userID, "game_id": g.game.Id,
+		"is_drawing": isDrawing, "prompt": prompt,
+	}
+}
+
+// timeout sends name's round timer running out on starter's story.
+func (g *testGame) timeout(api http.Handler, starter, name string) *httptest.ResponseRecorder {
+	return call(api, http.MethodPost, "/api/stories/"+g.stories[starter].Id+"/timeout",
+		map[string]any{"user_id": g.players[name].Id})
+}
+
 // play writes name's next turn on starter's story the way a submit lands:
 // through app.Save, so the after-turn hooks run but the request guards in
 // front of a real submit don't (submit below goes through them).
