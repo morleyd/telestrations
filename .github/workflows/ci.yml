@@ -80,6 +80,9 @@ jobs:
   test-e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
+    # Ships the browsers and their system libraries, so nothing is installed per
+    # run. The tag must match @playwright/test in web/package-lock.json.
+    container: mcr.microsoft.com/playwright:v1.60.0-noble
     defaults:
       run:
         working-directory: web
@@ -98,12 +101,14 @@ jobs:
       - run: go build -o /dev/null .
         working-directory: .
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       # Not `npm run test:e2e`, which wraps the NixOS-only run-e2e.sh.
       - run: npx playwright test --reporter=list,github
+      # Every failed attempt leaves a trace, including one that passed on retry
+      # (a flaky test leaves the job green), so upload whenever there are any.
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: ${{ !cancelled() }}
         with:
-          name: playwright-traces
+          name: playwright-traces-attempt-${{ github.run_attempt }}
           path: web/test-results/
+          if-no-files-found: ignore
           retention-days: 14

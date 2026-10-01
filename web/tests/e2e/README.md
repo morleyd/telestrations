@@ -38,3 +38,12 @@ after):
 
 No dev servers need to be running first; if you already have something on the
 default ports it won't collide (tests use 8091 / 5199).
+
+## In CI
+
+The `E2E (Playwright)` job in `.github/workflows/ci.yml` runs in Playwright's
+container image, which ships the browsers. Its tag is pinned to the
+`@playwright/test` version too, so a version bump touches the image tag, the Nix
+package above, and `package.json` together. When any test fails, even one that
+passes on retry, the job uploads its traces as a `playwright-traces-attempt-<n>`
+artifact; open one with `npx playwright show-trace <trace.zip>`.
