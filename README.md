@@ -74,6 +74,13 @@ the exception: it's shown with a "Skipped by the host" banner.
 There are no accounts, so these controls (like the rest of the game) trust the
 people on your network: they stop mistakes, not a determined cheat.
 
+## Saving the stories
+
+On the review page, the last card of each story has **Download this story**,
+which saves it as one image: each turn in order, with who wrote or drew it.
+**Download all stories** (there and at the top of the player list) saves a zip
+of every story's image. Any player can download, not just the host.
+
 ## Rounds
 
 The **New Game** dialog sets how many rounds to play: how many times each story
