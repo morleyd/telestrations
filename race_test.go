@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // Write races: two requests that touch the same story (or game) fired at the
@@ -20,12 +21,8 @@ import (
 // (user_id, story_id) is the real arbiter. Either way the loser must read as
 // turn_taken, which the client treats as done and moves on.
 func TestTwoTabsSubmittingTheSameTurn(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	byIndex := 0
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben")
 		word := g.nextTurn(t, "ann", "ann")
 		var a, b *httptest.ResponseRecorder
@@ -50,7 +47,7 @@ func TestTwoTabsSubmittingTheSameTurn(t *testing.T) {
 		if n := len(g.turnsBy(t, "ann", "ann")); n != 1 {
 			t.Fatalf("round %d: ann has %d turns on her story", round, n)
 		}
-	}
+	})
 	t.Logf("%d rounds: the unique index caught %d, the guard the rest", soakRounds, byIndex)
 }
 
@@ -58,12 +55,8 @@ func TestTwoTabsSubmittingTheSameTurn(t *testing.T) {
 // Exactly one of them writes it; the player's refused submit must read as
 // skipped or taken, both of which move the client on.
 func TestHostSkipRacingTheirSubmit(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	hostWon := 0
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben", "cat")
 		g.play(t, "ben", "ben")
 		g.play(t, "ann", "ann") // ann's story now waits on ben, and nothing else does
@@ -96,7 +89,7 @@ func TestHostSkipRacingTheirSubmit(t *testing.T) {
 		if s, _ := loadStory(app, g.stories["ann"].Id); s.Taken != 2 {
 			t.Fatalf("round %d: ann's story has %d turns, want 2", round, s.Taken)
 		}
-	}
+	})
 	t.Logf("%d rounds: the host's skip won %d", soakRounds, hostWon)
 }
 
@@ -104,12 +97,8 @@ func TestHostSkipRacingTheirSubmit(t *testing.T) {
 // as they submit. Exactly one turn lands, and whichever request loses reads
 // as already taken.
 func TestTimeoutRacingTheirSubmit(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	timeoutWon := 0
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben", "cat").timed(t)
 		g.play(t, "ben", "ben")
 		g.play(t, "ann", "ann")
@@ -143,7 +132,7 @@ func TestTimeoutRacingTheirSubmit(t *testing.T) {
 		if got, want := turns[0].GetBool("timed_out"), timeout.Code == http.StatusOK; got != want {
 			t.Fatalf("round %d: ben's turn timed_out=%v, want %v", round, got, want)
 		}
-	}
+	})
 	t.Logf("%d rounds: the timeout won %d", soakRounds, timeoutWon)
 }
 
@@ -152,12 +141,8 @@ func TestTimeoutRacingTheirSubmit(t *testing.T) {
 // so it must not delete one that has just been opened: that would leave the
 // word behind as a turn with no story.
 func TestDropRacingTheirOpeningWord(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	storyKept := 0
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben", "cat")
 		ann, ben := g.players["ann"], g.players["ben"]
 		word := g.nextTurn(t, "ben", "ben")
@@ -187,7 +172,7 @@ func TestDropRacingTheirOpeningWord(t *testing.T) {
 		if owes := g.owes(t, "ben"); len(owes) != 0 {
 			t.Fatalf("round %d: stories still waiting on dropped ben: %v", round, owes)
 		}
-	}
+	})
 	t.Logf("%d rounds: ben's word landed first in %d (his story stays, skipped from then on)", soakRounds, storyKept)
 }
 
@@ -195,12 +180,8 @@ func TestDropRacingTheirOpeningWord(t *testing.T) {
 // in before the start (and seated) or refused by the roster lock; the seats
 // must be a clean 0..N-1 of whoever is in the game.
 func TestBeginRacingALateJoin(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	joined := 0
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newLobby(t, app, "ann", "ben")
 		order := []string{g.players["ann"].Id, g.players["ben"].Id}
 		var begin, join *httptest.ResponseRecorder
@@ -225,7 +206,7 @@ func TestBeginRacingALateJoin(t *testing.T) {
 		if seats := g.seats(t); len(seats) != want || !isPermutation(seats) {
 			t.Fatalf("round %d: seats %v, want 0..%d (join %d)", round, seats, want-1, join.Code)
 		}
-	}
+	})
 	t.Logf("%d rounds: the late joiner got in first %d times", soakRounds, joined)
 }
 
@@ -234,12 +215,8 @@ func TestBeginRacingALateJoin(t *testing.T) {
 // gone from a game that's already seated, which would shift every story's
 // rotation.
 func TestBeginRacingALeave(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
 	left := 0
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newLobby(t, app, "ann", "ben", "cat")
 		var begin, leave *httptest.ResponseRecorder
 		together(
@@ -259,7 +236,7 @@ func TestBeginRacingALeave(t *testing.T) {
 		if seats := g.seats(t); len(seats) != want || !isPermutation(seats) {
 			t.Fatalf("round %d: seats %v, want 0..%d (leave %d)", round, seats, want-1, leave.Code)
 		}
-	}
+	})
 	t.Logf("%d rounds: the leave got in first %d times", soakRounds, left)
 }
 
@@ -269,11 +246,7 @@ func TestBeginRacingALeave(t *testing.T) {
 // a story created after the snapshot would wait on the dropped player for
 // good, and nobody would ever finish.
 func TestDropRacingTheirStoryCreate(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben", "cat")
 		ann, ben := g.players["ann"], g.players["ben"]
 		if err := app.Delete(g.stories["ben"]); err != nil {
@@ -293,17 +266,13 @@ func TestDropRacingTheirStoryCreate(t *testing.T) {
 		if owes := g.owes(t, "ben"); len(owes) != 0 {
 			t.Fatalf("round %d: stories still waiting on dropped ben: %v (create %d)", round, owes, create.Code)
 		}
-	}
+	})
 }
 
 // The host's Begin is double-clicked: two starts race. One wins, the other is
 // refused, and the seating is the winner's.
 func TestDoubleBegin(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newLobby(t, app, "ann", "ben", "cat")
 		path := "/api/games/" + g.game.Id + "/begin"
 		var a, b *httptest.ResponseRecorder
@@ -319,17 +288,13 @@ func TestDoubleBegin(t *testing.T) {
 		if seats := g.seats(t); !isPermutation(seats) || len(seats) != 3 {
 			t.Fatalf("round %d: seats %v", round, seats)
 		}
-	}
+	})
 }
 
 // Two tabs of the same player open their story at once (TakeTurn creates it
 // on first load). The unique (starter_id, game_id) index keeps it to one.
 func TestTwoTabsOpeningTheSameStory(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben")
 		if err := app.Delete(g.stories["ann"]); err != nil {
 			t.Fatal(err)
@@ -353,7 +318,7 @@ func TestTwoTabsOpeningTheSameStory(t *testing.T) {
 		if len(stories) != 1 {
 			t.Fatalf("round %d: ann has %d stories", round, len(stories))
 		}
-	}
+	})
 }
 
 // The host drops two neighbours at once while a story is about to reach the
@@ -361,11 +326,7 @@ func TestTwoTabsOpeningTheSameStory(t *testing.T) {
 // sets the flag before taking its snapshot, so the other drop's auto-skip
 // always sees it.
 func TestTwoDropsAtOnce(t *testing.T) {
-	soak(t)
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-
-	for round := range soakRounds {
+	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben", "cat", "dan")
 		g.play(t, "ann", "ann") // ann's story now waits on ben, then cat
 		ann, ben, cat := g.players["ann"], g.players["ben"], g.players["cat"]
@@ -388,5 +349,5 @@ func TestTwoDropsAtOnce(t *testing.T) {
 		if s, _ := loadStory(app, g.stories["ann"].Id); s.NextUser != g.players["dan"].Id {
 			t.Fatalf("round %d: ann's story waits on %s, want dan", round, g.name(s.NextUser))
 		}
-	}
+	})
 }

@@ -361,16 +361,23 @@ func (g *testGame) begin(t *testing.T, api http.Handler, names ...string) {
 	}
 }
 
-// soak skips a concurrent soak under -short.
-func soak(t *testing.T) {
+// soakRounds is how many fresh games each soak races through.
+const soakRounds = 30
+
+// soakGames runs a concurrent soak: round, once per round, each setting up a
+// fresh game on the one app and racing requests through its API. -short
+// skips it.
+func soakGames(t *testing.T, rounds int, round func(round int, app core.App, api http.Handler)) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("concurrent soak")
 	}
+	app := newTestApp(t)
+	api := serveAPI(t, app)
+	for i := range rounds {
+		round(i, app, api)
+	}
 }
-
-// soakRounds is how many fresh games each soak races through.
-const soakRounds = 30
 
 // refusal is a refused write as the client reads it (refusalCode in
 // web/src/services/pocketbase): the code a guard attached, or "turn_taken"
