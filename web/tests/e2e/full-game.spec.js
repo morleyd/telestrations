@@ -46,6 +46,29 @@ test('three players play a full game and reach the results screen', async ({ bro
   }
 })
 
+// Regression: the turn page showed "Error..." until it had worked out which turn
+// the player was on, so at every game start each player saw an error before
+// their opening prompt appeared.
+test('starting a game shows a loading screen, not an error, until the first turn is ready', async ({ page }) => {
+  await createGame(page, { username: 'hosty', timed: false })
+  // Hold the lookup for the player's own story, so the turn page sits in the
+  // state it was in before it knew which turn to show.
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await page.route(/\/api\/collections\/stories\/records\?/, async (route) => {
+    if (route.request().method() === 'GET') await held
+    await route.continue()
+  })
+
+  await startGame(page)
+  await expect(page.getByText('Loading...')).toBeVisible()
+  await expect(page.getByText('Error...')).toHaveCount(0)
+
+  release()
+  await expect(page.getByText('Enter your starting prompt')).toBeVisible()
+  await expect(page.getByText('Loading...')).toHaveCount(0)
+})
+
 // Regression: a player who falls behind gets several stories queued at once, of
 // different types. Moving from the first to the second used to keep the first
 // one's screen (guess UI, old drawing, old text) while writing to the second
