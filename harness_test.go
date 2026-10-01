@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
@@ -36,9 +39,9 @@ func newTestApp(t *testing.T) *tests.TestApp {
 	return app
 }
 
-// serveAPI is app's HTTP API (the built-in record routes plus the host
-// routes), built the way `serve` builds it, so a test can send real requests
-// through the request hooks without opening a port.
+// serveAPI is app's HTTP API (the built-in record routes plus the game's own,
+// bindAPIRoutes), built the way `serve` builds it, so a test can send real
+// requests through the request hooks without opening a port.
 func serveAPI(t *testing.T, app core.App) http.Handler {
 	t.Helper()
 	router, err := apis.NewRouter(app)
@@ -46,7 +49,7 @@ func serveAPI(t *testing.T, app core.App) http.Handler {
 		t.Fatal(err)
 	}
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		bindHostRoutes(se)
+		bindAPIRoutes(se)
 		return se.Next()
 	})
 	var handler http.Handler
@@ -142,6 +145,30 @@ func (g *testGame) nextTurn(t *testing.T, starter, name string) map[string]any {
 	}
 }
 
+// newLobby is a game that hasn't begun: players joined in the order given
+// (the first one hosts), not yet seated, no stories.
+func newLobby(t *testing.T, app core.App, names ...string) *testGame {
+	t.Helper()
+	g := &testGame{app: app, players: map[string]*core.Record{}, stories: map[string]*core.Record{}}
+	g.game = save(t, app, "games", map[string]any{"game_code": security.RandomString(8), "roundDuration": -1})
+	for i, name := range names {
+		g.players[name] = save(t, app, "users", map[string]any{
+			"username": name, "game_id": g.game.Id, "is_host": i == 0,
+		})
+	}
+	return g
+}
+
+// timed gives the game a round timer, so timeouts are allowed.
+func (g *testGame) timed(t *testing.T) *testGame {
+	t.Helper()
+	g.game.Set("roundDuration", 60)
+	if err := g.app.Save(g.game); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
 // play writes name's next turn on starter's story the way a submit lands:
 // through app.Save, so the after-turn hooks run but the request guards in
 // front of a real submit don't (submit below goes through them).
@@ -150,10 +177,21 @@ func (g *testGame) play(t *testing.T, starter, name string) {
 	save(t, g.app, "turns", g.nextTurn(t, starter, name))
 }
 
-// submit sends name's next turn on starter's story as a real request.
+const turnsPath = "/api/collections/turns/records"
+
+// submit sends name's next turn on starter's story as a real request. In a
+// race, build the turn with nextTurn first and send it with call, so only the
+// request itself races.
 func (g *testGame) submit(t *testing.T, api http.Handler, starter, name string) *httptest.ResponseRecorder {
 	t.Helper()
-	return call(api, http.MethodPost, "/api/collections/turns/records", g.nextTurn(t, starter, name))
+	return call(api, http.MethodPost, turnsPath, g.nextTurn(t, starter, name))
+}
+
+// hostAct sends host's "skip" or "drop" of player, as the Manage players
+// dialog does.
+func (g *testGame) hostAct(api http.Handler, action string, host, player *core.Record) *httptest.ResponseRecorder {
+	return call(api, http.MethodPost, "/api/games/"+g.game.Id+"/players/"+player.Id+"/"+action,
+		map[string]any{"host_id": host.Id})
 }
 
 func (g *testGame) name(userID string) string {
@@ -240,4 +278,95 @@ func firstOwed(stories []storyState, userID string) storyState {
 		}
 	}
 	panic("nothing owed")
+}
+
+// together runs fns at about the same moment, each on its own goroutine, and
+// waits for all of them: the shape of every race below. Each starts after a
+// random delay of up to a few milliseconds (about one request's work), so
+// over a soak's rounds every order they can land in comes up; without it the
+// scheduler tends to run them in the same order every time.
+func together(fns ...func()) {
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for _, fn := range fns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			time.Sleep(rand.N(3 * time.Millisecond))
+			fn()
+		}()
+	}
+	close(start)
+	wg.Wait()
+}
+
+// soak skips a concurrent soak under -short.
+func soak(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("concurrent soak")
+	}
+}
+
+// soakRounds is how many fresh games each soak races through.
+const soakRounds = 30
+
+// refusal is a refused write as the client reads it (refusalCode in
+// web/src/services/pocketbase): the code a guard attached, or "turn_taken"
+// for a second turn on a story that got past the guard and hit the unique
+// index. byIndex says which of the two it was.
+func refusal(rec *httptest.ResponseRecorder) (code string, byIndex bool) {
+	var body struct {
+		Data map[string]struct {
+			Code string `json:"code"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if c := body.Data["code"].Code; c != "" {
+		return c, false
+	}
+	if body.Data["user_id"].Code == "validation_not_unique" || body.Data["story_id"].Code == "validation_not_unique" {
+		return "turn_taken", true
+	}
+	return "", false
+}
+
+// seats is every player's position in the game, sorted.
+func (g *testGame) seats(t *testing.T) []int {
+	t.Helper()
+	users, err := g.app.FindRecordsByFilter("users", "game_id = {:g}", "", 0, 0, dbx.Params{"g": g.game.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []int
+	for _, u := range users {
+		out = append(out, u.GetInt("position"))
+	}
+	slices.Sort(out)
+	return out
+}
+
+// isPermutation reports whether seats is exactly 0..len-1.
+func isPermutation(seats []int) bool {
+	for i, s := range seats {
+		if s != i {
+			return false
+		}
+	}
+	return true
+}
+
+// orphanTurns counts the game's turns whose story is missing (blanked by a
+// story delete, or pointing at one that's gone).
+func (g *testGame) orphanTurns(t *testing.T) int {
+	t.Helper()
+	var n int
+	err := g.app.DB().NewQuery(`SELECT COUNT(*) FROM turns WHERE game_id = {:g}
+		AND (story_id = '' OR story_id NOT IN (SELECT id FROM stories))`).
+		Bind(dbx.Params{"g": g.game.Id}).Row(&n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

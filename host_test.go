@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"sync"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -107,9 +106,7 @@ func TestDropCarriesOnPastAFailedSkipAndCanBeRetried(t *testing.T) {
 // snapshot and its skip of that story, and dan's own story (never opened, so
 // the drop deletes it) comes after it, so losing the race strands something.
 func TestDropRacingASubmitOverHTTP(t *testing.T) {
-	if testing.Short() {
-		t.Skip("concurrent soak")
-	}
+	soak(t)
 	app := newTestApp(t)
 	api := serveAPI(t, app)
 
@@ -123,28 +120,14 @@ func TestDropRacingASubmitOverHTTP(t *testing.T) {
 		g.play(t, "ann", "cat")
 		g.play(t, "ben", "ben")
 		g.play(t, "ben", "cat")
-		ann, cat, dan := g.players["ann"], g.players["cat"], g.players["dan"]
+		ann, dan := g.players["ann"], g.players["dan"]
 
+		catsWord := g.nextTurn(t, "cat", "cat")
 		var drop, submit *httptest.ResponseRecorder
-		var wg sync.WaitGroup
-		start := make(chan struct{})
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			<-start
-			drop = call(api, http.MethodPost, "/api/games/"+g.game.Id+"/players/"+dan.Id+"/drop",
-				map[string]any{"host_id": ann.Id})
-		}()
-		go func() {
-			defer wg.Done()
-			<-start
-			submit = call(api, http.MethodPost, "/api/collections/turns/records", map[string]any{
-				"story_id": g.stories["cat"].Id, "user_id": cat.Id, "game_id": g.game.Id,
-				"is_drawing": false, "prompt": "cat's word",
-			})
-		}()
-		close(start)
-		wg.Wait()
+		together(
+			func() { drop = g.hostAct(api, "drop", ann, dan) },
+			func() { submit = call(api, http.MethodPost, turnsPath, catsWord) },
+		)
 
 		if drop.Code != http.StatusOK {
 			t.Fatalf("round %d: drop: %d %s", round, drop.Code, drop.Body)
