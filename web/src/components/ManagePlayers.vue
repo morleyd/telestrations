@@ -1,6 +1,6 @@
 <!-- ManagePlayers gives the host mid-game control: skip a player's pending
-     turns (someone stepped away), drop them for the rest of the game, or end
-     the game for everyone. Lives in the AppBar, so it's reachable from the turn
+     turns (someone stepped away), drop them for the rest of the game, look at
+     the stories so far, or end the game for everyone. Lives in the AppBar, so it's reachable from the turn
      screens and the review page. The server does the work; see host.go. -->
 <template>
   <template v-if="canManage">
@@ -34,7 +34,9 @@
             </template>
           </v-list-item>
         </v-list>
-        <v-card-actions class="justify-center">
+        <v-card-actions class="justify-center flex-wrap">
+          <!-- The review works mid-game too; anyone else can use its link. -->
+          <v-btn v-if="$route.name !== 'Review'" variant="tonal" @click="viewResults">View results</v-btn>
           <!-- Anyone mid-turn gets a few seconds to finish it; see TakeTurn's startEnding. -->
           <v-btn color="error" variant="tonal" :disabled="busy || Boolean(endsAt)" @click="endGame">
             {{ endsAt ? "Game ending" : "End Game" }}
@@ -137,6 +139,10 @@ export default {
         this.actionError = resp.errMsg
       }
       await this.refresh()
+    },
+    viewResults() {
+      this.visible = false
+      this.$router.push({ name: "Review", params: { gameCode: this.$route.params.gameCode } })
     },
     async endGame() {
       if (!confirm("End the game for everyone? Anyone in the middle of a turn gets 10 seconds to finish it.")) return

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { startThreePlayerGame, driveGameToReview } from './helpers.js'
+import { createGame, joinGame, startGame, startThreePlayerGame, driveGameToReview, submitWord } from './helpers.js'
 
 // The review walks through a story one turn per slide. Each slide shows what the
 // player was given (the word they drew, or the drawing they guessed) above what
@@ -63,6 +63,47 @@ test('each review slide shows its prompt, and the drawing never covers the name'
       expect(author.x, `name on screen at ${at}`).toBeGreaterThanOrEqual(0)
       expect(author.x + author.width, `name on screen at ${at}`).toBeLessThanOrEqual(screen.width)
     }
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// The review is open while the game is still going: the host has a button for
+// it in Manage players, anyone can use its link, and a player who still has
+// turns to play gets back with "Back to game". Once they're done, they aren't
+// offered it.
+test('the review is open mid-game, and players can get back to the game', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext()])
+  const [host, guest] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+    await submitWord(host, 'a teapot')
+
+    // The host looks at the stories so far.
+    await host.getByRole('button', { name: 'Manage players' }).click()
+    await host.getByRole('button', { name: 'View results' }).click()
+    await host.waitForURL(/\/review$/)
+    await expect(host.locator('.user-item', { hasText: 'hosty' })).toContainText('1 / 2')
+    await host.locator('.user-item', { hasText: 'hosty' }).click()
+    await expect(host.locator('.v-carousel').getByText('a teapot')).toBeVisible()
+
+    // buddy opens the link mid-turn, and goes back to it.
+    await guest.goto(`/${code}/review`)
+    await expect(guest.locator('.user-item', { hasText: 'buddy' })).toContainText('0 / 2')
+    await guest.getByRole('link', { name: 'Back to game' }).click()
+    await guest.waitForURL(/\/draw$/)
+    await expect(guest.getByText('Enter your starting prompt')).toBeVisible()
+
+    // So does the host, and they play it out.
+    await host.getByRole('link', { name: 'Back to game' }).click()
+    await host.waitForURL(/\/draw$/)
+    await driveGameToReview([host, guest])
+    await expect(host.locator('.user-item').first()).toBeVisible()
+    await expect(host.getByRole('link', { name: 'Back to game' })).toHaveCount(0)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }

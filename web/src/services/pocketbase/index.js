@@ -394,19 +394,15 @@ export const pbService = {
       console.log("getUserStoryWithTurns request", data)
       return await pb.collection('results').getFullList(data).then(async function (resp) {
         console.log("getUserStoryWithTurns resp", resp)
-        if (resp.length) {
-          for (let record of resp) {
-            if (record.drawing) {
-              const turn = await pb.collection('turns').getOne(record.turn_id);
-              let drawing_url = await pb.files.getUrl(turn, record.drawing)
-              record.drawing = drawing_url
-            }
-            // console.log(record)
+        // No turns is an empty story (opened, not started yet), not an error.
+        for (let record of resp) {
+          if (record.drawing) {
+            const turn = await pb.collection('turns').getOne(record.turn_id);
+            let drawing_url = await pb.files.getUrl(turn, record.drawing)
+            record.drawing = drawing_url
           }
-          return { data: resp }
-        } else {
-          throw new Error("Failed to get user Story With Turns.")
         }
+        return { data: resp }
       }).catch(function (err) {
         return { data: 0, errMsg: "getUserStoryWithTurns:" + JSON.stringify(err?.response?.message || err) }
       });
