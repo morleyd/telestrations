@@ -11,7 +11,7 @@
     <v-item-group v-model="selectedIndex" mandatory>
       <v-card class="pa-4 overflow-auto" style="justify-self: center;" max-height="calc(100vh - 48px)">
         <v-row style="text-align: -webkit-center;">
-          <v-col v-for="n in 16" :key="col" cols="12" md="3" class="pa-0">
+          <v-col v-for="n in 16" :key="n" cols="12" md="3" class="pa-0">
             <v-item v-slot="{ isSelected, toggle }">
               <v-card class="elevation-0 bg-transparent py-4" style="justify-items: center; border-radius: 50%;"
                 width="112" height="112" @click="toggle" :style="selectedStyle(isSelected)">
@@ -117,11 +117,9 @@ export default {
         let hue = normalize(hash, hRange[0], hRange[1])
         let saturation = normalize(hash, sRange[0], sRange[1])
         let lightness = normalize(hash, lRange[0], lRange[1])
-        this.color = `hsl(${hue}, ${saturation}%, ${lightness}%)`
-      } else {
-        this.color = "hsl(0, 0%, 0%)"
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`
       }
-      return this.color
+      return "hsl(0, 0%, 0%)"
     },
   },
   mounted() {
