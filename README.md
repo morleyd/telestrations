@@ -40,9 +40,9 @@ the device's own clock, so you can put each device's timeline back in order.
 Look for these first:
 
 - `turn: wrong type for position`: a drawing slot got text, or a guess slot got
-  a drawing. This also fires when a timed drawing turn runs out on a blank canvas.
-- `turn: out of rotation` / `turn: player wrote to this story twice`: a turn
-  was written to the wrong story.
+  a drawing.
+- `turn: out of rotation`: a turn was written to the wrong story. (A second
+  turn by the same player on one story is refused outright by a unique index.)
 - `client: turn.submit.typeMismatch`, `client: progress.staleStory`: the client
   caught itself in an inconsistent state.
 - `host: action` / `host: turn skipped`: the host skipped or dropped a player
@@ -59,10 +59,14 @@ how many stories are waiting on them.
   keeps playing after that. If they hadn't written their opening word yet, a
   random one is picked.
 - **Drop** does the same for the rest of the game. If they never wrote an
-  opening word, their story is removed.
+  opening word, their story is removed. If a story is somehow still waiting on
+  a dropped player, the dialog offers **Skip** for them again.
 
 Turns the host skipped are hidden on the review page. A skipped opening word is
 the exception: it's shown with a "Skipped by the host" banner.
+
+There are no accounts, so these controls (like the rest of the game) trust the
+people on your network: they stop mistakes, not a determined cheat.
 
 ## Timed rounds
 

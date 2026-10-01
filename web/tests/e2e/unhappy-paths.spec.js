@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, submitJoin } from './helpers.js'
+import { createGame, joinGame, startGame, submitJoin, submitWord } from './helpers.js'
 
 // The ways a human wanders off the happy path: mistyped codes, stale links,
 // double-joins, and games that already started. Each should fail gracefully —
@@ -185,6 +185,61 @@ test('a player can rejoin a started game from another browser', async ({ browser
   await hostCtx.close()
   await guestCtx.close()
   await rescueCtx.close()
+})
+
+// Regression: the same player in two tabs. Once one tab writes a turn, the
+// other's submit of that same turn is refused as already taken; that used to
+// show an error and leave the tab stuck on the turn until a reload.
+test('a second tab that submits a turn already taken moves on instead of sticking', async ({ browser }) => {
+  const hostCtx = await browser.newContext()
+  const hostPage = await hostCtx.newPage()
+  const code = await createGame(hostPage, { username: 'hosty', timed: false })
+  const guestCtx = await browser.newContext()
+  const guestPage = await guestCtx.newPage()
+  await joinGame(guestPage, code, 'buddy')
+  await startGame(hostPage, 2)
+  await guestPage.waitForURL(/\/draw$/)
+  await expect(guestPage.getByText('Enter your starting prompt')).toBeVisible()
+
+  const otherCtx = await browser.newContext()
+  const other = await otherCtx.newPage()
+  await other.goto(`/${code}/draw`)
+  await other.getByLabel('Username').fill('buddy')
+  await other.getByRole('button', { name: 'Join!' }).click()
+  await other.getByRole('button', { name: "That's me, rejoin" }).click()
+  await expect(other.getByText('Enter your starting prompt')).toBeVisible()
+
+  await submitWord(guestPage, 'first')
+  await other.locator('textarea').first().fill('second')
+  await other.getByRole('button', { name: 'Submit' }).click()
+  await expect(other.getByText('Enter your starting prompt')).toBeHidden()
+  await expect(other.getByText(/already took/i)).toHaveCount(0)
+
+  await hostCtx.close()
+  await guestCtx.close()
+  await otherCtx.close()
+})
+
+// Regression: on a reload the waiting room re-reads the stored player. A failed
+// read (network blip, busy server) used to sign them out and ask them to join
+// again, costing the host their host controls; only a 404 means they're gone.
+test('a reload whose player re-read fails keeps the player in the waiting room', async ({ browser }) => {
+  const ctx = await browser.newContext()
+  const page = await ctx.newPage()
+  await createGame(page, { username: 'hosty', timed: false })
+  await page.route('**/api/collections/users/records/*', (route) => route.request().method() === 'GET'
+    ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"status":500,"message":"Busy.","data":{}}' })
+    : route.continue())
+  const reread = page.waitForResponse((r) => /\/api\/collections\/users\/records\/\w+$/.test(r.url()))
+
+  await page.reload()
+  expect((await reread).status()).toBe(500)
+  // The roster loads after the player is resolved, so by now it's decided.
+  await expect(page.locator('.drag-item')).toHaveCount(1)
+  await expect(page.getByText('Welcome hosty!')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Begin!' })).toBeVisible()
+  await expect(page.getByText('Join the Game!')).toHaveCount(0)
+  await ctx.close()
 })
 
 // Regression: a tab opened before the server was rebuilt asks for the old

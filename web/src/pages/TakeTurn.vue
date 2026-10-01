@@ -46,12 +46,14 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
 import { log } from '@/services/log'
+
+const POLL_MS = 2500
+const DROPPED_CHECK_TICKS = 4 // ~10s
 export default {
   name: "TakeTurn",
   data() {
     return {
       userState: "",
-      isDraw: true,
       nextPrompts: [],
       curPrompt: null,
       showLoginDialog: false,
@@ -65,6 +67,9 @@ export default {
       tornDown: false,
       firstTurnTaken: false,
       submitting: false,
+      // The story whose round timer ran out while a submit was in flight, so a
+      // refused submit can still time out (the timer only fires once).
+      expiredStory: "",
       // Stories we've already submitted a turn to. A lagging progress read must
       // never hand one of these back to us, or we'd write a second turn to it.
       submittedStories: new Set(),
@@ -74,6 +79,12 @@ export default {
     ...mapStores(useUserStore),
     turnKey() {
       return this.curPrompt?.story_id || this.curPrompt?.id || ""
+    },
+    // A turn after a word is a drawing; a turn after a drawing (prev_prompt
+    // empty) is a guess. A first turn's curPrompt is the story itself, which
+    // has no prev_prompt: a word.
+    isDraw() {
+      return Boolean(this.curPrompt?.prev_prompt)
     },
   },
   watch: {
@@ -155,16 +166,16 @@ export default {
       // start burst) is retried too — at game start no turn events exist yet,
       // so without the poll that screen was a dead end until manual refresh.
       //
-      // Every ~10s it also checks whether the host dropped us: a player idling on
-      // a turn screen gets no event for that.
+      // Every DROPPED_CHECK_TICKS polls it also checks whether the host dropped
+      // us: a player idling on a turn screen gets no event for that.
       let ticks = 0
       this.pollTimer = setInterval(async function () {
         if (that.userState === "waiting" || that.userState === "") {
           that.getTurns()
-        } else if (++ticks % 4 == 0 && ['playing', 'firstTurn'].includes(that.userState)) {
-          if ((await that.checkStatus()).dropped) that.setRemoved()
+        } else if (++ticks % DROPPED_CHECK_TICKS == 0 && ['playing', 'firstTurn'].includes(that.userState)) {
+          if ((await pbService.users.getUserById(that.userStore.userId)).dropped) that.setRemoved()
         }
-      }, 2500)
+      }, POLL_MS)
     },
     // The host skipped a turn we owed, maybe the one on screen. Never write to
     // that story, and move on if it's the one we're looking at.
@@ -293,7 +304,7 @@ export default {
           // Create it and only reveal the prompt UI once curPrompt is
           // populated, so an early submit can't reference a missing story.
           let created = await pbService.progress.createStory(this.userStore.userId, this.gameId)
-          if (created.errMsg?.includes("removed")) {
+          if (created.errCode === "player_removed") {
             this.setRemoved()
             return
           }
@@ -306,7 +317,6 @@ export default {
           }
           this.ownStory = created
           this.curPrompt = created
-          this.isDraw = false
           this.userState = "firstTurn"
           return
         }
@@ -326,7 +336,6 @@ export default {
         }
         if (turn.errMsg) {
           this.curPrompt = this.ownStory
-          this.isDraw = false
           this.userState = "firstTurn"
           return
         }
@@ -375,11 +384,10 @@ export default {
       }
     },
     // The single place a queued story becomes the active turn. Everything that
-    // depends on the story (draw vs. guess, the drawing to guess from) must be
-    // derived here, so it can never lag behind curPrompt.
+    // depends on the story (draw vs. guess, the drawing to guess from) is
+    // derived from curPrompt here or in computeds, so it can never lag behind.
     showTurn(prompt) {
       this.curPrompt = prompt
-      this.isDraw = Boolean(prompt.prev_prompt)
       this.userState = "playing"
       log.info("turn.show", {
         story: prompt.story_id,
@@ -422,7 +430,7 @@ export default {
       }
       let isDrawing = typeof data == "object"
       let wasFirstTurn = this.userState == "firstTurn"
-      let storyId = this.curPrompt.story_id || this.curPrompt.id
+      let storyId = this.turnKey
 
       if (isDrawing != this.isDraw && !wasFirstTurn) {
         log.warn("turn.submit.typeMismatch", { story: storyId, isDraw: this.isDraw, isDrawing })
@@ -444,14 +452,15 @@ export default {
       formData.append("prompt", isDrawing ? "" : data);
       formData.append("is_drawing", isDrawing);
       formData.append("timed_out", timedOut);
-      this.submitting = true
-      let resp
-      try {
-        resp = await pbService.progress.createTurn(formData)
-      } finally {
-        this.submitting = false
+      const resp = await this.writeTurn(storyId, wasFirstTurn, () => pbService.progress.createTurn(formData))
+      if (!resp) {
+        // Refused and still on this turn, but its time ran out meanwhile.
+        if (this.expiredStory === storyId && this.turnKey === storyId) {
+          this.expiredStory = ""
+          this.onTimerFinished()
+        }
+        return
       }
-      if (this.refused(resp, storyId)) return
       log.info("turn.submit.ok", { story: storyId, turn: resp.id })
       this.turnWritten(storyId, wasFirstTurn)
     },
@@ -459,7 +468,12 @@ export default {
     // as timed out. With nothing at all, the server skips the turn instead,
     // passing the previous word or drawing on (or picking an opening word).
     async onTimerFinished() {
-      if (this.submitting) return // they hit Submit just in time
+      if (this.submitting) {
+        // They hit Submit just in time. Remember time's up in case that
+        // submit is refused: see saveResponse.
+        this.expiredStory = this.turnKey
+        return
+      }
       let partial
       if (this.isDraw) {
         partial = await this.$refs.draw?.getDrawing()
@@ -474,29 +488,52 @@ export default {
 
       let wasFirstTurn = this.userState == "firstTurn"
       let storyId = this.turnKey
-      this.submitting = true
-      let resp
-      try {
-        resp = await pbService.progress.timeoutTurn(storyId, this.userStore.userId)
-      } finally {
-        this.submitting = false
-      }
-      if (this.refused(resp, storyId)) return
+      const resp = await this.writeTurn(storyId, wasFirstTurn,
+        () => pbService.progress.timeoutTurn(storyId, this.userStore.userId))
+      if (!resp) return
       this.emitSnack("Time's up!", "info")
       this.turnWritten(storyId, wasFirstTurn)
     },
-    // Handles the server refusing a turn: skipped by the host meanwhile, player
-    // dropped (messages defined in host.go), or anything else. True if refused.
-    refused(resp, storyId) {
-      if (resp.errMsg?.includes("skipped")) {
-        this.onTurnSkipped(storyId)
-      } else if (resp.errMsg?.includes("removed")) {
-        this.setRemoved()
-      } else if (resp.errMsg) {
-        log.error("turn.submit.failed", { story: storyId, err: resp.errMsg })
-        this.$emit("snack", resp.errMsg, "error")
+    // Sends one write of our turn on storyId (a submit or a timeout), holding
+    // the one-at-a-time lock. Returns the response, or null if it was refused.
+    async writeTurn(storyId, wasFirstTurn, send) {
+      this.submitting = true
+      let resp
+      try {
+        resp = await send()
+      } finally {
+        this.submitting = false
       }
-      return Boolean(resp.errMsg)
+      return this.refused(resp, storyId, wasFirstTurn) ? null : resp
+    },
+    // Handles the server refusing our turn on storyId (codes from host.go).
+    // True if refused. A refusal that means this turn is over moves on, so an
+    // out-of-date screen never strands the player.
+    refused(resp, storyId, wasFirstTurn) {
+      if (!resp.errMsg) return false
+      switch (resp.errCode) {
+        case "turn_skipped":
+          this.onTurnSkipped(storyId)
+          break
+        case "player_removed":
+          this.setRemoved()
+          break
+        case "turn_taken":
+          // Already written: from another tab, or by a retry of this request
+          // whose first response got lost. Either way, it's done.
+          log.warn("turn.submit.alreadyTaken", { story: storyId })
+          this.turnWritten(storyId, wasFirstTurn)
+          break
+        case "not_your_turn":
+          // This screen is out of date; go find what's really waiting on us.
+          log.warn("turn.submit.notYourTurn", { story: storyId })
+          this.getNextTurn()
+          break
+        default:
+          log.error("turn.submit.failed", { story: storyId, err: resp.errMsg })
+          this.$emit("snack", resp.errMsg, "error")
+      }
+      return true
     },
     // Our turn on storyId is saved (by us, or by the server on timeout): move on.
     turnWritten(storyId, wasFirstTurn) {

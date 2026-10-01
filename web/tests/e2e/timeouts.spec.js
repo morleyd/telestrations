@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, expectStoriesAlternate, PB_URL } from './helpers.js'
+import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, PB_URL } from './helpers.js'
 
 // Timed rounds. When the timer runs out, partial work is submitted as the
 // player's turn; with nothing entered the server skips the turn (an opening
@@ -7,14 +7,6 @@ import { createGame, joinGame, startGame, expectStoriesAlternate, PB_URL } from 
 // review marks them "ran out of time".
 
 const SECONDS = 5
-
-async function stroke(page) {
-  const box = await page.locator('canvas').boundingBox()
-  await page.mouse.move(box.x + 20, box.y + 20)
-  await page.mouse.down()
-  for (let x = 30; x <= 120; x += 10) await page.mouse.move(box.x + x, box.y + 20)
-  await page.mouse.up()
-}
 
 test('timeouts: partial work is kept, empty turns are skipped, and the review says so', async ({ browser, request }) => {
   test.setTimeout(90_000)

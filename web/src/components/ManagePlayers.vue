@@ -11,7 +11,7 @@
         <v-card-subtitle class="text-center wrap">
           Skip someone who's holding things up, or drop them from the rest of the game.
         </v-card-subtitle>
-        <v-alert v-if="error" class="ma-2" type="error" density="compact" :text="error" />
+        <v-alert v-if="alertText" class="ma-2" type="error" density="compact" :text="alertText" />
         <v-list>
           <v-list-item v-for="p in players" :key="p.id" :data-player="p.username">
             <template #prepend>
@@ -22,7 +22,8 @@
             </v-list-item-title>
             <v-list-item-subtitle>{{ statusText(p) }}</v-list-item-subtitle>
             <template #append>
-              <v-btn v-if="!p.dropped" size="small" variant="tonal" :disabled="!p.owes || busy"
+              <!-- Also for a dropped player a story still waits on: a retry of the drop. -->
+              <v-btn v-if="!p.dropped || p.owes" size="small" variant="tonal" :disabled="!p.owes || busy"
                 @click="act(p, 'skip')">
                 Skip
               </v-btn>
@@ -56,7 +57,10 @@ export default {
       visible: false,
       players: [],
       busy: false,
-      error: "",
+      // The last skip/drop's failure, and the last refresh's (cleared by the
+      // next good one), kept apart so a refresh can't hide an action's error.
+      actionError: "",
+      loadError: "",
       timer: null,
     }
   },
@@ -66,6 +70,9 @@ export default {
     // from an earlier game, so compare against the game in the URL.
     canManage() {
       return Boolean(this.gameId && this.userStore.is_host && this.userStore.gameId === this.gameId)
+    },
+    alertText() {
+      return this.actionError || this.loadError
     },
   },
   async mounted() {
@@ -85,19 +92,22 @@ export default {
   },
   methods: {
     async open() {
-      this.error = ""
+      this.actionError = ""
+      this.loadError = ""
       this.visible = true
       await this.refresh()
     },
     async refresh() {
       const resp = await pbService.games.getPlayers(this.gameId)
       if (resp.errMsg) {
-        this.error = resp.errMsg
+        this.loadError = resp.errMsg
         return
       }
+      this.loadError = ""
       this.players = resp.data
     },
     statusText(p) {
+      if (p.dropped && p.owes) return `Dropped, but ${p.owes} ${p.owes == 1 ? "story is" : "stories are"} still waiting on them`
       if (p.dropped) return "Dropped"
       if (p.finished) return "Done"
       if (p.owes) return `Up now: ${p.owes} ${p.owes == 1 ? "story is" : "stories are"} waiting on them`
@@ -111,13 +121,13 @@ export default {
       if (!confirm(question)) return
 
       this.busy = true
-      this.error = ""
+      this.actionError = ""
       log.info("host.action", { action, target: p.username, targetId: p.id, owes: p.owes })
       const resp = await pbService.games.hostAction(this.gameId, p.id, action, this.userStore.userId)
       this.busy = false
       if (resp.errMsg) {
         log.warn("host.action.failed", { action, target: p.username, err: resp.errMsg })
-        this.error = resp.errMsg
+        this.actionError = resp.errMsg
       }
       await this.refresh()
     },

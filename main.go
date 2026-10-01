@@ -52,8 +52,14 @@ func main() {
 	// game's shape and flag the first bad turn, rather than finding a garbled
 	// story at the review screen.
 	app.OnRecordAfterCreateSuccess("turns").BindFunc(func(e *core.RecordEvent) error {
-		auditTurn(e.App, e.Record)
-		skipIfNextIsDropped(e.App, e.Record.GetString("story_id"))
+		s, err := loadStory(e.App, e.Record.GetString("story_id"))
+		if err != nil {
+			e.App.Logger().Error("turn: audit failed", "story", e.Record.GetString("story_id"),
+				"turn", e.Record.Id, "error", err.Error())
+			return e.Next()
+		}
+		auditTurn(e.App, e.Record, s)
+		skipIfNextIsDropped(e.App, s)
 		return e.Next()
 	})
 	bindTurnGuards(app)
@@ -71,22 +77,20 @@ func main() {
 			return nil
 		})
 
+		// Client event log. Browsers batch their events here (see
+		// web/src/services/log.js) so a multi-device game can be traced from the
+		// dashboard's Logs view. Unauthenticated like the rest of the game, so
+		// size-capped.
+		se.Router.POST("/api/client-log", handleClientLog)
+
+		// Host-only mid-game controls: skip or drop a player (see host.go).
+		bindHostRoutes(se)
+
 		// Atomic game start. Assigning player positions and flipping isStarted
 		// from the client was racy: positions were written one-by-one over the
 		// host's live (realtime-mutated) roster, so a late joiner could keep the
 		// default position 0 and scramble the whole rotation. Doing it here in a
 		// single transaction, from the authoritative DB roster, removes that race.
-		// Client event log. Browsers batch their events here (see
-		// web/src/services/log.js) so a multi-device game can be traced from the
-		// dashboard's Logs view. Unauthenticated like the rest of the game, so
-		// size-capped.
-		se.Router.POST("/api/client-log", func(e *core.RequestEvent) error {
-			return handleClientLog(e)
-		})
-
-		// Host-only mid-game controls: skip or drop a player (see host.go).
-		bindHostRoutes(app, se)
-
 		se.Router.POST("/api/games/{gameId}/begin", func(e *core.RequestEvent) error {
 			gameID := e.Request.PathValue("gameId")
 			if gameID == "" {
@@ -257,38 +261,23 @@ func handleClientLog(e *core.RequestEvent) error {
 	return e.NoContent(http.StatusNoContent)
 }
 
-// auditTurn logs a just-created turn with its place in the story, and warns when
-// it breaks the game's invariants: a story opens with a word and then alternates
-// word/drawing (a skipped turn instead repeats the type before it, since it
-// carries that turn forward), each player writes at most one turn per story,
-// and the writer must be the player the rotation expected.
-func auditTurn(app core.App, turn *core.Record) {
+// auditTurn logs a just-created turn with its place in the story (s, read after
+// the insert), and warns when it breaks the game's invariants: a story opens
+// with a word and then alternates word/drawing (a skipped turn instead repeats
+// the type before it, since it carries that turn forward), and the writer must
+// be the player the rotation expected. (One turn per player per story is
+// enforced by the idx_turns_user_story unique index, so a duplicate never
+// gets here.)
+func auditTurn(app core.App, turn *core.Record, s *storyState) {
 	storyID := turn.GetString("story_id")
 	userID := turn.GetString("user_id")
-
-	var info struct {
-		Taken    int    `db:"turns_taken"`
-		Total    int    `db:"total_players"`
-		PrevUser string `db:"prev_user_id"`
-	}
-	err := app.DB().NewQuery(
-		"SELECT turns_taken, total_players, prev_user_id FROM progress WHERE story_id = {:s}").
-		Bind(dbx.Params{"s": storyID}).One(&info)
-	if err != nil {
-		app.Logger().Error("turn: audit failed", "story", storyID, "turn", turn.Id, "error", err.Error())
-		return
-	}
-
-	var mine int
-	_ = app.DB().NewQuery("SELECT COUNT(*) FROM turns WHERE story_id = {:s} AND user_id = {:u}").
-		Bind(dbx.Params{"s": storyID, "u": userID}).Row(&mine)
 
 	username := userID
 	if u, err := app.FindRecordById("users", userID); err == nil {
 		username = u.GetString("username")
 	}
 
-	index := info.Taken - 1 // this turn is already counted
+	index := s.Taken - 1 // this turn is already counted
 	isDrawing := turn.GetBool("is_drawing")
 	skipped := turn.GetBool("skipped")
 	wantDrawing := false
@@ -306,18 +295,16 @@ func auditTurn(app core.App, turn *core.Record) {
 		"source", "server",
 		"game_id", turn.GetString("game_id"), "story", storyID, "turn", turn.Id,
 		"user", username, "user_id", userID,
-		"index", index, "of", info.Total,
+		"index", index, "of", s.Total,
 		"is_drawing", isDrawing, "has_file", turn.GetString("drawing") != "",
 		"skipped", skipped, "timed_out", turn.GetBool("timed_out"),
 	)
 	logger.Info("turn: created")
 
 	switch {
-	case mine > 1:
-		logger.Warn("turn: player wrote to this story twice", "count", mine)
-	case info.PrevUser != "" && info.PrevUser != userID:
-		logger.Warn("turn: out of rotation", "expected_user_id", info.PrevUser)
-	case index >= info.Total:
+	case s.PrevUser != "" && s.PrevUser != userID:
+		logger.Warn("turn: out of rotation", "expected_user_id", s.PrevUser)
+	case index >= s.Total:
 		logger.Warn("turn: story has more turns than players")
 	}
 	if isDrawing != wantDrawing {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, submitWord } from './helpers.js'
+import { createGame, joinGame, startGame, submitWord, stroke } from './helpers.js'
 
 // The drawing toolbar's color pickers. A tapped color applies straight away:
 // no "Done" needed, and tapping the canvas both closes the picker and draws.
@@ -16,14 +16,6 @@ async function countPixels(page, rgb, box) {
     }
     return n
   }, [rgb, box])
-}
-
-async function stroke(page, y) {
-  const box = await page.locator('canvas').boundingBox()
-  await page.mouse.move(box.x + 20, box.y + y)
-  await page.mouse.down()
-  for (let x = 30; x <= 120; x += 10) await page.mouse.move(box.x + x, box.y + y)
-  await page.mouse.up()
 }
 
 // Picks a color in the open picker, the way a tap on that hexagon does.

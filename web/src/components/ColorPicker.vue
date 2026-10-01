@@ -6,7 +6,7 @@
   <v-menu v-model="visible" location="center" :close-on-content-click="false">
     <template v-slot:activator="{ props }">
       <div class="preview" role="button" :aria-label="parent == 'background' ? 'Background color' : 'Pen color'"
-        @click="onOpen" v-bind="props" :style="{ background: outerPreviewColor }"></div>
+        @click="onOpen" v-bind="props" :style="{ background: hexColor }"></div>
     </template>
     <div id="colorPicker">
       <img style="margin-right:2px; cursor: pointer;" src="@/assets/img_colormap.gif" :usemap="'#' + mapName" alt="colormap">
@@ -288,13 +288,11 @@ export default {
       visible: false,
       mapName: `colormap-${Math.random().toString(36).slice(2, 8)}`,
       hexColor: "#000066",
-      outerPreviewColor: "#000066",
     };
   },
   mounted() {
     if (this.initialColor) {
       this.hexColor = this.initialColor
-      this.outerPreviewColor = this.initialColor
     }
   },
   methods: {
@@ -324,7 +322,6 @@ export default {
      */
     clickColor(hex, seltop, selleft) {
       this.hexColor = hex
-      this.outerPreviewColor = hex
       this.placeHexagon(seltop, selleft)
       // this.parent helps the parent prop to disambiguate which color to change
       this.$emit("selected", hex, this.parent)
