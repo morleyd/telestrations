@@ -181,6 +181,12 @@ func skipPendingTurns(app core.App, gameID, userID string, dropped bool) (int, e
 	if err != nil {
 		return 0, err
 	}
+	return skipOwedTurns(app, stories, gameID, userID, dropped)
+}
+
+// skipOwedTurns is skipPendingTurns over a given snapshot of the game's
+// stories, which may be stale by the time each one is skipped.
+func skipOwedTurns(app core.App, stories []storyState, gameID, userID string, dropped bool) (int, error) {
 	reason := "host skip"
 	if dropped {
 		reason = "dropped"
