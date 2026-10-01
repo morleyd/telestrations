@@ -8,16 +8,25 @@
     <span>Finished...</span>
     <span v-if="reviewPath">Review results at: <a :href="reviewPath">{{ reviewPath }}</a></span>
   </div>
-  <div v-else-if="['firstTurn', 'playing'].includes(userState)">
+  <!-- Keyed on the story so each turn gets fresh child components: an empty
+       prompt box, a blank canvas and a restarted timer. Without it, moving to a
+       second queued story kept the previous turn's text/drawing on screen. -->
+  <div v-else-if="['firstTurn', 'playing'].includes(userState)" :key="turnKey">
     <CountdownTimer :duration="duration" @finished="onTimerFinished" />
 
     <DrawingTurn v-if="isDraw" ref="draw" :prompt="curPrompt.prev_prompt" @snack="emitSnack" @drawing="saveResponse" />
-    <PromptTurn v-else ref="prompt" :isFirst="userState == 'firstTurn'" :drawing="prevDrawing" @snack="emitSnack"
+    <PromptTurn v-else ref="prompt" :isFirst="userState == 'firstTurn'" @snack="emitSnack"
       @prompt="saveResponse" />
+  </div>
+  <div v-else-if="userState == 'removed'" class="pa-4 text-center" style="justify-self: center;">
+    <v-card-title class="wrap">The host removed you from this game.</v-card-title>
+    <span v-if="reviewPath">You can still see the results at: <a :href="reviewPath">{{ reviewPath }}</a></span>
   </div>
   <div v-else style="justify-self: center;">
     <span>Error...</span>
   </div>
+
+  <ConfirmRejoin ref="rejoin" />
 
   <v-dialog v-model="showLoginDialog" max-width="500" persistent>
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
@@ -36,6 +45,7 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
+import { log } from '@/services/log'
 export default {
   name: "TakeTurn",
   data() {
@@ -54,11 +64,22 @@ export default {
       turnsInFlight: null,
       tornDown: false,
       firstTurnTaken: false,
-      totalPlayers: 0,
+      submitting: false,
+      // Stories we've already submitted a turn to. A lagging progress read must
+      // never hand one of these back to us, or we'd write a second turn to it.
+      submittedStories: new Set(),
     }
   },
   computed: {
     ...mapStores(useUserStore),
+    turnKey() {
+      return this.curPrompt?.story_id || this.curPrompt?.id || ""
+    },
+  },
+  watch: {
+    userState(to, from) {
+      log.info("state", { from, to, story: this.turnKey, isDraw: this.isDraw })
+    },
   },
   async mounted() {
     this.reviewPath = this.getReviewPath()
@@ -67,14 +88,18 @@ export default {
     if (!this.gameId) {
       return
     }
+    log.setContext({ game: this.$route.params.gameCode, gameId: this.gameId })
+    log.info("takeTurn.mounted", { duration: this.duration })
 
-    if (!this.userStore.username) {
+    // A stored user from an earlier game (sessionStorage outlives the game) is
+    // not a player here; make them identify themselves rather than playing
+    // under another game's user id.
+    if (this.userStore.gameId !== this.gameId) {
+      log.info("takeTurn.login", { reason: this.userStore.userId ? "otherGame" : "none" })
       this.showLoginDialog = true
       return
     }
-
-    this.startTurnSync()
-    await this.getTurns()
+    await this.startPlaying()
   },
   unmounted() {
     // mounted()'s awaits may still be in flight; the flag stops their
@@ -85,11 +110,19 @@ export default {
     this.pollTimer = null
   },
   methods: {
+    // Once we know who the player is (stored user, or after the login dialog):
+    // start watching for turns and load the current one.
+    async startPlaying() {
+      log.setContext({ username: this.userStore.username, userId: this.userStore.userId })
+      this.startTurnSync()
+      await this.getTurns()
+    },
     // Arm the two things that re-check turn state: the realtime `turns`
-    // subscription and a polling fallback. Called from mounted() for returning
-    // players and from onLoginClicked() for players who land via the login
-    // dialog — that path previously got neither, so after their first turn
-    // nothing ever re-checked and they (and everyone waiting on them) stalled.
+    // subscription and a polling fallback. Called via startPlaying() from
+    // mounted() for returning players and from onLoginClicked() for players who
+    // land via the login dialog — that path previously got neither, so after
+    // their first turn nothing ever re-checked and they (and everyone waiting
+    // on them) stalled.
     startTurnSync() {
       // The component can unmount while mounted()'s awaits are still in flight;
       // if cleanup already ran (or the timer is somehow armed), don't register
@@ -99,7 +132,16 @@ export default {
       }
       let that = this
       pb.collection('turns').subscribe('*', async function (e) {
-        console.log("turns subscription event", e)
+        log.info("turns.event", {
+          action: e.action, story: e.record?.story_id, by: e.record?.user_id, skipped: e.record?.skipped,
+        })
+        // A skip of our turn that isn't our own timeout (onTimerFinished handles
+        // that one) means the host skipped us.
+        const r = e.record
+        if (e.action === "create" && r?.skipped && !r.timed_out && r.user_id === that.userStore.userId) {
+          that.onTurnSkipped(r.story_id)
+          return
+        }
         that.getTurns()
       }, { filter: `game_id="${that.gameId}"` })
 
@@ -112,9 +154,35 @@ export default {
       // state (the Error screen, e.g. a createStory attempt that failed at the
       // start burst) is retried too — at game start no turn events exist yet,
       // so without the poll that screen was a dead end until manual refresh.
-      this.pollTimer = setInterval(function () {
-        if (that.userState === "waiting" || that.userState === "") that.getTurns()
+      //
+      // Every ~10s it also checks whether the host dropped us: a player idling on
+      // a turn screen gets no event for that.
+      let ticks = 0
+      this.pollTimer = setInterval(async function () {
+        if (that.userState === "waiting" || that.userState === "") {
+          that.getTurns()
+        } else if (++ticks % 4 == 0 && ['playing', 'firstTurn'].includes(that.userState)) {
+          if ((await that.checkStatus()).dropped) that.setRemoved()
+        }
       }, 2500)
+    },
+    // The host skipped a turn we owed, maybe the one on screen. Never write to
+    // that story, and move on if it's the one we're looking at.
+    onTurnSkipped(storyId) {
+      this.submittedStories.add(storyId)
+      if (storyId === this.ownStory?.id) this.firstTurnTaken = true
+      this.nextPrompts = this.nextPrompts.filter(p => p.story_id !== storyId)
+      const onScreen = ['playing', 'firstTurn'].includes(this.userState) && this.turnKey === storyId
+      log.info("turn.skippedByHost", { story: storyId, onScreen })
+      if (!onScreen) return
+      this.emitSnack("The host skipped your turn.", "info")
+      this.getNextTurn()
+    },
+    setRemoved() {
+      if (this.userState === "removed") return
+      log.warn("player.removed", { story: this.turnKey })
+      this.curPrompt = null
+      this.userState = "removed"
     },
     getReviewPath() {
       let curPath = window.location.href
@@ -125,6 +193,7 @@ export default {
       return ""
     },
     emitSnack(msg, color) {
+      if (color == "error") log.warn("snack", { msg })
       this.$emit("snack", msg, color)
     },
     async isValidGame() {
@@ -159,33 +228,31 @@ export default {
         return;
       }
 
-      let users = resp.data
-      if (!users.filter(o => o.username == validation.username).length) {
+      let user = resp.data.find(o => o.username == validation.username)
+      if (!user) {
         this.$emit("snack", "Not an active user in this game.", "error")
         return
       }
+      // Signing in here always takes over an existing seat, so make sure it's theirs.
+      if (!(await this.$refs.rejoin.ask(user))) {
+        return
+      }
 
-      this.userStore.user = await pbService.users.getUser(validation.username, this.gameId)
+      this.userStore.user = user
       this.showLoginDialog = false
-      this.startTurnSync()
-      await this.getTurns()
+      await this.startPlaying()
     },
-    async checkNumTurns() {
-      const numTurns = await pbService.progress.getUserTurnCount(this.userStore.userId)
-      if (numTurns.errMsg) {
-        this.$emit("snack", numTurns.errMsg, "error")
+    // Where we stand, from the server: `finished` once we've taken a turn on
+    // every story (and every active player has one), `dropped` if the host
+    // removed us. Computed server-side because dropped players change both the
+    // number of stories and who takes turns on them (see gamePlayers in host.go).
+    async checkStatus() {
+      const resp = await pbService.games.getPlayers(this.gameId)
+      if (resp.errMsg) {
+        this.emitSnack(resp.errMsg, "error")
+        return {}
       }
-      const numUsers = await pbService.users.getTotalUsers(this.gameId)
-      if (numUsers.errMsg) {
-        this.$emit("snack", numUsers.errMsg, "error")
-      }
-      // The roster is frozen once the game starts (users can't be added or removed
-      // mid-game — see the roster-lock rule in the migration), so the real player
-      // count can only ever be *under*-reported by a stale read during the busy
-      // start. Track the max we've seen; using a momentarily-low count here would
-      // declare the game finished early and truncate everyone's story.
-      this.totalPlayers = Math.max(this.totalPlayers, numUsers.data || 0)
-      return this.totalPlayers > 0 && numTurns.data >= this.totalPlayers
+      return resp.data.find(p => p.id === this.userStore.userId) || {}
     },
     getTurns() {
       // The subscription and the polling fallback can both fire while a
@@ -226,6 +293,10 @@ export default {
           // Create it and only reveal the prompt UI once curPrompt is
           // populated, so an early submit can't reference a missing story.
           let created = await pbService.progress.createStory(this.userStore.userId, this.gameId)
+          if (created.errMsg?.includes("removed")) {
+            this.setRemoved()
+            return
+          }
           if (created.errMsg) {
             // userState stays "" (the Error screen); the poll retries that
             // state, so a transient create failure at the start burst
@@ -267,93 +338,173 @@ export default {
       await this.queryMorePrompts()
     },
     async queryMorePrompts() {
-      // 3. Check if the user has done a turn for each user
-      let finishedAllStories = await this.checkNumTurns()
-      if (finishedAllStories) {
+      // 3. Check if the user has done a turn on every story
+      const me = await this.checkStatus()
+      if (me.dropped) {
+        this.setRemoved()
+        return
+      }
+      if (me.finished) {
         this.userState = "finished"
         this.$router.push({ name: "Review", params: { gameCode: this.$route.params.gameCode } });
         return
       }
 
-      this.nextPrompts = await pbService.progress.getNextPerUser(this.userStore.userId)
+      let next = await pbService.progress.getNextPerUser(this.userStore.userId)
+      if (next.errMsg) {
+        this.emitSnack(next.errMsg, "error")
+        next = []
+      }
+      const stale = next.filter(p => this.submittedStories.has(p.story_id))
+      if (stale.length) {
+        log.warn("progress.staleStory", { stories: stale.map(p => p.story_id) })
+      }
+      this.nextPrompts = next.filter(p => !this.submittedStories.has(p.story_id))
+      log.info("progress.next", {
+        queued: this.nextPrompts.map(p => ({ story: p.story_id, taken: p.turns_taken })),
+      })
       // 4. No prompts means their waiting for the player before them to finish
       if (!this.nextPrompts.length) {
         this.userState = "waiting"
         this.$nextTick(() => {
-          this.$refs.waiting.getProgress()
+          this.$refs.waiting?.getProgress()
         })
         // 5. They have prompts, so they're still playing
       } else {
-        this.userState = "playing"
-        this.curPrompt = this.nextPrompts.pop()
-        this.isDraw = Boolean(this.curPrompt.prev_prompt)
-        if (!this.isDraw) {
-          this.getDrawing()
-        }
+        this.showTurn(this.nextPrompts.pop())
+      }
+    },
+    // The single place a queued story becomes the active turn. Everything that
+    // depends on the story (draw vs. guess, the drawing to guess from) must be
+    // derived here, so it can never lag behind curPrompt.
+    showTurn(prompt) {
+      this.curPrompt = prompt
+      this.isDraw = Boolean(prompt.prev_prompt)
+      this.userState = "playing"
+      log.info("turn.show", {
+        story: prompt.story_id,
+        taken: prompt.turns_taken,
+        isDraw: this.isDraw,
+        prevTurn: prompt.prev_turn_id,
+      })
+      if (!this.isDraw) {
+        this.getDrawing(prompt)
       }
     },
     getNextTurn() {
       if (this.nextPrompts.length) {
-        this.curPrompt = this.nextPrompts.pop()
+        this.showTurn(this.nextPrompts.pop())
       } else {
+        // Nothing queued: re-check through the serialized pass. Leave the turn
+        // screen first, so it never renders without a story.
+        this.curPrompt = null
         this.userState = "waiting"
+        this.getTurns()
       }
     },
-    async getDrawing() {
-      const record = await pb.collection('turns').getOne(this.curPrompt.prev_turn_id);
-      let drawing_url = await pb.files.getUrl(record, this.curPrompt.prev_drawing)
-      this.$refs.prompt.setDrawing(drawing_url)
+    async getDrawing(prompt) {
+      const record = await pb.collection('turns').getOne(prompt.prev_turn_id);
+      let drawing_url = await pb.files.getUrl(record, prompt.prev_drawing)
+      // The turn UI is re-created per story (see turnKey), so wait for it, and
+      // drop the result if the player has already moved on to another story.
+      await this.$nextTick()
+      if (this.curPrompt !== prompt) return
+      this.$refs.prompt?.setDrawing(drawing_url)
     },
-    async saveResponse(data) {
+    // timedOut: the round timer ran out and this is the player's partial work.
+    // Shown as such in the review only.
+    async saveResponse(data, { timedOut = false } = {}) {
+      // One submit per turn: a double-click or the timer firing alongside a
+      // manual submit must not write two turns.
+      if (this.submitting) {
+        log.warn("turn.submit.ignored", { story: this.turnKey, reason: "in flight" })
+        return
+      }
       let isDrawing = typeof data == "object"
       let wasFirstTurn = this.userState == "firstTurn"
+      let storyId = this.curPrompt.story_id || this.curPrompt.id
 
-      console.log("saveResponse", {
-        user_id: this.userStore.userId,
-        story_id: this.curPrompt.story_id,
-        drawing: isDrawing ? data : "",
-        prompt: isDrawing ? "" : data,
-        is_drawing: isDrawing,
+      if (isDrawing != this.isDraw && !wasFirstTurn) {
+        log.warn("turn.submit.typeMismatch", { story: storyId, isDraw: this.isDraw, isDrawing })
+      }
+      log.info("turn.submit", {
+        story: storyId,
+        taken: this.curPrompt.turns_taken,
+        isDrawing,
+        timedOut,
+        drawing: isDrawing ? data : undefined,
+        prompt: isDrawing ? undefined : data,
       })
       // Create a new entry with the single photo
       let formData = new FormData();
       formData.append("user_id", this.userStore.userId);
-      formData.append("story_id", this.curPrompt.story_id || this.curPrompt.id);
+      formData.append("story_id", storyId);
       formData.append("game_id", this.gameId);
       formData.append("drawing", isDrawing ? data : "");
       formData.append("prompt", isDrawing ? "" : data);
       formData.append("is_drawing", isDrawing);
-      let resp = await pbService.progress.createTurn(formData)
-      if (resp.errMsg) {
-        this.$emit("snack", resp.errMsg, "error")
+      formData.append("timed_out", timedOut);
+      this.submitting = true
+      let resp
+      try {
+        resp = await pbService.progress.createTurn(formData)
+      } finally {
+        this.submitting = false
+      }
+      if (this.refused(resp, storyId)) return
+      log.info("turn.submit.ok", { story: storyId, turn: resp.id })
+      this.turnWritten(storyId, wasFirstTurn)
+    },
+    // The round timer ran out. Submit whatever the player has so far, flagged
+    // as timed out. With nothing at all, the server skips the turn instead,
+    // passing the previous word or drawing on (or picking an opening word).
+    async onTimerFinished() {
+      if (this.submitting) return // they hit Submit just in time
+      let partial
+      if (this.isDraw) {
+        partial = await this.$refs.draw?.getDrawing()
+      } else {
+        partial = this.$refs.prompt?.prompt?.trim()
+      }
+      log.info("timer.finished", { story: this.turnKey, isDraw: this.isDraw, partial: Boolean(partial) })
+      if (partial) {
+        await this.saveResponse(partial, { timedOut: true })
         return
       }
+
+      let wasFirstTurn = this.userState == "firstTurn"
+      let storyId = this.turnKey
+      this.submitting = true
+      let resp
+      try {
+        resp = await pbService.progress.timeoutTurn(storyId, this.userStore.userId)
+      } finally {
+        this.submitting = false
+      }
+      if (this.refused(resp, storyId)) return
+      this.emitSnack("Time's up!", "info")
+      this.turnWritten(storyId, wasFirstTurn)
+    },
+    // Handles the server refusing a turn: skipped by the host meanwhile, player
+    // dropped (messages defined in host.go), or anything else. True if refused.
+    refused(resp, storyId) {
+      if (resp.errMsg?.includes("skipped")) {
+        this.onTurnSkipped(storyId)
+      } else if (resp.errMsg?.includes("removed")) {
+        this.setRemoved()
+      } else if (resp.errMsg) {
+        log.error("turn.submit.failed", { story: storyId, err: resp.errMsg })
+        this.$emit("snack", resp.errMsg, "error")
+      }
+      return Boolean(resp.errMsg)
+    },
+    // Our turn on storyId is saved (by us, or by the server on timeout): move on.
+    turnWritten(storyId, wasFirstTurn) {
+      this.submittedStories.add(storyId)
       if (wasFirstTurn) {
         this.firstTurnTaken = true
       }
-
       this.getNextTurn()
-    },
-    async onTimerFinished() {
-      let data
-      if (this.isDraw) {
-        data = await this.$refs.draw.getDrawing()
-        if (!data) {
-          data = this.curPrompt.prev_prompt
-        }
-      } else {
-        if (this.$refs.prompt.prompt.trim() || this.userState == "firstTurn") {
-          if (!this.$refs.prompt.prompt.trim()) {
-            data = this.userStore.username
-          } else {
-            data = this.$refs.prompt.prompt
-          }
-        } else {
-          data = this.$refs.prompt.prevDrawing
-        }
-      }
-
-      this.saveResponse(data)
     },
   },
 };

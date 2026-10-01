@@ -7,11 +7,25 @@ import ViteFonts from 'unplugin-fonts/vite'
 // Utilities
 import { defineConfig } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
+import process from 'node:process'
+
+// Identifies this build. The app compares it with the server's /version.json on
+// page changes and reloads when the server has a newer build (see router.js).
+const buildId = process.env.BUILD_ID || new Date().toISOString()
+
+const emitVersionFile = {
+  name: 'emit-version-file',
+  apply: 'build',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: buildId }) })
+  },
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
   base: '/', // Also needs to be changed in router/router.js
   plugins: [
+    emitVersionFile,
     Vue({
       template: { transformAssetUrls }
     }),
@@ -27,7 +41,10 @@ export default defineConfig({
       },
     }),
   ],
-  define: { 'process.env': {} },
+  define: {
+    'process.env': {},
+    'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))

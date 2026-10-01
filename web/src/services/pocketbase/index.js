@@ -120,6 +120,30 @@ export const pbService = {
         return { errMsg: "beginGame:" + JSON.stringify(err?.response?.message || err) }
       })
     },
+    // Where every player stands mid-game (see gamePlayers in host.go): turns
+    // taken, stories waiting on them, dropped, and whether they're finished.
+    async getPlayers(gameId) {
+      // requestKey: null: polled from more than one place; overlapping calls
+      // must not cancel each other.
+      return await pb.send(`/api/games/${gameId}/players`, { requestKey: null }).then(function (resp) {
+        return { data: resp.players }
+      }).catch(function (err) {
+        return { errMsg: "getPlayers:" + JSON.stringify(err?.response?.message || err) }
+      })
+    },
+    // Host-only: action is "skip" (their pending turns) or "drop" (from the game).
+    async hostAction(gameId, userId, action, hostId) {
+      console.log("hostAction request", { gameId, userId, action })
+      return await pb.send(`/api/games/${gameId}/players/${userId}/${action}`, {
+        method: "POST",
+        body: { host_id: hostId },
+        requestKey: null,
+      }).then(function (resp) {
+        return { data: resp }
+      }).catch(function (err) {
+        return { errMsg: JSON.stringify(err?.response?.message || err) }
+      })
+    },
     async checkGameStatus(gameCode) {
       return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
         console.log("checkGameStatus resp", resp)
@@ -196,6 +220,14 @@ export const pbService = {
         return { errMsg: "getUser:" + JSON.stringify(err?.response?.message || err) }
       })
     },
+    async getUserById(userId) {
+      return await pb.collection('users').getOne(userId, { requestKey: null }).then(function (resp) {
+        console.log("getUserById resp", resp)
+        return resp
+      }).catch(function (err) {
+        return { errMsg: "getUserById:" + JSON.stringify(err?.response?.message || err) }
+      })
+    },
     async getUsername(userId) {
       let query = `id="${userId}"`
       return await pb.collection('users').getFirstListItem(query).then(function (resp) {
@@ -223,33 +255,31 @@ export const pbService = {
         return { errMsg: "getUsers:" + JSON.stringify(err?.response?.message || err) }
       })
     },
-    async getTotalUsers(gameId) {
-      return await pb.collection('users').getList(1, 1, {
-        filter: `game_id="${gameId}"`
-      }).then(function (resp) {
-        console.log("getTotalUsers resp", resp)
-        return { data: resp.totalItems }
-      }).catch(function (err) {
-        return { data: 0, errMsg: "getTotalUsers:" + JSON.stringify(err?.response?.message || err) }
-      });;
-    },
   },
   progress: {
     async getFullProgress(gameCode) {
+      // Own cancellation key: the default one is per collection, so this
+      // display refresh would cancel getNextPerUser (and vice versa).
       let data = {
         filter: `game_id.game_code="${gameCode}"`,
+        requestKey: "fullProgress",
       }
       console.log("getFullProgress request", data)
       return await pb.collection('progress').getFullList(data).then(function (resp) {
         console.log("getFullProgress resp", resp)
         return { data: resp }
       }).catch(function (err) {
+        // Superseded by a newer refresh (latest wins), not an error.
+        if (err?.isAbort) return { aborted: true }
         return { errMsg: "getFullProgress:" + JSON.stringify(err?.response?.message || err) }
       });
     },
     async getNextPerUser(userId) {
+      // requestKey: null: TakeTurn serializes these itself, and losing one to a
+      // concurrent progress read costs a whole poll cycle.
       let data = {
         filter: `next_user_id="${userId}"`,
+        requestKey: null,
       }
       return await pb.collection('progress').getFullList(data).then(function (resp) {
         console.log("getNextPerUser resp", resp)
@@ -304,15 +334,17 @@ export const pbService = {
         return { errMsg: "createTurn:" + JSON.stringify(err?.response?.message || err) }
       });
     },
-    async getUserTurnCount(userId) {
-      return await pb.collection('turns').getList(1, 1, {
-        filter: `user_id="${userId}"`,
+    // The round timer ran out with nothing entered: the server skips the turn.
+    async timeoutTurn(storyId, userId) {
+      return await pb.send(`/api/stories/${storyId}/timeout`, {
+        method: "POST",
+        body: { user_id: userId },
+        requestKey: null,
       }).then(function (resp) {
-        console.log("checkNumTurns resp", resp)
-        return { data: resp.totalItems }
+        return { data: resp }
       }).catch(function (err) {
-        return { data: 0, errMsg: "checkNumTurns:" + JSON.stringify(err?.response?.message || err) }
-      });
+        return { errMsg: "timeoutTurn:" + JSON.stringify(err?.response?.message || err) }
+      })
     },
     async getUserStoryWithTurns(userId) {
       let data = {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame } from './helpers.js'
+import { createGame, joinGame, startGame, submitJoin } from './helpers.js'
 
 // The ways a human wanders off the happy path: mistyped codes, stale links,
 // double-joins, and games that already started. Each should fail gracefully —
@@ -42,14 +42,16 @@ test('joining with a name already in the game re-attaches instead of duplicating
   const hostPage = await hostCtx.newPage()
   const code = await createGame(hostPage, { username: 'hosty', timed: false })
 
-  // A second person types the host's name. The app treats it as the same player
-  // ("assuming it's yours") and drops them into the waiting room rather than
-  // creating a colliding duplicate.
+  // The host, now on another browser, types their own name. After confirming
+  // it's them they're dropped into the waiting room as the same player rather
+  // than a colliding duplicate.
   const guestCtx = await browser.newContext()
   const guestPage = await guestCtx.newPage()
-  await joinGame(guestPage, code, 'hosty')
-  await expect(guestPage.getByText(/already exists/i)).toBeVisible()
+  await submitJoin(guestPage, code, 'hosty')
+  await expect(guestPage.getByText('"hosty" is already in this game')).toBeVisible()
+  await guestPage.getByRole('button', { name: "That's me, rejoin" }).click()
   await expect(guestPage).toHaveURL(new RegExp(`/${code}$`, 'i'))
+  await expect(guestPage.getByText('Welcome hosty!')).toBeVisible()
 
   // The host's roster still holds exactly one seat — the re-attach did not add
   // a duplicate player. (Give the realtime roster a moment to settle first.)
@@ -97,6 +99,142 @@ test('a player who leaves the party is removed from the host roster', async ({ b
   guestPage.once('dialog', (d) => d.accept())
   await guestPage.getByRole('button', { name: 'Leave Party' }).click()
   await expect(hostPage.getByText('quitter')).toHaveCount(0, { timeout: 15_000 })
+
+  await hostCtx.close()
+  await guestCtx.close()
+})
+
+// Regression: the signed-in player is kept per tab and outlives a game. Opening
+// the next game's link from the last game's review page used to reuse that old
+// player: no join dialog, and no seat in the new game.
+test('opening a new game link from the review page asks to join and seats the player', async ({ browser }) => {
+  const ctx = await browser.newContext()
+  const page = await ctx.newPage()
+
+  // A solo game is the quickest way to the review page: one word and it's over.
+  await createGame(page, { username: 'solo', timed: false })
+  await startGame(page, 1)
+  await page.locator('textarea').first().fill('lonely')
+  await page.getByRole('button', { name: 'Submit' }).click()
+  await page.waitForURL(/\/review$/)
+
+  const hostCtx = await browser.newContext()
+  const hostPage = await hostCtx.newPage()
+  const nextCode = await createGame(hostPage, { username: 'hosty', timed: false })
+
+  // Same tab, straight to the new link.
+  await page.goto(`/${nextCode}`)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Join the Game!')).toBeVisible()
+  await expect(dialog.getByLabel('Username')).toHaveValue('solo') // pre-filled from last game
+  await dialog.getByRole('button', { name: 'Submit' }).click()
+  await expect(dialog).toBeHidden()
+
+  await expect(page.getByText('Welcome solo!')).toBeVisible()
+  await expect(hostPage.locator('.drag-item')).toHaveCount(2)
+
+  await ctx.close()
+  await hostCtx.close()
+})
+
+// Someone who picks a name that's taken by accident can back out and choose
+// another, without taking over the other player's seat.
+test('declining the rejoin prompt keeps the other player and lets you pick a new name', async ({ browser }) => {
+  const hostCtx = await browser.newContext()
+  const hostPage = await hostCtx.newPage()
+  const code = await createGame(hostPage, { username: 'hosty', timed: false })
+
+  const guestCtx = await browser.newContext()
+  const guestPage = await guestCtx.newPage()
+  await submitJoin(guestPage, code, 'hosty')
+  await guestPage.getByRole('button', { name: 'Pick another name' }).click()
+
+  // Still on the home screen's join dialog, and nobody was signed in.
+  await expect(guestPage).toHaveURL(/\/$/)
+  await expect(guestPage.getByText('is already in this game')).toBeHidden()
+  await guestPage.getByLabel('Username').fill('guesty')
+  await guestPage.getByRole('button', { name: 'Join!' }).click()
+  await expect(guestPage).toHaveURL(new RegExp(`/${code}$`, 'i'))
+  await expect(guestPage.getByText('Welcome guesty!')).toBeVisible()
+  await expect(hostPage.locator('.drag-item')).toHaveCount(2)
+
+  await hostCtx.close()
+  await guestCtx.close()
+})
+
+// Tech trouble mid-game: a player opens the game on another device, signs in
+// with their name, confirms it's them, and is back on their turn.
+test('a player can rejoin a started game from another browser', async ({ browser }) => {
+  const hostCtx = await browser.newContext()
+  const hostPage = await hostCtx.newPage()
+  const code = await createGame(hostPage, { username: 'hosty', timed: false })
+  const guestCtx = await browser.newContext()
+  const guestPage = await guestCtx.newPage()
+  await joinGame(guestPage, code, 'buddy')
+  await startGame(hostPage, 2)
+  await guestPage.waitForURL(/\/draw$/)
+
+  const rescueCtx = await browser.newContext()
+  const rescuePage = await rescueCtx.newPage()
+  await rescuePage.goto(`/${code}/draw`)
+  await rescuePage.getByLabel('Username').fill('buddy')
+  await rescuePage.getByRole('button', { name: 'Join!' }).click()
+  await rescuePage.getByRole('button', { name: "That's me, rejoin" }).click()
+  await expect(rescuePage.getByText('Enter your starting prompt')).toBeVisible()
+
+  await hostCtx.close()
+  await guestCtx.close()
+  await rescueCtx.close()
+})
+
+// Regression: a tab opened before the server was rebuilt asks for the old
+// build's page chunks, which no longer exist. When the host started, every such
+// player failed to load the turn page and sat in the waiting room. Now the app
+// reloads into the page it was going to.
+test('a player whose turn page fails to load (stale build) reloads into their turn', async ({ browser }) => {
+  const hostCtx = await browser.newContext()
+  const hostPage = await hostCtx.newPage()
+  const code = await createGame(hostPage, { username: 'hosty', timed: false })
+  const guestCtx = await browser.newContext()
+  const guestPage = await guestCtx.newPage()
+  await joinGame(guestPage, code, 'buddy')
+
+  // The first request for the turn page's code fails, as an old chunk name would.
+  let failed = 0
+  await guestPage.route(/TakeTurn/, async (route) => {
+    failed++
+    await route.fulfill({ status: 404, body: '' })
+  }, { times: 1 })
+
+  await startGame(hostPage, 2)
+  await guestPage.waitForURL(/\/draw$/, { timeout: 15_000 })
+  await expect(guestPage.getByText('Enter your starting prompt')).toBeVisible({ timeout: 15_000 })
+  expect(failed).toBe(1)
+
+  await hostCtx.close()
+  await guestCtx.close()
+})
+
+// Regression: a tab that already loaded every page keeps running its build
+// forever, bugs and all, even after the server is rebuilt. It now checks the
+// server's build on each page change and reloads if it's out of date.
+test('a tab from an older build reloads into the new one at the next page change', async ({ browser }) => {
+  const hostCtx = await browser.newContext()
+  const hostPage = await hostCtx.newPage()
+  const code = await createGame(hostPage, { username: 'hosty', timed: false })
+  const guestCtx = await browser.newContext()
+  const guestPage = await guestCtx.newPage()
+  await joinGame(guestPage, code, 'buddy')
+
+  // The server now reports a different build than the one this tab is running.
+  await guestPage.route('**/version.json', (route) => route.fulfill({ json: { build: 'newer-build' } }))
+  let documentLoads = 0
+  guestPage.on('request', (r) => { if (r.resourceType() === 'document') documentLoads++ })
+
+  await startGame(hostPage, 2)
+  await guestPage.waitForURL(/\/draw$/, { timeout: 15_000 })
+  await expect(guestPage.getByText('Enter your starting prompt')).toBeVisible({ timeout: 15_000 })
+  expect(documentLoads).toBe(1) // a full page load, not an in-app page change
 
   await hostCtx.close()
   await guestCtx.close()

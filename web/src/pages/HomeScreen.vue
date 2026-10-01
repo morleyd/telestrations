@@ -66,6 +66,7 @@
         </v-dialog>
       </v-row>
     </v-card>
+    <ConfirmRejoin ref="rejoin" />
   </v-card>
 </template>
 <script>
@@ -107,8 +108,13 @@ export default {
 
       let user = await pbService.users.getUser(validation.username, validGame.gameId)
       if (user.hasOwnProperty("id")) {
+        // Name taken: rejoin only if they confirm it's them; otherwise leave the
+        // join dialog open to pick another name.
+        if (!(await this.$refs.rejoin.ask(user))) {
+          return
+        }
         this.userStore.user = user
-        this.$emit("snack", "Username already exists. Assuming it's yours.", "warning")
+        this.$emit("snack", `Welcome back, ${user.username}!`, "success")
         if (validGame.isStarted) {
           this.$router.push({ name: "TakeTurn", params: { gameCode: this.gameCode } });
         } else {

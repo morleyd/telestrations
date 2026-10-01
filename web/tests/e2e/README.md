@@ -30,9 +30,10 @@ npm run test:e2e        # same as ./run-e2e.sh (if you're already in a node shel
 `playwright.config.js` starts two servers automatically (test ports, torn down
 after):
 
-- **Backend** — `go run . serve` against `.e2e-pb-data`, a throwaway copy of
-  `pb_data` created by `global-setup.js`. Tests run against genuine collections
-  and API rules but **never touch your real `pb_data`**.
+- **Backend** — `go run . serve` against `.e2e-pb-data`, a fresh data dir wiped
+  at startup and built from the migrations. Tests run against genuine collections
+  and API rules but **never touch your real `pb_data`**. It has no superuser;
+  the server prints a one-time setup link instead of opening your browser.
 - **Frontend** — Vite, pointed at the test backend via `VITE_POCKETBASE_URL`.
 
 No dev servers need to be running first; if you already have something on the

@@ -5,11 +5,14 @@
 <template>
   <v-menu v-model="visible" location="center" :close-on-content-click="false">
     <template v-slot:activator="{ props }">
-      <div class="preview" @click="onOpen" v-bind="props" :style="{ background: outerPreviewColor }"></div>
+      <div class="preview" role="button" :aria-label="parent == 'background' ? 'Background color' : 'Pen color'"
+        @click="onOpen" v-bind="props" :style="{ background: outerPreviewColor }"></div>
     </template>
     <div id="colorPicker">
-      <img style="margin-right:2px; cursor: pointer;" src="@/assets/img_colormap.gif" usemap="#colormap" alt="colormap">
-      <map id="colormap" name="colormap">
+      <img style="margin-right:2px; cursor: pointer;" src="@/assets/img_colormap.gif" :usemap="'#' + mapName" alt="colormap">
+      <!-- Named per instance: with a shared name, the browser sends every
+           picker's clicks to whichever map was rendered first. -->
+      <map ref="map" :name="mapName">
         <area style="cursor:pointer" shape="poly" coords="63,0,72,4,72,15,63,19,54,15,54,4"
           @click="clickColor('#003366', -200, 54)" loc="-200, 54" alt="#003366">
         <area style="cursor:pointer" shape="poly" coords="81,0,90,4,90,15,81,19,72,15,72,4"
@@ -265,10 +268,10 @@
         <area style="cursor:pointer" shape="poly" coords="171,180,180,184,180,195,171,199,162,195,162,184"
           @click="clickColor('#993333', -20, 162)" loc="-20, 162" alt="#993333">
       </map>
-      <div id="selectedhexagon" class="mt-n2"></div>
+      <div ref="hexagon" class="selected-hexagon mt-n2"></div>
       <div style="display: grid; align-items: center; justify-items: center;">
         <div class="preview mt-n2" :style="{ background: hexColor }"></div>
-        <v-btn class="mt-4" color="primary" @click="onSubmit">Done</v-btn>
+        <v-btn class="mt-4" color="primary" @click="visible = false">Done</v-btn>
       </div>
     </div>
   </v-menu>
@@ -283,6 +286,7 @@ export default {
   data() {
     return {
       visible: false,
+      mapName: `colormap-${Math.random().toString(36).slice(2, 8)}`,
       hexColor: "#000066",
       outerPreviewColor: "#000066",
     };
@@ -300,37 +304,36 @@ export default {
     onOpen() {
       this.visible = true
       this.$nextTick(() => {
-        let colormap = document.getElementById("colormap");
-        let areas = colormap.getElementsByTagName("AREA");
+        let areas = this.$refs.map?.getElementsByTagName("AREA") || [];
         for (let i = 0; i < areas.length; i++) {
           let areacolor = areas[i].alt;
           if (areacolor.toLowerCase() == this.hexColor.toLowerCase()) {
             let location = areas[i].getAttribute("loc").split(",");
-            this.clickColor(this.hexColor, Number(location[0]), Number(location[1]))
+            this.placeHexagon(Number(location[0]), Number(location[1]))
           }
         }
       });
     },
     /**
-     * clickColor sets the chosen color and places the hexagon
+     * clickColor applies the chosen color straight away and marks it. The
+     * picker stays open to try others; tapping the canvas closes it and draws
+     * in the new color, no Done needed.
      * @param {string} hex - the hexcode color selected
      * @param {number} seltop - the top position of the color selected
      * @param {number} selleft - the left position of the color selected
      */
     clickColor(hex, seltop, selleft) {
       this.hexColor = hex
-      let hexagon = document.getElementById("selectedhexagon")
+      this.outerPreviewColor = hex
+      this.placeHexagon(seltop, selleft)
+      // this.parent helps the parent prop to disambiguate which color to change
+      this.$emit("selected", hex, this.parent)
+    },
+    placeHexagon(seltop, selleft) {
+      let hexagon = this.$refs.hexagon
+      if (!hexagon) return
       hexagon.style.top = seltop + "px";
       hexagon.style.left = selleft + "px";
-    },
-    /**
-     * onSubmit emits the color to the parent prop
-     */
-    onSubmit() {
-      this.outerPreviewColor = this.hexColor
-      this.visible = false
-      // this.parent helps the parent prop to disambiguate which color to change 
-      this.$emit("selected", this.hexColor, this.parent)
     },
   },
 }
@@ -348,7 +351,7 @@ export default {
   bottom: 100px;
 }
 
-#selectedhexagon {
+.selected-hexagon {
   visibility: visible;
   position: relative;
   margin-left: 2px;
