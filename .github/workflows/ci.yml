@@ -88,6 +88,10 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+      # checkout marks the workspace safe only under a throwaway HOME, and the
+      # container's user doesn't own it, so git (which go build calls to stamp
+      # VCS info) would refuse the repo as "dubious ownership".
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
