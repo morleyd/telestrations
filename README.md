@@ -42,7 +42,7 @@ Look for these first:
 - `turn: wrong type for position`: a drawing slot got text, or a guess slot got
   a drawing.
 - `turn: out of rotation`: a turn was written to the wrong story. (A second
-  turn by the same player on one story is refused outright by a unique index.)
+  write to the same place in a story is refused outright by a unique index.)
 - `client: turn.submit.typeMismatch`, `client: progress.staleStory`: the client
   caught itself in an inconsistent state.
 - `host: action` / `host: turn skipped`: the host skipped or dropped a player
@@ -61,12 +61,22 @@ how many stories are waiting on them.
 - **Drop** does the same for the rest of the game. If they never wrote an
   opening word, their story is removed. If a story is somehow still waiting on
   a dropped player, the dialog offers **Skip** for them again.
+- **End Game** ends it for everyone. Anyone in the middle of a turn gets 10
+  seconds to finish it; when time's up, whatever they have is submitted (marked
+  "⏱ Ran out of time" in the review), and everyone goes to the review.
 
 Turns the host skipped are hidden on the review page. A skipped opening word is
 the exception: it's shown with a "Skipped by the host" banner.
 
 There are no accounts, so these controls (like the rest of the game) trust the
 people on your network: they stop mistakes, not a determined cheat.
+
+## Rounds
+
+The **New Game** dialog sets how many rounds to play: how many times each story
+goes around the group (one by default). **Infinite** keeps the stories going
+around until the host uses **End Game**. (Timed rounds, below, are about how
+long each turn lasts.)
 
 ## Timed rounds
 

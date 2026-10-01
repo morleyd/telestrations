@@ -110,10 +110,11 @@ func TestRefusalCodes(t *testing.T) {
 	}
 }
 
-// The unique index under the turn guard: nothing, not even a server-side
-// write, can give a player two turns on one story, and the error names the
-// fields the client's fallback looks for (refusalCode in services/pocketbase).
-func TestOneTurnPerPlayerPerStory(t *testing.T) {
+// Every write takes the next place in its story, whatever the writer sent:
+// the server numbers turns. Under that, the unique (story_id, turn_index)
+// index refuses a second write to one place, and the error names story_id,
+// which the client's fallback looks for (refusalCode in services/pocketbase).
+func TestOneWritePerPlaceInAStory(t *testing.T) {
 	app := newTestApp(t)
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
@@ -122,15 +123,25 @@ func TestOneTurnPerPlayerPerStory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dup := core.NewRecord(col)
-	dup.Load(g.turn("ann", "ann", true))
-	err = app.Save(dup)
+	next := core.NewRecord(col)
+	next.Load(g.nextTurn(t, "ann", "ben"))
+	next.Set("turn_index", 0) // claims the opening word's place
+	if err := app.Save(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := next.GetInt("turn_index"); got != 1 {
+		t.Errorf("ben's turn after ann's word was numbered %d, want 1", got)
+	}
+
+	// Only an update can move a turn now, so that's what tries the index.
+	next.Set("turn_index", 0)
+	err = app.Save(next)
 	if err == nil {
-		t.Fatal("a second turn by ann on her story was saved")
+		t.Fatal("two turns were saved at place 0 of ann's story")
 	}
 	// The API turns a validation error into its response data the same way.
 	data := router.NewBadRequestError("", err).Data
-	for _, field := range []string{"user_id", "story_id"} {
+	for _, field := range []string{"story_id", "turn_index"} {
 		if item, _ := data[field].(map[string]any); item["code"] != "validation_not_unique" {
 			t.Errorf("%s: %v, want validation_not_unique", field, data[field])
 		}

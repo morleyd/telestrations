@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // Host controls: skipping a player's pending turns and dropping a player from a
@@ -36,6 +38,7 @@ const (
 	msgPlayerRemoved  = "You were removed from this game by the host."
 	msgNotYourTurn    = "It isn't your turn on this story."
 	msgGameStarted    = "This game has already started."
+	msgGameOver       = "This game is over."
 	msgAlreadyTakenBy = "You already took your turn on this story."
 
 	// Wrong kind of turn. Only an out-of-date page does this, so say how to fix it.
@@ -52,6 +55,7 @@ const (
 	codeTurnTaken     = "turn_taken"     // this player already wrote this turn
 	codeNotYourTurn   = "not_your_turn"  // the story is waiting on someone else
 	codeWrongTurnType = "wrong_turn_type"
+	codeGameOver      = "game_over" // the host ended the game and time is up
 )
 
 // refusalCode is a PocketBase safe error item, so it reaches the client intact
@@ -76,17 +80,22 @@ var skipStartingWords = []string{
 }
 
 type storyState struct {
-	StoryID  string `db:"story_id"`
-	GameID   string `db:"game_id"`
-	Starter  string `db:"starter_user_id"`
-	Taken    int    `db:"turns_taken"`
-	Total    int    `db:"total_players"`
+	StoryID string `db:"story_id"`
+	GameID  string `db:"game_id"`
+	Starter string `db:"starter_user_id"`
+	Taken   int    `db:"turns_taken"`
+	Total   int    `db:"total_players"`
+	// Turns the story gets in all (players x rounds), or -1 in an endless game.
+	TotalTurns int `db:"total_turns"`
+	// Past the host's End Game deadline: nobody is next on any story.
+	GameOver bool   `db:"game_over"`
 	NextUser string `db:"next_user_id"`
 	PrevUser string `db:"prev_user_id"`
 	PrevTurn string `db:"prev_turn_id"`
 }
 
 const storyStateSelect = `SELECT story_id, game_id, starter_user_id, turns_taken, total_players,
+  COALESCE(total_turns, -1) AS total_turns, COALESCE(game_over, 0) AS game_over,
   COALESCE(next_user_id, '') AS next_user_id, COALESCE(prev_user_id, '') AS prev_user_id,
   COALESCE(prev_turn_id, '') AS prev_turn_id
 FROM progress`
@@ -105,21 +114,30 @@ func loadGameStories(app core.App, gameID string) ([]storyState, error) {
 	return out, err
 }
 
-var errNotTheirTurn = errors.New("not this player's turn")
+var (
+	errNotTheirTurn = errors.New("not this player's turn")
+	errGameOver     = errors.New("the game is over")
+)
 
 // skipTurn writes the turn `userID` owes on `storyID` on their behalf, passing
 // the previous turn on unchanged. timedOut marks it as the player's own round
 // timer running out with nothing entered (the review says so) rather than the
-// host skipping them. Returns errNotTheirTurn if that turn isn't theirs to
-// take (anymore).
-func skipTurn(app core.App, storyID, userID, reason string, timedOut bool) error {
+// host skipping them. index is the turn being skipped (its place in the
+// story), or -1 for whichever turn is due. Returns errNotTheirTurn if that
+// turn isn't theirs to take (anymore), and errGameOver once the game is over.
+func skipTurn(app core.App, storyID, userID, reason string, timedOut bool, index int) error {
 	return app.RunInTransaction(func(tx core.App) error {
 		s, err := loadStory(tx, storyID)
 		if err != nil {
 			return err
 		}
+		if s.GameOver {
+			return errGameOver
+		}
 		// A finished story waits on no one (NextUser ""), so "" never matches.
-		if userID == "" || s.NextUser != userID {
+		// The index matters once stories go round more than once: by the time a
+		// skip lands, the story may have come back to the same player.
+		if userID == "" || s.NextUser != userID || (index >= 0 && index != s.Taken) {
 			return errNotTheirTurn
 		}
 
@@ -202,10 +220,10 @@ func skipOwedTurns(app core.App, stories []storyState, gameID, userID string, dr
 		if dropped && s.Taken == 0 {
 			err = deleteEmptyStory(app, gameID, s.StoryID, userID)
 		} else {
-			err = skipTurn(app, s.StoryID, userID, reason, false)
+			err = skipTurn(app, s.StoryID, userID, reason, false, s.Taken)
 		}
 		switch {
-		case errors.Is(err, errNotTheirTurn):
+		case errors.Is(err, errNotTheirTurn), errors.Is(err, errGameOver):
 		case err != nil:
 			errs = append(errs, fmt.Errorf("story %s: %w", s.StoryID, err))
 		default:
@@ -256,7 +274,8 @@ func skipIfNextIsDropped(app core.App, s *storyState) {
 		return
 	}
 	// errNotTheirTurn: someone (the host's own skip) got there first.
-	if err := skipTurn(app, s.StoryID, s.NextUser, "dropped", false); err != nil && !errors.Is(err, errNotTheirTurn) {
+	err := skipTurn(app, s.StoryID, s.NextUser, "dropped", false, s.Taken)
+	if err != nil && !errors.Is(err, errNotTheirTurn) && !errors.Is(err, errGameOver) {
 		app.Logger().Error("host: auto-skip failed", "story", s.StoryID, "user_id", s.NextUser, "error", err.Error())
 	}
 }
@@ -278,14 +297,26 @@ type playerStatus struct {
 }
 
 // gamePlayers reports where every player stands. A player is finished once
-// every active player has a story and they've taken a turn on each story. Both
-// halves matter: until the slowest player opens the game their story doesn't
-// exist yet, and a fast player must not be sent to the review before it does.
+// every active player has a story and they've taken all their turns on each
+// story (one a round). Both halves matter: until the slowest player opens the
+// game their story doesn't exist yet, and a fast player must not be sent to the
+// review before it does. In an endless game nobody finishes until the host
+// ends it; once the game is over, everyone has.
 func gamePlayers(app core.App, gameID string) ([]playerStatus, error) {
 	users, err := app.FindRecordsByFilter("users", "game_id = {:g}", "position,id", 0, 0, dbx.Params{"g": gameID})
 	if err != nil {
 		return nil, err
 	}
+	// An unknown game has no players either: one round, as before rounds.
+	rounds, endless := 1, false
+	game, err := app.FindRecordById("games", gameID)
+	switch {
+	case err == nil:
+		rounds, endless = max(game.GetInt("rounds"), 1), game.GetBool("endless")
+	case !errors.Is(err, sql.ErrNoRows):
+		return nil, err
+	}
+	over := gameOver(app, gameID)
 	stories, err := loadGameStories(app, gameID)
 	if err != nil {
 		return nil, err
@@ -333,7 +364,7 @@ func gamePlayers(app core.App, gameID string) ([]playerStatus, error) {
 			Turns:    turns[u.Id],
 			Owes:     owes[u.Id],
 		}
-		p.Finished = p.Dropped || (allStarted && p.Turns >= len(stories))
+		p.Finished = p.Dropped || over || (allStarted && !endless && p.Turns >= len(stories)*rounds)
 		out = append(out, p)
 	}
 	return out, nil
@@ -406,15 +437,64 @@ func bindHostRoutes(se *core.ServeEvent) {
 	se.Router.POST("/api/games/{gameId}/players/{userId}/skip", hostAction(false))
 	se.Router.POST("/api/games/{gameId}/players/{userId}/drop", hostAction(true))
 
+	// End Game. Players get endCountdown to finish the turn they're on (their
+	// pages count it down and submit what they have), then the game is over:
+	// nobody is next on any story and every player is finished. Ending again
+	// keeps the first deadline.
+	se.Router.POST("/api/games/{gameId}/end", func(e *core.RequestEvent) error {
+		body := struct {
+			HostID string `json:"host_id"`
+		}{}
+		if err := e.BindBody(&body); err != nil {
+			return e.BadRequestError("Invalid body.", err)
+		}
+		gameID := e.Request.PathValue("gameId")
+		if _, err := requireHost(e, gameID, body.HostID, body.HostID); err != nil {
+			return err
+		}
+		var endsAt types.DateTime
+		err := e.App.RunInTransaction(func(tx core.App) error {
+			game, err := tx.FindRecordById("games", gameID)
+			if err != nil {
+				return err
+			}
+			endsAt = game.GetDateTime("ends_at")
+			if !endsAt.IsZero() {
+				return nil
+			}
+			endsAt, err = types.ParseDateTime(time.Now().Add(endCountdown))
+			if err != nil {
+				return err
+			}
+			game.Set("ends_at", endsAt)
+			if err := tx.Save(game); err != nil {
+				return err
+			}
+			tx.Logger().Info("host: game ending", "game_id", gameID, "ends_at", endsAt.String())
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		return e.JSON(http.StatusOK, map[string]any{"ends_at": endsAt.String()})
+	})
+
 	// A player's round timer ran out with nothing entered: skip their turn on
 	// that story the same way the host would, marked as a timeout. (With partial
 	// work the client submits it as a normal turn, flagged timed_out.)
 	se.Router.POST("/api/stories/{storyId}/timeout", func(e *core.RequestEvent) error {
 		body := struct {
 			UserID string `json:"user_id"`
+			// The turn the timer ran for: its place in the story. Pages from
+			// before rounds don't send it.
+			TurnIndex *int `json:"turn_index"`
 		}{}
 		if err := e.BindBody(&body); err != nil {
 			return e.BadRequestError("Invalid body.", err)
+		}
+		index := -1
+		if body.TurnIndex != nil {
+			index = *body.TurnIndex
 		}
 		storyID := e.Request.PathValue("storyId")
 		story, err := e.App.FindRecordById("stories", storyID)
@@ -429,10 +509,13 @@ func bindHostRoutes(se *core.ServeEvent) {
 		if isDropped(e.App, body.UserID) {
 			return refuse(codePlayerRemoved, msgPlayerRemoved)
 		}
-		err = skipTurn(e.App, storyID, body.UserID, "timed out", true)
-		if errors.Is(err, errNotTheirTurn) {
-			return notYourTurn(e.App, storyID, body.UserID)
-		} else if err != nil {
+		err = skipTurn(e.App, storyID, body.UserID, "timed out", true, index)
+		switch {
+		case errors.Is(err, errGameOver):
+			return refuse(codeGameOver, msgGameOver)
+		case errors.Is(err, errNotTheirTurn):
+			return notYourTurn(e.App, storyID, body.UserID, index)
+		case err != nil:
 			return err
 		}
 		return e.JSON(http.StatusOK, map[string]any{"ok": true})
@@ -442,20 +525,57 @@ func bindHostRoutes(se *core.ServeEvent) {
 // notYourTurn is the refusal for userID writing to storyID out of turn, saying
 // why: the host skipped them, they already took it (from another tab, or a
 // retry whose first response got lost), or it's simply someone else's turn.
-func notYourTurn(app core.App, storyID, userID string) error {
+// index is the turn they were writing (its place in the story), or -1 if
+// their page didn't say, when their latest turn on the story stands in.
+func notYourTurn(app core.App, storyID, userID string, index int) error {
 	if userID == "" {
 		return refuse(codeNotYourTurn, msgNotYourTurn)
 	}
-	existing, err := app.FindFirstRecordByFilter("turns", "story_id = {:s} && user_id = {:u}",
-		dbx.Params{"s": storyID, "u": userID})
-	switch {
-	case err == nil && existing.GetBool("skipped") && !existing.GetBool("timed_out"):
-		return refuse(codeTurnSkipped, msgTurnSkipped)
-	case err == nil:
-		return refuse(codeTurnTaken, msgAlreadyTakenBy)
-	default:
-		return refuse(codeNotYourTurn, msgNotYourTurn)
+	filter, params := "story_id = {:s} && user_id = {:u}", dbx.Params{"s": storyID, "u": userID}
+	if index >= 0 {
+		filter, params["i"] = filter+" && turn_index = {:i}", index
 	}
+	existing, err := app.FindRecordsByFilter("turns", filter, "-turn_index", 1, 0, params)
+	switch {
+	case err != nil || len(existing) == 0:
+		return refuse(codeNotYourTurn, msgNotYourTurn)
+	case existing[0].GetBool("skipped") && !existing[0].GetBool("timed_out"):
+		return refuse(codeTurnSkipped, msgTurnSkipped)
+	default:
+		return refuse(codeTurnTaken, msgAlreadyTakenBy)
+	}
+}
+
+// requestedTurnIndex is the turn_index a client sent with its turn: the place
+// in the story of the turn it was shown, or -1 if it sent none (a page from
+// before rounds). The server numbers turns itself (see bindGameHooks); this is
+// only for checking the client is writing the turn it thinks it is.
+func requestedTurnIndex(e *core.RecordRequestEvent) int {
+	info, err := e.RequestInfo()
+	if err != nil {
+		return -1
+	}
+	if _, ok := info.Body["turn_index"]; !ok {
+		return -1
+	}
+	return e.Record.GetInt("turn_index")
+}
+
+// endCountdown is how long End Game gives players to finish the turn they're on.
+const endCountdown = 10 * time.Second
+
+// gameOverSQL is true for a game past its End Game deadline and the grace
+// after it. The progress view (migration 1784300000) tests the same, so the
+// rotation stops when the guards do.
+const gameOverSQL = `(ends_at != '' AND ends_at < strftime('%Y-%m-%d %H:%M:%fZ', 'now', '-5 seconds'))`
+
+// gameOver reports whether gameID is over: the host ended it and the
+// players' time to finish their turns has run out.
+func gameOver(app core.App, gameID string) bool {
+	var over bool
+	err := app.DB().NewQuery("SELECT " + gameOverSQL + " FROM games WHERE id = {:g}").
+		Bind(dbx.Params{"g": gameID}).Row(&over)
+	return err == nil && over
 }
 
 // wrongTurnType refuses a turn of the wrong kind: a story opens with a word, then
@@ -528,9 +648,15 @@ func bindTurnGuards(app core.App) {
 		} else if err != nil {
 			return err
 		}
+		if s.GameOver {
+			return refuse(codeGameOver, msgGameOver)
+		}
 		// A finished story waits on no one (NextUser ""), so "" never matches.
-		if userID == "" || s.NextUser != userID {
-			return notYourTurn(e.App, storyID, userID)
+		// With rounds the story comes back to each player, so a page still
+		// showing an older turn of theirs is caught by the index.
+		index := requestedTurnIndex(e)
+		if userID == "" || s.NextUser != userID || (index >= 0 && index != s.Taken) {
+			return notYourTurn(e.App, storyID, userID, index)
 		}
 		if msg := wrongTurnType(e.App, s, e.Record); msg != "" {
 			e.App.Logger().Warn("turn: refused wrong type", "game_id", s.GameID, "story", storyID,
@@ -542,13 +668,33 @@ func bindTurnGuards(app core.App) {
 		return e.Next()
 	}))
 
-	// A dropped player's client mustn't start a fresh story.
+	// A dropped player's client mustn't start a fresh story, and nobody starts
+	// one once the game is over.
 	app.OnRecordCreateRequest("stories").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
 		if isDropped(e.App, e.Record.GetString("starter_id")) {
 			return refuse(codePlayerRemoved, msgPlayerRemoved)
 		}
+		if gameOver(e.App, e.Record.GetString("game_id")) {
+			return refuse(codeGameOver, msgGameOver)
+		}
 		return e.Next()
 	}))
+
+	// A game's settings are fixed once it's created, and starting and ending it
+	// are the server's (/begin, /end). A client can create a game, not change
+	// one.
+	app.OnRecordCreateRequest("games").BindFunc(func(e *core.RecordRequestEvent) error {
+		e.Record.Set("isStarted", false)
+		e.Record.Set("ends_at", "")
+		return e.Next()
+	})
+	app.OnRecordUpdateRequest("games").BindFunc(func(e *core.RecordRequestEvent) error {
+		orig := e.Record.Original()
+		for _, field := range []string{"isStarted", "ends_at", "rounds", "endless", "roundDuration"} {
+			e.Record.Set(field, orig.Get(field))
+		}
+		return e.Next()
+	})
 
 	// The roster is fixed once a game starts (the seats are). The users API
 	// rules say so too, but PocketBase checks those before the write, so a join

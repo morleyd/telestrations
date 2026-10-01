@@ -8,10 +8,13 @@
     <span>Finished...</span>
     <span v-if="reviewPath">Review results at: <a :href="reviewPath">{{ reviewPath }}</a></span>
   </div>
-  <!-- Keyed on the story so each turn gets fresh child components: an empty
+  <!-- Keyed on the turn so each one gets fresh child components: an empty
        prompt box, a blank canvas and a restarted timer. Without it, moving to a
        second queued story kept the previous turn's text/drawing on screen. -->
-  <div v-else-if="['firstTurn', 'playing'].includes(userState)" :key="turnKey">
+  <div v-else-if="onTurn" :key="turnKey">
+    <v-alert v-if="endsAt" class="end-banner" type="warning" density="compact" elevation="6">
+      The host is ending the game! Finish your turn: <strong>{{ endLeft }}</strong>
+    </v-alert>
     <CountdownTimer :duration="duration" @finished="onTimerFinished" />
 
     <DrawingTurn v-if="isDraw" ref="draw" :prompt="curPrompt.prev_prompt" @snack="emitSnack" @drawing="saveResponse" />
@@ -48,11 +51,19 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pb, pbService } from '@/services/pocketbase'
+import { pb, pbService, endsAt } from '@/services/pocketbase'
 import { log } from '@/services/log'
+
+// One turn: a story and a place in it. With rounds, a story comes back to the
+// same player at a later place.
+const turnKeyOf = (storyId, index) => `${storyId}:${index ?? 0}`
 
 const POLL_MS = 2500
 const DROPPED_CHECK_TICKS = 4 // ~10s
+const END_CHECK_TICKS = 2 // ~5s, the realtime game update's fallback
+// End Game's countdown (endCountdown in host.go): the most this page gives the
+// player, whatever its clock says about the deadline.
+const END_SECONDS = 10
 export default {
   name: "TakeTurn",
   data() {
@@ -80,18 +91,38 @@ export default {
       tornDown: false,
       firstTurnTaken: false,
       submitting: false,
-      // The story whose round timer ran out while a submit was in flight, so a
-      // refused submit can still time out (the timer only fires once).
-      expiredStory: "",
-      // Stories we've already submitted a turn to. A lagging progress read must
-      // never hand one of these back to us, or we'd write a second turn to it.
-      submittedStories: new Set(),
+      // The turn (turnKey) whose round timer ran out while a submit was in
+      // flight, so a refused submit can still time out (the timer only fires
+      // once).
+      expiredTurn: "",
+      // Turns we've already written, by turnKey. A lagging progress read must
+      // never hand one of these back to us, or we'd write it twice. (With
+      // rounds a story does come back to us, but at a later place.)
+      submittedTurns: new Set(),
+      // The host's End Game: when it runs out (a Date), and the seconds this
+      // page's countdown has left. null while the game is on.
+      endsAt: null,
+      endLeft: 0,
+      endTimer: null,
+      // On our way to the review: nothing else may start a turn or navigate.
+      leaving: false,
     }
   },
   computed: {
     ...mapStores(useUserStore),
-    turnKey() {
+    // The turn on screen: its story, and its place in the story (a first
+    // turn's curPrompt is the story itself, at place 0).
+    storyId() {
       return this.curPrompt?.story_id || this.curPrompt?.id || ""
+    },
+    turnIndex() {
+      return this.curPrompt?.turns_taken ?? 0
+    },
+    turnKey() {
+      return this.storyId && turnKeyOf(this.storyId, this.turnIndex)
+    },
+    onTurn() {
+      return ['playing', 'firstTurn'].includes(this.userState)
     },
     // A turn after a word is a drawing; a turn after a drawing (prev_prompt
     // empty) is a guess. A first turn's curPrompt is the story itself, which
@@ -110,7 +141,7 @@ export default {
     // Check if game code is valid and game is active
     this.gameId = await this.isValidGame()
     if (!this.gameId) {
-      this.userState = "error"
+      if (!this.leaving) this.userState = "error"
       return
     }
     log.setContext({ game: this.$route.params.gameCode, gameId: this.gameId })
@@ -131,8 +162,10 @@ export default {
     // continuations from arming the subscription/timer after this cleanup ran.
     this.tornDown = true
     pb.collection('turns').unsubscribe();
+    pb.collection('games').unsubscribe();
     clearInterval(this.pollTimer);
     this.pollTimer = null
+    clearInterval(this.endTimer)
   },
   methods: {
     // Once we know who the player is (stored user, or after the login dialog):
@@ -164,11 +197,18 @@ export default {
         // that one) means the host skipped us.
         const r = e.record
         if (e.action === "create" && r?.skipped && !r.timed_out && r.user_id === that.userStore.userId) {
-          that.onTurnSkipped(r.story_id)
+          that.onTurnSkipped(r.story_id, r.turn_index)
           return
         }
         that.getTurns()
       }, { filter: `game_id="${that.gameId}"` })
+      // The host's End Game arrives as an update to the game.
+      pb.collection('games').subscribe(that.gameId, function (e) {
+        // Just set, so the full countdown is left, whatever this device's
+        // clock says about the deadline.
+        const at = endsAt(e.record)
+        if (at) that.startEnding(at, END_SECONDS)
+      })
 
       // Polling fallback. Advancing a turn is driven by the realtime
       // subscription above, but a wake-up event can arrive while we're
@@ -182,23 +222,32 @@ export default {
       //
       // Every DROPPED_CHECK_TICKS polls it also checks whether the host dropped
       // us: a player idling on a turn screen gets no event for that.
+      //
+      // Every END_CHECK_TICKS it also checks whether the host is ending the
+      // game, in case the realtime update didn't arrive.
       let ticks = 0
       this.pollTimer = setInterval(async function () {
+        ticks++
+        if (!that.endsAt && ticks % END_CHECK_TICKS == 0) {
+          const game = await pbService.games.checkGameStatus(that.$route.params.gameCode)
+          if (game.endsAt) that.startEnding(game.endsAt)
+        }
         if (that.userState === "waiting" || that.userState === "loading") {
           that.getTurns()
-        } else if (++ticks % DROPPED_CHECK_TICKS == 0 && ['playing', 'firstTurn'].includes(that.userState)) {
+        } else if (ticks % DROPPED_CHECK_TICKS == 0 && that.onTurn) {
           if ((await pbService.users.getUserById(that.userStore.userId)).dropped) that.setRemoved()
         }
       }, POLL_MS)
     },
-    // The host skipped a turn we owed, maybe the one on screen. Never write to
-    // that story, and move on if it's the one we're looking at.
-    onTurnSkipped(storyId) {
-      this.submittedStories.add(storyId)
-      if (storyId === this.ownStory?.id) this.firstTurnTaken = true
-      this.nextPrompts = this.nextPrompts.filter(p => p.story_id !== storyId)
-      const onScreen = ['playing', 'firstTurn'].includes(this.userState) && this.turnKey === storyId
-      log.info("turn.skippedByHost", { story: storyId, onScreen })
+    // The host skipped a turn we owed (at index in storyId), maybe the one on
+    // screen. Never write that turn, and move on if it's the one we're on.
+    onTurnSkipped(storyId, index) {
+      const key = turnKeyOf(storyId, index)
+      this.submittedTurns.add(key)
+      if (storyId === this.ownStory?.id && index == 0) this.firstTurnTaken = true
+      this.nextPrompts = this.nextPrompts.filter(p => turnKeyOf(p.story_id, p.turns_taken) !== key)
+      const onScreen = this.onTurn && this.turnKey === key
+      log.info("turn.skippedByHost", { story: storyId, index, onScreen })
       if (!onScreen) return
       this.emitSnack("The host skipped your turn.", "info")
       this.getNextTurn()
@@ -231,11 +280,69 @@ export default {
         return false
       } else if (!validGame.isStarted) {
         this.$emit("snack", "Sorry, this game has not been started yet.", "error")
+        this.leaving = true
         this.$router.push({ name: "WaitingRoom", params: { gameCode: this.$route.params.gameCode } });
+        return false
+      } else if (validGame.endsAt) {
+        // Ended (or ending): no new turns, so straight to the review.
+        this.goToReview("This game is over.")
         return false
       }
       this.duration = validGame.duration
       return validGame.gameId
+    },
+    // The host ended the game. Whoever is on a turn gets `seconds` to finish
+    // it, and then it's submitted as it stands; everyone else goes to the
+    // review now. Nobody starts another turn (see resolveTurns, showTurn).
+    // Without `seconds` (found by the poll, maybe late), they're estimated
+    // from the deadline by this device's clock: the server takes turns for a
+    // few seconds past it.
+    startEnding(at, seconds) {
+      if (this.endsAt || this.leaving) return
+      this.endsAt = at
+      log.info("game.ending", { endsAt: at.toISOString(), state: this.userState, story: this.turnKey, seconds })
+      if (!this.onTurn) {
+        this.goToReview("The host ended the game.")
+        return
+      }
+      this.endLeft = seconds ?? Math.min(END_SECONDS, Math.max(0, Math.round((at - Date.now()) / 1000)))
+      if (this.endLeft <= 0) {
+        this.onEndTimerFinished()
+        return
+      }
+      this.endTimer = setInterval(() => {
+        if (--this.endLeft > 0) return
+        clearInterval(this.endTimer)
+        this.endTimer = null
+        this.onEndTimerFinished()
+      }, 1000)
+    },
+    // End Game's countdown ran out: submit what the player has (a timed-out
+    // turn, as the round timer does) and go to the review. With nothing, write
+    // nothing: the story just ends a turn earlier.
+    async onEndTimerFinished() {
+      if (this.leaving) return
+      if (this.submitting || !this.onTurn) {
+        // A submit in flight moves us on when it lands (getNextTurn).
+        if (!this.submitting) this.goToReview("The game is over.")
+        return
+      }
+      const partial = this.isDraw ? await this.$refs.draw?.getDrawing() : this.$refs.prompt?.prompt?.trim()
+      if (this.leaving || !this.curPrompt) return
+      log.info("end.timer.finished", { story: this.turnKey, isDraw: this.isDraw, partial: Boolean(partial) })
+      if (partial) {
+        await this.saveResponse(partial, { timedOut: true })
+      }
+      this.goToReview("Time's up! The game is over.")
+    },
+    goToReview(msg) {
+      if (this.leaving) return
+      this.leaving = true
+      clearInterval(this.endTimer)
+      if (msg) this.emitSnack(msg, "info")
+      this.curPrompt = null
+      this.userState = "finished"
+      this.$router.push({ name: "Review", params: { gameCode: this.$route.params.gameCode } });
     },
     async onLoginClicked() {
       // Latch synchronously before the first await (see `loggingIn`) so a
@@ -308,7 +415,13 @@ export default {
       // submits. If we're already showing a turn, don't re-fetch and re-pop
       // curPrompt out from under the user — that would swap the active story and
       // saveResponse would write their drawing/prompt to the wrong story_id.
-      if (['playing', 'firstTurn'].includes(this.userState) && this.curPrompt) {
+      // (During End Game's countdown too: others finishing their turns mustn't
+      // cut this one short.)
+      if (this.onTurn && this.curPrompt) {
+        return
+      }
+      if (this.endsAt) {
+        this.goToReview()
         return
       }
       // Determine which turn the user is on.
@@ -330,6 +443,10 @@ export default {
           let created = await pbService.progress.createStory(this.userStore.userId, this.gameId)
           if (created.errCode === "player_removed") {
             this.setRemoved()
+            return
+          }
+          if (created.errCode === "game_over") {
+            this.goToReview("This game is over.")
             return
           }
           if (created.errMsg) {
@@ -378,8 +495,7 @@ export default {
         return
       }
       if (me.finished) {
-        this.userState = "finished"
-        this.$router.push({ name: "Review", params: { gameCode: this.$route.params.gameCode } });
+        this.goToReview()
         return
       }
 
@@ -388,11 +504,12 @@ export default {
         this.emitSnack(next.errMsg, "error")
         next = []
       }
-      const stale = next.filter(p => this.submittedStories.has(p.story_id))
+      const done = p => this.submittedTurns.has(turnKeyOf(p.story_id, p.turns_taken))
+      const stale = next.filter(done)
       if (stale.length) {
-        log.warn("progress.staleStory", { stories: stale.map(p => p.story_id) })
+        log.warn("progress.staleStory", { turns: stale.map(p => turnKeyOf(p.story_id, p.turns_taken)) })
       }
-      this.nextPrompts = next.filter(p => !this.submittedStories.has(p.story_id))
+      this.nextPrompts = next.filter(p => !done(p))
       log.info("progress.next", {
         queued: this.nextPrompts.map(p => ({ story: p.story_id, taken: p.turns_taken })),
       })
@@ -411,6 +528,10 @@ export default {
     // depends on the story (draw vs. guess, the drawing to guess from) is
     // derived from curPrompt here or in computeds, so it can never lag behind.
     showTurn(prompt) {
+      if (this.endsAt) {
+        this.goToReview()
+        return
+      }
       this.curPrompt = prompt
       this.userState = "playing"
       log.info("turn.show", {
@@ -424,6 +545,10 @@ export default {
       }
     },
     getNextTurn() {
+      if (this.endsAt) {
+        this.goToReview()
+        return
+      }
       if (this.nextPrompts.length) {
         this.showTurn(this.nextPrompts.pop())
       } else {
@@ -452,9 +577,14 @@ export default {
         log.warn("turn.submit.ignored", { story: this.turnKey, reason: "in flight" })
         return
       }
+      if (!this.curPrompt) {
+        log.warn("turn.submit.ignored", { reason: "no turn on screen" })
+        return
+      }
       let isDrawing = typeof data == "object"
       let wasFirstTurn = this.userState == "firstTurn"
-      let storyId = this.turnKey
+      let storyId = this.storyId
+      let index = this.turnIndex
 
       if (isDrawing != this.isDraw && !wasFirstTurn) {
         log.warn("turn.submit.typeMismatch", { story: storyId, isDraw: this.isDraw, isDrawing })
@@ -476,17 +606,20 @@ export default {
       formData.append("prompt", isDrawing ? "" : data);
       formData.append("is_drawing", isDrawing);
       formData.append("timed_out", timedOut);
-      const resp = await this.writeTurn(storyId, wasFirstTurn, () => pbService.progress.createTurn(formData))
+      // Which turn this is, so a page showing one we already took is refused.
+      formData.append("turn_index", index);
+      const key = turnKeyOf(storyId, index)
+      const resp = await this.writeTurn(storyId, index, wasFirstTurn, () => pbService.progress.createTurn(formData))
       if (!resp) {
         // Refused and still on this turn, but its time ran out meanwhile.
-        if (this.expiredStory === storyId && this.turnKey === storyId) {
-          this.expiredStory = ""
+        if (this.expiredTurn === key && this.turnKey === key) {
+          this.expiredTurn = ""
           this.onTimerFinished()
         }
         return
       }
-      log.info("turn.submit.ok", { story: storyId, turn: resp.id })
-      this.turnWritten(storyId, wasFirstTurn)
+      log.info("turn.submit.ok", { story: storyId, index, turn: resp.id })
+      this.turnWritten(storyId, index, wasFirstTurn)
     },
     // The round timer ran out. Submit whatever the player has so far, flagged
     // as timed out. With nothing at all, the server skips the turn instead,
@@ -495,7 +628,7 @@ export default {
       if (this.submitting) {
         // They hit Submit just in time. Remember time's up in case that
         // submit is refused: see saveResponse.
-        this.expiredStory = this.turnKey
+        this.expiredTurn = this.turnKey
         return
       }
       let partial
@@ -504,6 +637,7 @@ export default {
       } else {
         partial = this.$refs.prompt?.prompt?.trim()
       }
+      if (this.leaving || !this.curPrompt) return
       log.info("timer.finished", { story: this.turnKey, isDraw: this.isDraw, partial: Boolean(partial) })
       if (partial) {
         await this.saveResponse(partial, { timedOut: true })
@@ -511,16 +645,18 @@ export default {
       }
 
       let wasFirstTurn = this.userState == "firstTurn"
-      let storyId = this.turnKey
-      const resp = await this.writeTurn(storyId, wasFirstTurn,
-        () => pbService.progress.timeoutTurn(storyId, this.userStore.userId))
+      let storyId = this.storyId
+      let index = this.turnIndex
+      const resp = await this.writeTurn(storyId, index, wasFirstTurn,
+        () => pbService.progress.timeoutTurn(storyId, this.userStore.userId, index))
       if (!resp) return
       this.emitSnack("Time's up!", "info")
-      this.turnWritten(storyId, wasFirstTurn)
+      this.turnWritten(storyId, index, wasFirstTurn)
     },
-    // Sends one write of our turn on storyId (a submit or a timeout), holding
-    // the one-at-a-time lock. Returns the response, or null if it was refused.
-    async writeTurn(storyId, wasFirstTurn, send) {
+    // Sends one write of our turn at index in storyId (a submit or a timeout),
+    // holding the one-at-a-time lock. Returns the response, or null if it was
+    // refused.
+    async writeTurn(storyId, index, wasFirstTurn, send) {
       this.submitting = true
       let resp
       try {
@@ -528,16 +664,19 @@ export default {
       } finally {
         this.submitting = false
       }
-      return this.refused(resp, storyId, wasFirstTurn) ? null : resp
+      return this.refused(resp, storyId, index, wasFirstTurn) ? null : resp
     },
-    // Handles the server refusing our turn on storyId (codes from host.go).
-    // True if refused. A refusal that means this turn is over moves on, so an
-    // out-of-date screen never strands the player.
-    refused(resp, storyId, wasFirstTurn) {
+    // Handles the server refusing our turn at index in storyId (codes from
+    // host.go). True if refused. A refusal that means this turn is over moves
+    // on, so an out-of-date screen never strands the player.
+    refused(resp, storyId, index, wasFirstTurn) {
       if (!resp.errMsg) return false
       switch (resp.errCode) {
         case "turn_skipped":
-          this.onTurnSkipped(storyId)
+          this.onTurnSkipped(storyId, index)
+          break
+        case "game_over":
+          this.goToReview("The game is over.")
           break
         case "player_removed":
           this.setRemoved()
@@ -545,8 +684,8 @@ export default {
         case "turn_taken":
           // Already written: from another tab, or by a retry of this request
           // whose first response got lost. Either way, it's done.
-          log.warn("turn.submit.alreadyTaken", { story: storyId })
-          this.turnWritten(storyId, wasFirstTurn)
+          log.warn("turn.submit.alreadyTaken", { story: storyId, index })
+          this.turnWritten(storyId, index, wasFirstTurn)
           break
         case "not_your_turn":
           // This screen is out of date; go find what's really waiting on us.
@@ -556,12 +695,15 @@ export default {
         default:
           log.error("turn.submit.failed", { story: storyId, err: resp.errMsg })
           this.$emit("snack", resp.errMsg, "error")
+          // If End Game's countdown has run out, this turn won't get another go.
+          if (this.endsAt && this.endLeft <= 0) this.goToReview()
       }
       return true
     },
-    // Our turn on storyId is saved (by us, or by the server on timeout): move on.
-    turnWritten(storyId, wasFirstTurn) {
-      this.submittedStories.add(storyId)
+    // Our turn at index in storyId is saved (by us, or by the server on
+    // timeout): move on.
+    turnWritten(storyId, index, wasFirstTurn) {
+      this.submittedTurns.add(turnKeyOf(storyId, index))
       if (wasFirstTurn) {
         this.firstTurnTaken = true
       }
@@ -570,3 +712,15 @@ export default {
   },
 };
 </script>
+<style scoped>
+.end-banner {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  z-index: 2;
+}
+</style>

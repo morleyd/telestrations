@@ -1,7 +1,7 @@
-<!-- ManagePlayers gives the host mid-game control over the roster: skip a
-     player's pending turns (someone stepped away), or drop them for the rest of
-     the game. Lives in the AppBar, so it's reachable from the turn screens and
-     the review page. The server does the work; see host.go. -->
+<!-- ManagePlayers gives the host mid-game control: skip a player's pending
+     turns (someone stepped away), drop them for the rest of the game, or end
+     the game for everyone. Lives in the AppBar, so it's reachable from the turn
+     screens and the review page. The server does the work; see host.go. -->
 <template>
   <template v-if="canManage">
     <v-btn icon="mdi-account-cog" aria-label="Manage players" title="Manage players" @click="open" />
@@ -35,6 +35,10 @@
           </v-list-item>
         </v-list>
         <v-card-actions class="justify-center">
+          <!-- Anyone mid-turn gets a few seconds to finish it; see TakeTurn's startEnding. -->
+          <v-btn color="error" variant="tonal" :disabled="busy || Boolean(endsAt)" @click="endGame">
+            {{ endsAt ? "Game ending" : "End Game" }}
+          </v-btn>
           <v-btn @click="visible = false">Close</v-btn>
         </v-card-actions>
       </v-card>
@@ -62,6 +66,8 @@ export default {
       actionError: "",
       loadError: "",
       timer: null,
+      // When the host's End Game runs out, once they've used it.
+      endsAt: null,
     }
   },
   computed: {
@@ -80,6 +86,7 @@ export default {
     if (!code || !['TakeTurn', 'Review'].includes(this.$route.name)) return
     const game = await pbService.games.checkGameStatus(code)
     if (game.isStarted) this.gameId = game.gameId
+    this.endsAt = game.endsAt
   },
   unmounted() {
     clearInterval(this.timer)
@@ -130,6 +137,23 @@ export default {
         this.actionError = resp.errMsg
       }
       await this.refresh()
+    },
+    async endGame() {
+      if (!confirm("End the game for everyone? Anyone in the middle of a turn gets 10 seconds to finish it.")) return
+
+      this.busy = true
+      this.actionError = ""
+      log.info("host.endGame")
+      const resp = await pbService.games.endGame(this.gameId, this.userStore.userId)
+      this.busy = false
+      if (resp.errMsg) {
+        log.warn("host.endGame.failed", { err: resp.errMsg })
+        this.actionError = resp.errMsg
+        return
+      }
+      this.endsAt = resp.data
+      // Out of the way of the host's own countdown.
+      this.visible = false
     },
   },
 }

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -12,11 +13,12 @@ import (
 )
 
 // The rotation lives in two SQL views (migrations/1757700000_robust_rotation
-// and later rewrites of `results`). Each story passes seat to seat from its
-// starter; a seat is a player's rank by (position, id), so whatever raw
-// positions the users hold (duplicates, gaps, all zero) the seats come out a
-// clean 0..N-1. These play whole games across player counts and position
-// layouts and check both views at every step.
+// and later rewrites, most recently 1784300000_rounds). Each story passes seat
+// to seat from its starter, round the table once per round; a seat is a
+// player's rank by (position, id), so whatever raw positions the users hold
+// (duplicates, gaps, all zero) the seats come out a clean 0..N-1. These play
+// whole games across player counts, position layouts and rounds and check
+// both views at every step.
 
 // positionLayouts are raw `position` values for N players, in join order.
 var positionLayouts = map[string]func(i, n int) int{
@@ -33,15 +35,33 @@ func TestRotationViews(t *testing.T) {
 	for _, n := range []int{2, 3, 5, 8} {
 		for layout, position := range positionLayouts {
 			t.Run(fmt.Sprintf("%d players, %s", n, layout), func(t *testing.T) {
-				checkRotation(t, app, n, position)
+				checkRotation(t, app, n, 1, position)
 			})
 		}
 	}
 }
 
-func checkRotation(t *testing.T, app core.App, n int, position func(i, n int) int) {
+// The same over more rounds. Seats and rounds are independent, so two layouts
+// and up to five players are enough: every turn of a long game reads the
+// views, which adds up under -race.
+func TestRotationViewsOverRounds(t *testing.T) {
+	app := newTestApp(t)
+	for _, n := range []int{2, 3, 5} {
+		for _, layout := range []string{"clean", "duplicated"} {
+			for _, rounds := range []int{2, 3} {
+				t.Run(fmt.Sprintf("%d players, %s, %d rounds", n, layout, rounds), func(t *testing.T) {
+					checkRotation(t, app, n, rounds, positionLayouts[layout])
+				})
+			}
+		}
+	}
+}
+
+func checkRotation(t *testing.T, app core.App, n, rounds int, position func(i, n int) int) {
 	t.Helper()
-	game := save(t, app, "games", map[string]any{"game_code": security.RandomString(8), "isStarted": true})
+	game := save(t, app, "games", map[string]any{
+		"game_code": security.RandomString(8), "isStarted": true, "rounds": rounds,
+	})
 	// Each layout gets the tables to itself: the views scan whole tables, so
 	// games left behind would slow every one after them.
 	t.Cleanup(func() { deleteGame(t, app, game.Id) })
@@ -69,7 +89,9 @@ func checkRotation(t *testing.T, app core.App, n int, position func(i, n int) in
 
 	// Play every story one turn at a time, round-robin across stories, and
 	// check progress before each turn and once the story is done.
-	for k := 0; k <= n; k++ {
+	total := n * rounds
+	written := map[string][]string{} // story id -> its turn ids, in order
+	for k := 0; k <= total; k++ {
 		for _, story := range stories {
 			starter := seat[story.GetString("starter_id")]
 			s, err := loadStory(app, story.Id)
@@ -77,11 +99,18 @@ func checkRotation(t *testing.T, app core.App, n int, position func(i, n int) in
 				t.Fatal(err)
 			}
 			wantPrev := seats[(starter+k-1+n)%n].Id
-			if s.Taken != k || s.Total != n || s.PrevUser != wantPrev {
-				t.Fatalf("seat %d's story at turn %d: taken %d of %d, prev seat %d; want %d of %d, prev seat %d",
-					starter, k, s.Taken, s.Total, seat[s.PrevUser], k, n, seat[wantPrev])
+			if s.Taken != k || s.Total != n || s.TotalTurns != total || s.PrevUser != wantPrev {
+				t.Fatalf("seat %d's story at turn %d: taken %d of %d (%d players), prev seat %d; "+
+					"want %d of %d (%d players), prev seat %d",
+					starter, k, s.Taken, s.TotalTurns, s.Total, seat[s.PrevUser], k, total, n, seat[wantPrev])
 			}
-			if k == n {
+			// The previous turn is the one just before, not the same player's
+			// turn from an earlier round.
+			if k > 0 && s.PrevTurn != written[story.Id][k-1] {
+				t.Fatalf("seat %d's story at turn %d: previous turn is %q, want the one written at %d",
+					starter, k, s.PrevTurn, k-1)
+			}
+			if k == total {
 				if s.NextUser != "" {
 					t.Fatalf("seat %d's story is finished but waits on seat %d", starter, seat[s.NextUser])
 				}
@@ -92,41 +121,94 @@ func checkRotation(t *testing.T, app core.App, n int, position func(i, n int) in
 				t.Fatalf("seat %d's story at turn %d waits on seat %d, want seat %d",
 					starter, k, seat[s.NextUser], seat[want.Id])
 			}
-			save(t, app, "turns", map[string]any{
+			turn := save(t, app, "turns", map[string]any{
 				"story_id": story.Id, "user_id": want.Id, "game_id": game.Id,
 				"is_drawing": k%2 == 1, "prompt": fmt.Sprintf("turn %d", k),
 			})
+			written[story.Id] = append(written[story.Id], turn.Id)
 		}
 	}
 
-	// results numbers each story's turns 0..N-1 from its starter.
+	// results numbers each story's turns 0..total-1, in the order played.
 	var rows []struct {
 		Starter string `db:"starter_id"`
+		Turn    string `db:"turn_id"`
 		User    string `db:"turn_user_id"`
 		Number  int    `db:"turn_number"`
 	}
-	err := app.DB().NewQuery("SELECT starter_id, turn_user_id, turn_number FROM results WHERE game_id = {:g}").
+	err := app.DB().NewQuery("SELECT starter_id, turn_id, turn_user_id, turn_number FROM results WHERE game_id = {:g}").
 		Bind(dbx.Params{"g": game.Id}).All(&rows)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != n*n {
-		t.Fatalf("results has %d rows, want %d", len(rows), n*n)
+	if len(rows) != n*total {
+		t.Fatalf("results has %d rows, want %d", len(rows), n*total)
 	}
-	numbers := map[string][]int{}
+	place := map[string]int{}
+	for _, ids := range written {
+		for k, id := range ids {
+			place[id] = k
+		}
+	}
 	for _, r := range rows {
-		if want := (seat[r.User] - seat[r.Starter] + n) % n; r.Number != want {
+		if want := place[r.Turn]; r.Number != want {
 			t.Errorf("seat %d's turn on seat %d's story is numbered %d, want %d",
 				seat[r.User], seat[r.Starter], r.Number, want)
 		}
-		numbers[r.Starter] = append(numbers[r.Starter], r.Number)
+		if want := (seat[r.Starter] + r.Number) % n; seat[r.User] != want {
+			t.Errorf("turn %d of seat %d's story is by seat %d, want seat %d",
+				r.Number, seat[r.Starter], seat[r.User], want)
+		}
 	}
-	for starter, got := range numbers {
-		slices.Sort(got)
-		for i, num := range got {
-			if num != i {
-				t.Fatalf("seat %d's story numbers its turns %v, want 0..%d", seat[starter], got, n-1)
-			}
+}
+
+// An endless game goes round and round: every story always has a next player
+// and no total. Once the host has ended it and the grace after the deadline
+// is up, nobody is next anywhere; until then, everyone can still finish.
+func TestRotationEndlessUntilTheGameIsOver(t *testing.T) {
+	app := newTestApp(t)
+	g := newGame(t, app, "ann", "ben", "cat").withRounds(t, 1, true)
+	names := []string{"ann", "ben", "cat"}
+	for k := range 7 { // more than two rounds
+		for i, starter := range names {
+			g.play(t, starter, names[(i+k)%3])
+		}
+	}
+	for _, starter := range names {
+		s, err := loadStory(app, g.stories[starter].Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Taken != 7 || s.TotalTurns != -1 || s.GameOver || s.NextUser == "" {
+			t.Fatalf("%s's story in an endless game: %+v", starter, s)
+		}
+	}
+
+	// Ended, deadline still to come: the story still waits on its player.
+	g.game.Set("ends_at", time.Now().Add(endCountdown))
+	if err := app.Save(g.game); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := loadStory(app, g.stories["ann"].Id); s.GameOver || s.NextUser != g.players["ben"].Id {
+		t.Fatalf("before the deadline: %+v, want ann's story still waiting on ben", s)
+	}
+	// Just past the deadline, within the grace: still accepted.
+	g.game.Set("ends_at", time.Now().Add(-time.Second))
+	if err := app.Save(g.game); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := loadStory(app, g.stories["ann"].Id); s.GameOver || s.NextUser == "" {
+		t.Fatalf("within the grace: %+v, want ann's story still waiting on ben", s)
+	}
+
+	g.timeUp(t)
+	for _, starter := range names {
+		s, err := loadStory(app, g.stories[starter].Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.GameOver || s.NextUser != "" {
+			t.Fatalf("%s's story after the game is over: %+v, want nobody next", starter, s)
 		}
 	}
 }

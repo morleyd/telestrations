@@ -147,7 +147,7 @@ func TestSchemaIndexMigrationCleansUpDuplicates(t *testing.T) {
 	}
 
 	g := newGame(t, app, "ann", "ben")
-	g.play(t, "ann", "ann")
+	save(t, app, "turns", g.turn("ann", "ann", false)) // her word (g.play needs the current views)
 	firstTurn := g.turnsBy(t, "ann", "ann")[0]
 	save(t, app, "turns", g.turn("ann", "ann", true)) // a second turn by ann on her story
 	extra := save(t, app, "stories", map[string]any{"starter_id": g.players["ann"].Id, "game_id": g.game.Id})
@@ -155,7 +155,13 @@ func TestSchemaIndexMigrationCleansUpDuplicates(t *testing.T) {
 		"story_id": extra.Id, "user_id": g.players["ben"].Id, "game_id": g.game.Id, "prompt": "on the duplicate",
 	})
 
-	if _, err := runner.Up(); err != nil {
+	// The schema-index migration alone first, to check its clean-up and its
+	// index; the later ones (rounds replaces that index) go on at the end.
+	var throughSchemaIndexes core.MigrationsList
+	for _, m := range items[:at+1] {
+		throughSchemaIndexes.Add(m)
+	}
+	if _, err := core.NewMigrationsRunner(app, throughSchemaIndexes).Up(); err != nil {
 		t.Fatal(err)
 	}
 	stories, err := app.FindRecordsByFilter("stories", "starter_id = {:s}", "", 0, 0, dbx.Params{"s": g.players["ann"].Id})
@@ -180,33 +186,38 @@ func TestSchemaIndexMigrationCleansUpDuplicates(t *testing.T) {
 	if err := app.Save(dup); err == nil {
 		t.Error("the unique index didn't come back: a second turn by ann was saved")
 	}
+	// And the later ones on top.
+	if _, err := runner.Up(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // A server that ran master before PR #5 already had the schema-index
 // migration (1784200000) but not the PR's own two, which are numbered earlier
-// and merged later. Upgrading applies them out of order onto a database with
-// a game in it; the game's rows must survive and read as ordinary turns, and
-// the game must carry on under the new host controls.
+// and merged later. Upgrading applies them out of order (and the rounds
+// migration after them) onto a database with a game in it; the game's rows
+// must survive and read as ordinary turns, and the game must carry on under
+// the new host controls.
 func TestHostControlMigrationsApplyOntoAnExistingDatabase(t *testing.T) {
 	app := newTestApp(t)
 	all := core.NewMigrationsRunner(app, core.AppMigrations)
 	if _, err := all.Down(len(core.AppMigrations.Items())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := core.NewMigrationsRunner(app, migrationsExcept("1759200000", "1759300000")).Up(); err != nil {
+	if _, err := core.NewMigrationsRunner(app, migrationsExcept("1759200000", "1759300000", "1784300000")).Up(); err != nil {
 		t.Fatal(err)
 	}
 	if hasField(t, app, "turns", "skipped") || hasField(t, app, "users", "dropped") {
 		t.Fatal("the pre-#5 schema already has the host-control fields")
 	}
 	g := newGame(t, app, "ann", "ben", "cat")
-	g.play(t, "ann", "ann")
+	save(t, app, "turns", g.turn("ann", "ann", false)) // her word (g.play needs the current views)
 
 	applied, err := all.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"1759200000_host_controls.go", "1759300000_timeouts.go"}; !slices.Equal(applied, want) {
+	if want := []string{"1759200000_host_controls.go", "1759300000_timeouts.go", "1784300000_rounds.go"}; !slices.Equal(applied, want) {
 		t.Fatalf("the upgrade applied %v, want %v", applied, want)
 	}
 	var rows []struct {

@@ -68,6 +68,14 @@ function createWithRetry(collection, data) {
   )
 }
 
+// When the host's End Game runs out (a Date), or null while the game is on.
+// PocketBase writes dates as "2026-10-01 12:00:00.000Z"; Safari only parses
+// them with a "T" in place of the space.
+export function endsAt(game) {
+  const t = game?.ends_at ? Date.parse(game.ends_at.replace(" ", "T")) : NaN
+  return Number.isNaN(t) ? null : new Date(t)
+}
+
 // The stable code a refused write carries (refuse() in host.go), so callers
 // branch on it rather than on the message. A second turn on one story that
 // slipped past the server's guard and hit the unique index is "turn_taken" too.
@@ -157,6 +165,19 @@ export const pbService = {
         return { errMsg: JSON.stringify(err?.response?.message || err) }
       })
     },
+    // Host-only End Game: everyone gets a few seconds to finish the turn
+    // they're on, then the game is over. Returns when it ends (endsAt below).
+    async endGame(gameId, hostId) {
+      return await pb.send(`/api/games/${gameId}/end`, {
+        method: "POST",
+        body: { host_id: hostId },
+        requestKey: null,
+      }).then(function (resp) {
+        return { data: endsAt(resp) }
+      }).catch(function (err) {
+        return { errMsg: JSON.stringify(err?.response?.message || err) }
+      })
+    },
     async checkGameStatus(gameCode) {
       return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
         console.log("checkGameStatus resp", resp)
@@ -164,6 +185,7 @@ export const pbService = {
           duration: resp.roundDuration,
           gameId: resp.id,
           isStarted: resp.isStarted,
+          endsAt: endsAt(resp),
         }
       }).catch(function (err) {
         return { errMsg: JSON.stringify(err.response.message || err) }
@@ -351,10 +373,12 @@ export const pbService = {
       });
     },
     // The round timer ran out with nothing entered: the server skips the turn.
-    async timeoutTurn(storyId, userId) {
+    // turnIndex is the turn's place in the story, so the server can tell a
+    // timer left over from an earlier round apart from this one.
+    async timeoutTurn(storyId, userId, turnIndex) {
       return await pb.send(`/api/stories/${storyId}/timeout`, {
         method: "POST",
-        body: { user_id: userId },
+        body: { user_id: userId, turn_index: turnIndex },
         requestKey: null,
       }).then(function (resp) {
         return { data: resp }

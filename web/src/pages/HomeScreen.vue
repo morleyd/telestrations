@@ -22,6 +22,16 @@
               <v-card-title class="text-center text-h4">Let's Get Started!</v-card-title>
               <v-form ref="form" @submit.prevent="onBeginClicked">
                 <SetUsername ref="username" @username="onBeginClicked" />
+                <!-- How many times each story goes round the group. Infinite
+                     goes on until the host ends the game. -->
+                <v-row class="mx-4 mt-2 ga-4 align-center">
+                  <v-number-input v-if="!endless" v-model="rounds" label="Rounds" :min="1" :step="1"
+                    hint="Times each story goes around the group" persistent-hint :rules="[roundsRule]"
+                    @keyup.enter="onBeginClicked" />
+                  <v-text-field v-else model-value="∞" label="Rounds" hint="Until the host ends the game"
+                    persistent-hint disabled />
+                  <v-checkbox v-model="endless" label="Infinite" color="primary" hide-details style="flex: none;" />
+                </v-row>
                 <v-row class="pa-2" style="justify-content: center;">
                   <v-switch v-model="setTimer" color="primary" label="Set Timed Rounds" hide-details />
                 </v-row>
@@ -72,11 +82,15 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
+import { VNumberInput } from 'vuetify/labs/VNumberInput'
 import { pbService } from '@/services/pocketbase'
 export default {
   name: 'InfoSnackbar',
+  components: { VNumberInput },
   data() {
     return {
+      rounds: 1,
+      endless: false,
       timeValue: 90,
       timeUnit: "Seconds",
       setTimer: false,
@@ -173,7 +187,8 @@ export default {
 
         let time = this.setTimer ? this.computeTimeSeconds() : -1
 
-        let resp = await this.userStore.newGame(validation.username, validation.avatar, validation.color, time)
+        let resp = await this.userStore.newGame(validation.username, validation.avatar, validation.color, time,
+          { rounds: this.endless ? 1 : Number(this.rounds), endless: this.endless })
         if (resp.errMsg) {
           this.$emit("snack", resp.errMsg, "error")
           return
@@ -183,6 +198,10 @@ export default {
       } finally {
         this.submitting = false
       }
+    },
+    roundsRule(v) {
+      const n = Number(v)
+      return (v !== null && v !== "" && Number.isInteger(n) && n >= 1) || "Rounds must be a whole number, 1 or more!"
     },
     computeTimeSeconds() {
       switch (this.timeUnit) {

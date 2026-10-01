@@ -43,11 +43,15 @@ export const useUserStore = defineStore('user', {
 
       return code;
     },
-    async newGame(username, avatar, color, time) {
+    // rounds: how many times each story goes round the group; endless: until
+    // the host ends the game.
+    async newGame(username, avatar, color, time, { rounds = 1, endless = false } = {}) {
       let gameCode = this.generateGameCode()
       let resp = await pbService.games.createGame({
         "game_code": gameCode,
         "roundDuration": time,
+        "rounds": rounds,
+        "endless": endless,
       })
       if (resp.errMsg) {
         return resp
