@@ -96,9 +96,12 @@ In dev, the frontend points at `http://127.0.0.1:8090/` unless you set
 
 - Browser E2E (Playwright): `cd web && npm run test:e2e`. See `web/tests/e2e/README.md`.
   `run-e2e.sh` is NixOS-specific; on other systems, run `npx playwright test`.
-- Go: `go test ./...` runs the server's game logic against a throwaway
-  PocketBase built from the migrations, including the host-drop race (a drop
-  and a submit landing together). `-short` skips the concurrent soak; `-race`
+- Go: `go test ./...` tests the server against a throwaway PocketBase built
+  from the migrations, through the real routes and guards: write races (two
+  requests landing together), the refusal codes the client acts on, the
+  rotation views, random whole games, migrations, skips and timeouts, the
+  client log and static serving. `-short` skips the concurrent soaks and
+  plays fewer random games; `MODEL_SEED=<n>` replays one random game; `-race`
   works too.
 - Rotation soak test: see `sim/README.md`.
 
