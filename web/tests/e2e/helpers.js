@@ -90,6 +90,15 @@ export async function submitDrawing(page) {
   ])
 }
 
+// One freehand stroke across the drawing canvas, at height y.
+export async function stroke(page, y = 20) {
+  const box = await page.locator('canvas').boundingBox()
+  await page.mouse.move(box.x + 20, box.y + y)
+  await page.mouse.down()
+  for (let x = 30; x <= 120; x += 10) await page.mouse.move(box.x + x, box.y + y)
+  await page.mouse.up()
+}
+
 // Drive every player's page concurrently through a complete game until they have
 // all reached the results screen. The app auto-advances each turn over a realtime
 // subscription, so we poll: whenever any page is showing an actionable turn we
@@ -156,6 +165,24 @@ export async function seatedPages(request, code, pagesByName) {
     `${PB_URL}/api/collections/users/records?sort=position,id&filter=${encodeURIComponent(`game_id.game_code="${code}"`)}`,
   )).json()
   return users.items.map((u) => ({ name: u.username, id: u.id, page: pagesByName[u.username] }))
+}
+
+// Three players (alpha hosts) in a started game, each on their first turn.
+// seats lists them in rotation order (see seatedPages).
+export async function startThreePlayerGame(browser, request) {
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const pages = await Promise.all(contexts.map((ctx) => ctx.newPage()))
+  const names = ['alpha', 'bravo', 'charlie']
+  const code = await createGame(pages[0], { username: names[0], timed: false })
+  await joinGame(pages[1], code, names[1])
+  await joinGame(pages[2], code, names[2])
+  await startGame(pages[0], 3)
+  await Promise.all([pages[1].waitForURL(/\/draw$/), pages[2].waitForURL(/\/draw$/)])
+  // Let every client's TakeTurn finish mounting (resolve the game, create its
+  // opening story) before anyone submits.
+  await pages[0].waitForTimeout(2000)
+  const seats = await seatedPages(request, code, Object.fromEntries(names.map((n, i) => [n, pages[i]])))
+  return { code, contexts, host: pages[0], hostName: names[0], seats }
 }
 
 // Open the host's "Manage players" dialog and run a skip or drop on one player,

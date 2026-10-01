@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   createGame, joinGame, startGame, driveGameToReview, expectStoriesAlternate,
-  turnState, submitWord, submitDrawing, PB_URL,
+  turnState, submitWord, submitDrawing, startThreePlayerGame,
 } from './helpers.js'
 
 // The core happy path a game night depends on: a real multi-player game played
@@ -54,24 +54,12 @@ test('three players play a full game and reach the results screen', async ({ bro
 test('a player with a guess and a drawing queued gets the right screen for each', async ({ browser, request }) => {
   test.setTimeout(120_000)
 
-  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
-  const pages = await Promise.all(contexts.map((ctx) => ctx.newPage()))
-  const names = ['alpha', 'bravo', 'charlie']
+  // Stories pass seat 0 → 1 → 2 → 0. Seating is decided server-side at begin,
+  // so work by seat rather than assuming join order.
+  const { code, contexts, seats } = await startThreePlayerGame(browser, request)
+  const [a, b, c] = seats.map((s) => s.page)
 
   try {
-    const code = await createGame(pages[0], { username: names[0], timed: false })
-    await joinGame(pages[1], code, names[1])
-    await joinGame(pages[2], code, names[2])
-    await startGame(pages[0], 3)
-    await Promise.all([pages[1].waitForURL(/\/draw$/), pages[2].waitForURL(/\/draw$/)])
-    await pages[0].waitForTimeout(2000)
-
-    // Stories pass seat 0 → 1 → 2 → 0. Seating is decided server-side at begin,
-    // so read it back rather than assuming join order.
-    const users = await (await request.get(
-      `${PB_URL}/api/collections/users/records?sort=position&filter=${encodeURIComponent(`game_id.game_code="${code}"`)}`,
-    )).json()
-    const [a, b, c] = users.items.map((u) => pages[names.indexOf(u.username)])
 
     // Everyone but seat 1 (b) seeds; seat 0 (a) then draws seat 2's word. b is
     // now owed a drawing on a's story and a guess on c's.

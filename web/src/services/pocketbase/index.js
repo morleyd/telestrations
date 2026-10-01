@@ -68,6 +68,16 @@ function createWithRetry(collection, data) {
   )
 }
 
+// The stable code a refused write carries (refuse() in host.go), so callers
+// branch on it rather than on the message. A second turn on one story that
+// slipped past the server's guard and hit the unique index is "turn_taken" too.
+function refusalCode(err) {
+  const data = err?.response?.data || {}
+  if (data.code?.code) return data.code.code
+  if ([data.user_id, data.story_id].some((f) => f?.code === "validation_not_unique")) return "turn_taken"
+  return ""
+}
+
 export const pbService = {
   games: {
     async getGameId(gameCode) {
@@ -133,7 +143,6 @@ export const pbService = {
     },
     // Host-only: action is "skip" (their pending turns) or "drop" (from the game).
     async hostAction(gameId, userId, action, hostId) {
-      console.log("hostAction request", { gameId, userId, action })
       return await pb.send(`/api/games/${gameId}/players/${userId}/${action}`, {
         method: "POST",
         body: { host_id: hostId },
@@ -221,11 +230,9 @@ export const pbService = {
       })
     },
     async getUserById(userId) {
-      return await pb.collection('users').getOne(userId, { requestKey: null }).then(function (resp) {
-        console.log("getUserById resp", resp)
-        return resp
-      }).catch(function (err) {
-        return { errMsg: "getUserById:" + JSON.stringify(err?.response?.message || err) }
+      return await pb.collection('users').getOne(userId, { requestKey: null }).catch(function (err) {
+        // notFound: the player really is gone, not just a failed read.
+        return { errMsg: "getUserById:" + JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }
       })
     },
     async getUsername(userId) {
@@ -298,7 +305,7 @@ export const pbService = {
         console.log("createStory resp", resp)
         return resp
       }).catch(function (err) {
-        return { errMsg: "createStory:" + JSON.stringify(err?.response?.message || err) }
+        return { errMsg: "createStory:" + JSON.stringify(err?.response?.message || err), errCode: refusalCode(err) }
       });
     },
     async getStory(userId, gameId) {
@@ -331,7 +338,7 @@ export const pbService = {
         console.log("createTurn resp", resp)
         return resp
       }).catch(function (err) {
-        return { errMsg: "createTurn:" + JSON.stringify(err?.response?.message || err) }
+        return { errMsg: "createTurn:" + JSON.stringify(err?.response?.message || err), errCode: refusalCode(err) }
       });
     },
     // The round timer ran out with nothing entered: the server skips the turn.
@@ -343,7 +350,7 @@ export const pbService = {
       }).then(function (resp) {
         return { data: resp }
       }).catch(function (err) {
-        return { errMsg: "timeoutTurn:" + JSON.stringify(err?.response?.message || err) }
+        return { errMsg: "timeoutTurn:" + JSON.stringify(err?.response?.message || err), errCode: refusalCode(err) }
       })
     },
     async getUserStoryWithTurns(userId) {

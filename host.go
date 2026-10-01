@@ -3,11 +3,13 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"math/rand"
 	"net/http"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // Host controls: skipping a player's pending turns and dropping a player from a
@@ -23,10 +25,12 @@ import (
 // story that reaches them for the rest of the game.
 //
 // Like the rest of the game there are no accounts: the host proves who they
-// are by sending their user id, which only their own tab knows.
+// are by sending their user id. That id isn't a secret (the roster is public,
+// and so are the collections' API rules), so these checks keep honest clients
+// on the rails; they don't stop a determined player on your network.
 
-// Client-visible messages. TakeTurn.vue matches on "skipped" and "removed", so
-// keep those words if you reword these.
+// Client-visible messages. Clients act on the refusal codes below, not on the
+// wording, so these can be reworded freely.
 const (
 	msgTurnSkipped    = "Your turn on this story was skipped by the host."
 	msgPlayerRemoved  = "You were removed from this game by the host."
@@ -38,6 +42,28 @@ const (
 	msgWantGuess   = "This turn needs a guess, not a drawing. Please refresh the page."
 	msgWantDrawing = "This turn needs a drawing, not a guess. Please refresh the page."
 )
+
+// Refusal codes: a refused write carries one as data.code.code (see refuse), and
+// TakeTurn.vue switches on it via services/pocketbase.
+const (
+	codeTurnSkipped   = "turn_skipped"   // the host skipped this turn meanwhile
+	codePlayerRemoved = "player_removed" // the host dropped this player
+	codeTurnTaken     = "turn_taken"     // this player already wrote this turn
+	codeNotYourTurn   = "not_your_turn"  // the story is waiting on someone else
+	codeWrongTurnType = "wrong_turn_type"
+)
+
+// refusalCode is a PocketBase safe error item, so it reaches the client intact
+// as data.code = {code, message}.
+type refusalCode string
+
+func (c refusalCode) Code() string  { return string(c) }
+func (c refusalCode) Error() string { return string(c) }
+
+// refuse is a 400 with a message for people and a code for the client.
+func refuse(code, msg string) error {
+	return router.NewBadRequestError(msg, map[string]error{"code": refusalCode(code)})
+}
 
 // Starting words for a player whose opening word is skipped.
 var skipStartingWords = []string{
@@ -91,7 +117,8 @@ func skipTurn(app core.App, storyID, userID, reason string, timedOut bool) error
 		if err != nil {
 			return err
 		}
-		if s.NextUser != userID {
+		// A finished story waits on no one (NextUser ""), so "" never matches.
+		if userID == "" || s.NextUser != userID {
 			return errNotTheirTurn
 		}
 
@@ -143,54 +170,75 @@ func skipTurn(app core.App, storyID, userID, reason string, timedOut bool) error
 // skipPendingTurns skips every turn `userID` owes right now. For a dropped
 // player, an own story that never got its opening word is deleted instead: no
 // one else has touched it, and there's nothing worth passing on.
+//
+// It works from one snapshot of the game, and carries on past any story it
+// can't skip: a dropped player is already marked dropped, so a story left
+// behind here would wait on them for good. A story that moved on since the
+// snapshot (the player submitted, or a dropped player's auto-skip got there
+// first) is simply done.
 func skipPendingTurns(app core.App, gameID, userID string, dropped bool) (int, error) {
 	stories, err := loadGameStories(app, gameID)
 	if err != nil {
 		return 0, err
 	}
+	reason := "host skip"
+	if dropped {
+		reason = "dropped"
+	}
 	n := 0
+	var errs []error
 	for _, s := range stories {
 		if s.NextUser != userID {
 			continue
 		}
+		var err error
 		if dropped && s.Taken == 0 {
-			story, err := app.FindRecordById("stories", s.StoryID)
-			if err == nil {
-				err = app.Delete(story)
-			}
-			if err != nil {
-				return n, err
-			}
-			app.Logger().Info("host: empty story removed", "game_id", gameID, "story", s.StoryID, "user_id", userID)
+			err = deleteEmptyStory(app, gameID, s.StoryID, userID)
+		} else {
+			err = skipTurn(app, s.StoryID, userID, reason, false)
+		}
+		switch {
+		case errors.Is(err, errNotTheirTurn):
+		case err != nil:
+			errs = append(errs, fmt.Errorf("story %s: %w", s.StoryID, err))
+		default:
 			n++
-			continue
 		}
-		reason := "host skip"
-		if dropped {
-			reason = "dropped"
-		}
-		if err := skipTurn(app, s.StoryID, userID, reason, false); err != nil {
-			return n, err
-		}
-		n++
 	}
-	return n, nil
+	return n, errors.Join(errs...)
+}
+
+// deleteEmptyStory removes a dropped player's own story that never got its
+// opening word.
+func deleteEmptyStory(app core.App, gameID, storyID, userID string) error {
+	story, err := app.FindRecordById("stories", storyID)
+	if err != nil {
+		return err
+	}
+	if err := app.Delete(story); err != nil {
+		return err
+	}
+	app.Logger().Info("host: empty story removed", "game_id", gameID, "story", storyID, "user_id", userID)
+	return nil
+}
+
+// isDropped reports whether the host dropped userID from their game. An
+// unknown user isn't dropped; relation validation reports those.
+func isDropped(app core.App, userID string) bool {
+	u, err := app.FindRecordById("users", userID)
+	return err == nil && u.GetBool("dropped")
 }
 
 // skipIfNextIsDropped keeps a story moving past dropped players. It runs after
 // every turn; a skip it writes is itself a turn, so consecutive dropped players
 // are skipped one after another.
-func skipIfNextIsDropped(app core.App, storyID string) {
-	s, err := loadStory(app, storyID)
-	if err != nil || s.NextUser == "" {
+func skipIfNextIsDropped(app core.App, s *storyState) {
+	if s.NextUser == "" || !isDropped(app, s.NextUser) {
 		return
 	}
-	next, err := app.FindRecordById("users", s.NextUser)
-	if err != nil || !next.GetBool("dropped") {
-		return
-	}
-	if err := skipTurn(app, storyID, s.NextUser, "dropped", false); err != nil {
-		app.Logger().Error("host: auto-skip failed", "story", storyID, "user_id", s.NextUser, "error", err.Error())
+	// errNotTheirTurn: someone (the host's own skip) got there first.
+	if err := skipTurn(app, s.StoryID, s.NextUser, "dropped", false); err != nil && !errors.Is(err, errNotTheirTurn) {
+		app.Logger().Error("host: auto-skip failed", "story", s.StoryID, "user_id", s.NextUser, "error", err.Error())
 	}
 }
 
@@ -273,27 +321,27 @@ func gamePlayers(app core.App, gameID string) ([]playerStatus, error) {
 }
 
 // requireHost checks that hostID is the host of the started game gameID and
-// returns the game and the target player (which must be in the same game).
-func requireHost(e *core.RequestEvent, gameID, hostID, userID string) (*core.Record, *core.Record, error) {
+// returns the target player (which must be in the same game).
+func requireHost(e *core.RequestEvent, gameID, hostID, userID string) (*core.Record, error) {
 	game, err := e.App.FindRecordById("games", gameID)
 	if err != nil {
-		return nil, nil, e.NotFoundError("Game not found.", nil)
+		return nil, e.NotFoundError("Game not found.", nil)
 	}
 	if !game.GetBool("isStarted") {
-		return nil, nil, e.BadRequestError("The game hasn't started yet.", nil)
+		return nil, e.BadRequestError("The game hasn't started yet.", nil)
 	}
 	host, err := e.App.FindRecordById("users", hostID)
 	if err != nil || host.GetString("game_id") != gameID || !host.GetBool("is_host") {
-		return nil, nil, e.ForbiddenError("Only the host can do that.", nil)
+		return nil, e.ForbiddenError("Only the host can do that.", nil)
 	}
 	user, err := e.App.FindRecordById("users", userID)
 	if err != nil || user.GetString("game_id") != gameID {
-		return nil, nil, e.NotFoundError("Player not found in this game.", nil)
+		return nil, e.NotFoundError("Player not found in this game.", nil)
 	}
-	return game, user, nil
+	return user, nil
 }
 
-func bindHostRoutes(app core.App, se *core.ServeEvent) {
+func bindHostRoutes(se *core.ServeEvent) {
 	se.Router.GET("/api/games/{gameId}/players", func(e *core.RequestEvent) error {
 		players, err := gamePlayers(e.App, e.Request.PathValue("gameId"))
 		if err != nil {
@@ -311,7 +359,7 @@ func bindHostRoutes(app core.App, se *core.ServeEvent) {
 				return e.BadRequestError("Invalid body.", err)
 			}
 			gameID, userID := e.Request.PathValue("gameId"), e.Request.PathValue("userId")
-			_, user, err := requireHost(e, gameID, body.HostID, userID)
+			user, err := requireHost(e, gameID, body.HostID, userID)
 			if err != nil {
 				return err
 			}
@@ -324,9 +372,12 @@ func bindHostRoutes(app core.App, se *core.ServeEvent) {
 					return err
 				}
 			}
-			n, err := skipPendingTurns(e.App, gameID, userID, drop)
+			// Skipping a dropped player again (the dialog offers it while stories
+			// still wait on them) is a retry of the drop.
+			n, err := skipPendingTurns(e.App, gameID, userID, user.GetBool("dropped"))
 			if err != nil {
-				return err
+				return e.InternalServerError(
+					fmt.Sprintf("Skipped %d, but some of their turns couldn't be skipped. Please try again.", n), err)
 			}
 			e.App.Logger().Info("host: action", "game_id", gameID, "user", user.GetString("username"),
 				"user_id", userID, "drop", drop, "turns_skipped", n)
@@ -347,12 +398,21 @@ func bindHostRoutes(app core.App, se *core.ServeEvent) {
 			return e.BadRequestError("Invalid body.", err)
 		}
 		storyID := e.Request.PathValue("storyId")
-		if u, err := e.App.FindRecordById("users", body.UserID); err == nil && u.GetBool("dropped") {
-			return e.BadRequestError(msgPlayerRemoved, nil)
+		story, err := e.App.FindRecordById("stories", storyID)
+		if err != nil {
+			return e.NotFoundError("Story not found.", nil)
 		}
-		err := skipTurn(e.App, storyID, body.UserID, "timed out", true)
+		// Untimed games show no timer (CountdownTimer needs duration >= 0), so
+		// a timeout there can only be someone skipping another player's turn.
+		if game, err := e.App.FindRecordById("games", story.GetString("game_id")); err != nil || game.GetInt("roundDuration") < 0 {
+			return e.BadRequestError("This game has no round timer.", nil)
+		}
+		if isDropped(e.App, body.UserID) {
+			return refuse(codePlayerRemoved, msgPlayerRemoved)
+		}
+		err = skipTurn(e.App, storyID, body.UserID, "timed out", true)
 		if errors.Is(err, errNotTheirTurn) {
-			return e.BadRequestError(notYourTurnMessage(e.App, storyID, body.UserID), nil)
+			return notYourTurn(e.App, storyID, body.UserID)
 		} else if err != nil {
 			return err
 		}
@@ -360,17 +420,22 @@ func bindHostRoutes(app core.App, se *core.ServeEvent) {
 	})
 }
 
-// notYourTurnMessage explains why userID can't write to storyID right now.
-func notYourTurnMessage(app core.App, storyID, userID string) string {
+// notYourTurn is the refusal for userID writing to storyID out of turn, saying
+// why: the host skipped them, they already took it (from another tab, or a
+// retry whose first response got lost), or it's simply someone else's turn.
+func notYourTurn(app core.App, storyID, userID string) error {
+	if userID == "" {
+		return refuse(codeNotYourTurn, msgNotYourTurn)
+	}
 	existing, err := app.FindFirstRecordByFilter("turns", "story_id = {:s} && user_id = {:u}",
 		dbx.Params{"s": storyID, "u": userID})
 	switch {
 	case err == nil && existing.GetBool("skipped") && !existing.GetBool("timed_out"):
-		return msgTurnSkipped
+		return refuse(codeTurnSkipped, msgTurnSkipped)
 	case err == nil:
-		return msgAlreadyTakenBy
+		return refuse(codeTurnTaken, msgAlreadyTakenBy)
 	default:
-		return msgNotYourTurn
+		return refuse(codeNotYourTurn, msgNotYourTurn)
 	}
 }
 
@@ -409,8 +474,8 @@ func bindTurnGuards(app core.App) {
 		e.Record.Set("skipped", false)
 		storyID, userID := e.Record.GetString("story_id"), e.Record.GetString("user_id")
 
-		if u, err := e.App.FindRecordById("users", userID); err == nil && u.GetBool("dropped") {
-			return e.BadRequestError(msgPlayerRemoved, nil)
+		if isDropped(e.App, userID) {
+			return refuse(codePlayerRemoved, msgPlayerRemoved)
 		}
 		s, err := loadStory(e.App, storyID)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -418,28 +483,50 @@ func bindTurnGuards(app core.App) {
 		} else if err != nil {
 			return err
 		}
-		if s.NextUser != userID {
-			return e.BadRequestError(notYourTurnMessage(e.App, storyID, userID), nil)
+		// A finished story waits on no one (NextUser ""), so "" never matches.
+		if userID == "" || s.NextUser != userID {
+			return notYourTurn(e.App, storyID, userID)
 		}
 		if msg := wrongTurnType(e.App, s, e.Record); msg != "" {
 			e.App.Logger().Warn("turn: refused wrong type", "game_id", s.GameID, "story", storyID,
 				"user_id", userID, "index", s.Taken, "is_drawing", e.Record.GetBool("is_drawing"))
-			return e.BadRequestError(msg, nil)
+			return refuse(codeWrongTurnType, msg)
 		}
+		// The story decides the game; gamePlayers counts turns by game_id.
+		e.Record.Set("game_id", s.GameID)
 		return e.Next()
 	})
 
 	// A dropped player's client mustn't start a fresh story.
 	app.OnRecordCreateRequest("stories").BindFunc(func(e *core.RecordRequestEvent) error {
-		if u, err := e.App.FindRecordById("users", e.Record.GetString("starter_id")); err == nil && u.GetBool("dropped") {
-			return e.BadRequestError(msgPlayerRemoved, nil)
+		if isDropped(e.App, e.Record.GetString("starter_id")) {
+			return refuse(codePlayerRemoved, msgPlayerRemoved)
 		}
 		return e.Next()
 	})
 
-	// Only the host endpoints change `dropped`.
+	// A game's host is the player who created it: a later join can't claim it
+	// (requireHost trusts is_host), and nobody joins already dropped.
+	app.OnRecordCreateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
+		e.Record.Set("dropped", false)
+		if e.Record.GetBool("is_host") {
+			_, err := e.App.FindFirstRecordByFilter("users", "game_id = {:g} && is_host = true",
+				dbx.Params{"g": e.Record.GetString("game_id")})
+			if err == nil {
+				e.Record.Set("is_host", false)
+			}
+		}
+		return e.Next()
+	})
+
+	// Clients may rename themselves and change their look. Everything else
+	// about a player is the server's: `dropped` (the host endpoints), hosting
+	// (game creation), the seat (/begin) and the game.
 	app.OnRecordUpdateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
-		e.Record.Set("dropped", e.Record.Original().GetBool("dropped"))
+		orig := e.Record.Original()
+		for _, field := range []string{"dropped", "is_host", "position", "game_id"} {
+			e.Record.Set(field, orig.Get(field))
+		}
 		return e.Next()
 	})
 }

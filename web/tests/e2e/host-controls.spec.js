@@ -1,26 +1,11 @@
 import { test, expect } from '@playwright/test'
 import {
-  createGame, joinGame, startGame, driveGameToReview, expectStoriesAlternate,
-  turnState, submitWord, seatedPages, hostAct,
+  driveGameToReview, expectStoriesAlternate, turnState, submitWord, hostAct, startThreePlayerGame,
 } from './helpers.js'
 
 // The host's mid-game controls (the "Manage players" dialog; see host.go). The
 // roster never changes once a game starts; a skipped or dropped player's turns
 // are written for them, passing the previous turn on unchanged.
-
-async function startThreePlayerGame(browser, request) {
-  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
-  const pages = await Promise.all(contexts.map((ctx) => ctx.newPage()))
-  const names = ['alpha', 'bravo', 'charlie']
-  const code = await createGame(pages[0], { username: names[0], timed: false })
-  await joinGame(pages[1], code, names[1])
-  await joinGame(pages[2], code, names[2])
-  await startGame(pages[0], 3)
-  await Promise.all([pages[1].waitForURL(/\/draw$/), pages[2].waitForURL(/\/draw$/)])
-  await pages[0].waitForTimeout(2000)
-  const seats = await seatedPages(request, code, Object.fromEntries(names.map((n, i) => [n, pages[i]])))
-  return { code, contexts, host: pages[0], hostName: names[0], seats }
-}
 
 test('host skips a player who is holding up a story', async ({ browser, request }) => {
   test.setTimeout(120_000)

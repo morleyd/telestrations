@@ -155,11 +155,14 @@ export default {
     async resolveUser() {
       const stored = this.userStore.user
       if (stored?.id && stored.game_id === this.gameId) {
-        // Re-read it: the host may have removed us, or we renamed in another tab.
+        // Re-read it: the host may have removed us, or we renamed in another
+        // tab. Only a 404 means we're gone; a failed read (network blip, busy
+        // server) keeps the stored user rather than signing them out.
         const fresh = await pbService.users.getUserById(stored.id)
-        if (fresh.id) {
-          this.userStore.user = fresh
-          log.setContext({ username: fresh.username, userId: fresh.id })
+        if (fresh.id || !fresh.notFound) {
+          if (fresh.id) this.userStore.user = fresh
+          else log.warn("waitingRoom.user.refreshFailed", { err: fresh.errMsg })
+          log.setContext({ username: this.userStore.username, userId: this.userStore.userId })
           log.info("waitingRoom.user", { outcome: "member" })
           return
         }

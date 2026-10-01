@@ -14,10 +14,10 @@ import (
 //   - users.dropped marks a player the host removed from a game in progress.
 //     Their seat is kept (the rotation is derived from seats) and every turn
 //     that reaches them is skipped.
+//   - The results view gains `skipped` so the review can filter those turns.
 //
 // One turn per player per story (so a late submit racing a skip can't write a
 // second one) is enforced by idx_turns_user_story in 1784200000_schema_indexes.
-//   - The results view gains `skipped` so the review can filter those turns.
 
 const resultsViewSkipped = `SELECT
     (ROW_NUMBER() OVER()) as id,
