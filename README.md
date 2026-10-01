@@ -61,6 +61,9 @@ how many stories are waiting on them.
 - **Drop** does the same for the rest of the game. If they never wrote an
   opening word, their story is removed. If a story is somehow still waiting on
   a dropped player, the dialog offers **Skip** for them again.
+- **View results** opens the review mid-game, with every story so far. Anyone
+  can open it from the game's link (`/<code>/review`), and a player who still
+  has turns to play gets a **Back to game** button there.
 - **End Game** ends it for everyone. Anyone in the middle of a turn gets 10
   seconds to finish it; when time's up, whatever they have is submitted (marked
   "⏱ Ran out of time" in the review), and everyone goes to the review.

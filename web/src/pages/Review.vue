@@ -10,6 +10,12 @@
         <v-btn icon="mdi-close" v-tooltip:bottom="'close'" @click="sidebarVisible = false" />
       </v-toolbar>
       <v-container id="chat-scroll" class="overflow-y-auto" height="calc(100vh - 96px)">
+        <!-- The review is open while the game is still going (the host has a
+             button for it; anyone can use the link), so players can get back. -->
+        <v-btn v-if="stillPlaying" block color="primary" class="mb-2" prepend-icon="mdi-arrow-left"
+          :to="{ name: 'TakeTurn', params: { gameCode: $route.params.gameCode } }">
+          Back to game
+        </v-btn>
         <v-row v-for="(item, index) in users" no-gutters :key="index">
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
             <AvatarIcon :user="userMap[item.starter_user_id]" />
@@ -83,6 +89,8 @@ export default {
       sidebarVisible: true,
       story: null,
       gameId: "",
+      // This viewer's row from /players, if they're in this game.
+      me: null,
     }
   },
   computed: {
@@ -90,13 +98,18 @@ export default {
     getWindowWidth() {
       return { width: this.sidebarVisible ? "calc(100vw - 250px)" : "100vw" }
     },
+    // A player in this game who still has turns to play.
+    stillPlaying() {
+      return Boolean(this.me && !this.me.finished && !this.me.dropped)
+    },
   },
   async created() {
-    let resp = pbService.games.getGameId(this.$route.params.gameCode)
+    let resp = await pbService.games.getGameId(this.$route.params.gameCode)
     if (resp.errMsg) {
       this.$emit("snack", resp.errMsg, "error")
     }
     this.gameId = resp.data
+    this.getMe()
 
     resp = await pbService.users.getUsers(this.$route.params.gameCode)
     if (resp.errMsg) {
@@ -112,13 +125,27 @@ export default {
     pb.collection('turns').subscribe('*', async function (e) {
       console.log("turns subscription event", e)
       that.getProgress()
+      that.getMe()
     }, { filter: `game_id.game_code="${that.$route.params.gameCode}"` })
+    // The host ending the game finishes everyone.
+    if (this.gameId) {
+      pb.collection('games').subscribe(this.gameId, () => that.getMe())
+    }
   },
   unmounted() {
     pb.collection('turns').unsubscribe();
+    pb.collection('games').unsubscribe();
   },
   methods: {
     storyProgress,
+    // Where this viewer stands in the game, for "Back to game". The stored
+    // user can be from an earlier game, so only one from this game counts.
+    async getMe() {
+      if (!this.gameId || this.userStore.gameId !== this.gameId) return
+      const resp = await pbService.games.getPlayers(this.gameId)
+      if (resp.errMsg) return // keep what we had; the next turn retries
+      this.me = resp.data.find(p => p.id === this.userStore.userId) || null
+    },
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
       if (resp.aborted) return // a newer refresh is on its way
@@ -144,6 +171,10 @@ export default {
         this.$emit("snack", resp.errMsg, "error")
       }
       const turns = resp.data || []
+      if (!resp.errMsg && !turns.length) {
+        // Mid-game, a story can be opened but not started yet.
+        this.$emit("snack", "Nothing in this story yet.", "info")
+      }
       // Each turn was made from the one before it (a skip carries that one's
       // word or drawing forward unchanged), so pair them up here, before skips
       // are dropped: the slide shows what the player was given.
