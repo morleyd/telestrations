@@ -95,9 +95,10 @@ export async function submitDrawing(page) {
   ])
 }
 
-// One freehand stroke across the drawing canvas, at height y.
+// One freehand stroke across the drawing canvas, at height y. (Scoped to the
+// paint canvas: the color picker draws on a canvas of its own.)
 export async function stroke(page, y = 20) {
-  const box = await page.locator('canvas').boundingBox()
+  const box = await page.locator('canvas.paint-canvas').boundingBox()
   await page.mouse.move(box.x + 20, box.y + y)
   await page.mouse.down()
   for (let x = 30; x <= 120; x += 10) await page.mouse.move(box.x + x, box.y + y)
