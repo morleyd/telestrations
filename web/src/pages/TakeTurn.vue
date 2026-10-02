@@ -38,7 +38,7 @@
   <v-dialog v-model="showLoginDialog" max-width="500" persistent>
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
       <v-card-title class="text-center text-h4">Enter Your Username</v-card-title>
-      <SetUsername ref="username" @username="onLoginClicked" />
+      <SetUsername ref="username" :pick-avatar="false" @username="onLoginClicked" />
       <v-row class="pa-2" style="justify-content: center;">
         <v-btn size="x-large" color="primary" elevation="2" @click="onLoginClicked">
           Join!
@@ -53,6 +53,7 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService, endsAt, endCountdown } from '@/services/pocketbase'
 import { log } from '@/services/log'
+import { sameName } from '@/services/player'
 
 // One turn: a story and a place in it. With rounds, a story comes back to the
 // same player at a later place.
@@ -369,7 +370,7 @@ export default {
           return;
         }
 
-        let user = resp.data.find(o => o.username == validation.username)
+        let user = resp.data.find(o => sameName(o.username, validation.username))
         if (!user) {
           this.$emit("snack", "Not an active user in this game.", "error")
           return

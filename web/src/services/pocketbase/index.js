@@ -1,4 +1,5 @@
 import PocketBase from 'pocketbase';
+import { sameName } from '@/services/player';
 
 export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://127.0.0.1:8090/")
 // A note on the SDK's auto-cancellation: it aborts an in-flight request whenever
@@ -283,11 +284,17 @@ export const pbService = {
         return { exists: false }
       })
     },
+    // The game's player with this name, whatever its capitals (see sameName).
+    // Matched here, not in the filter: SQLite's LOWER only folds A-Z, so a
+    // stored "Émile" would never match "émile".
     async getUser(username, gameId) {
-      let query = `game_id="${gameId}"&&username="${username}"`
-      return await pb.collection('users').getFirstListItem(query).then(function (resp) {
+      return await pb.collection('users').getFullList({
+        filter: pb.filter("game_id={:gameId}", { gameId }),
+        requestKey: null,
+      }).then(function (players) {
+        const resp = players.find((p) => sameName(p.username, username))
         console.log("getUser resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
+        if (resp) {
           return resp
         } else {
           throw new Error(`Failed to find user "${username} for game "${gameId}"`)
