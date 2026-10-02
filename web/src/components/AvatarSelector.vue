@@ -1,28 +1,26 @@
 <template>
-  <div v-if="localAvatar" id="avatar" class="avatar-circle me-4 cursor-pointer elevation-2" @click="show"
-    style="width: 54px; height: 54px;" :style="{ 'background-color': avatarColor }" v-html="localAvatar">
-  </div>
-  <v-avatar v-else class="cursor-pointer me-4 elevation-2" :color="avatarColor" size="54" @click="show">
-    <span class="text-h4 font-weight-bold icon-text">
-      {{ getInitials(username) }}
+  <button type="button" class="avatar-picker" aria-label="Choose your avatar" @click="show">
+    <span class="avatar-picker-face elevation-2">
+      <AvatarCircle :avatar="avatar" :color="color" :name="username" :size="56" />
+      <span class="avatar-picker-badge elevation-1">
+        <v-icon icon="mdi-pencil" size="14" />
+      </span>
     </span>
-  </v-avatar>
+    <span class="text-caption text-primary font-weight-medium">Pick avatar</span>
+  </button>
   <v-dialog v-model="visible" max-width="500">
     <v-item-group v-model="selectedIndex" mandatory>
       <v-card class="pa-4 overflow-auto" style="justify-self: center;" max-height="calc(100vh - 48px)">
+        <v-card-title class="text-center text-h5 pb-4">Pick your avatar</v-card-title>
         <v-row style="text-align: -webkit-center;">
           <v-col v-for="n in 16" :key="n" cols="12" md="3" class="pa-0">
             <v-item v-slot="{ isSelected, toggle }">
               <v-card class="elevation-0 bg-transparent py-4" style="justify-items: center; border-radius: 50%;"
                 width="112" height="112" @click="toggle" :style="selectedStyle(isSelected)">
                 <v-scroll-y-transition>
-                  <v-avatar v-if="n == 1" size="80" :color="avatarColor" style="justify-self: anchor-center;">
-                    <span class="text-h3 font-weight-bold icon-text">
-                      {{ getInitials(username) }}
-                    </span>
-                  </v-avatar>
+                  <AvatarCircle v-if="n == 1" :color="color" :name="username" :size="80" style="justify-self: anchor-center;" />
                   <div v-else :id="'avatar' + n" style="width: 80px; height: 80px;" class="avatar-circle"
-                    @click="toggle" :style="{ 'background-color': avatarColor }">
+                    @click="toggle" :style="{ 'background-color': color }">
                   </div>
                 </v-scroll-y-transition>
               </v-card>
@@ -58,6 +56,7 @@ export default {
   name: 'AvatarSelector',
   props: [
     "avatar",
+    "color",
     "username",
   ],
   data() {
@@ -92,43 +91,6 @@ export default {
         this.$emit('submit', newValue);
       }
     },
-    avatarColor() {
-      // Generate a deterministic (but random) digit based on a string
-      let generateHash = (str) => {
-        let hash = 0
-        for (let i = 0; i < str.length; i++) {
-          // use a bitwise shift (5 is important?)
-          hash = str.charCodeAt(i) + ((hash << 5) - hash)
-        }
-        return Math.abs(hash)
-      }
-      // Use the random hash to make a value in a given range
-      let normalize = (hash, min, max) => {
-        return Math.floor((hash % (max - min)) + min)
-      }
-
-      // Set the allowable range for each number type
-      const hRange = [0, 360];
-      const sRange = [60, 100];
-      const lRange = [50, 80];
-
-      if (this.username != '') {
-        let hash = generateHash(this.username)
-        let hue = normalize(hash, hRange[0], hRange[1])
-        let saturation = normalize(hash, sRange[0], sRange[1])
-        let lightness = normalize(hash, lRange[0], lRange[1])
-        return `hsl(${hue}, ${saturation}%, ${lightness}%)`
-      }
-      return "hsl(0, 0%, 0%)"
-    },
-  },
-  mounted() {
-    if (this.localAvatar) {
-      let foundIndex = Object.values(this.idxMap).indexOf(this.localAvatar)
-      if (foundIndex >-1) {
-        this.selectedIndex = foundIndex + 1
-      }
-    }
   },
   methods: {
     selectedStyle(isSelected) {
@@ -145,10 +107,11 @@ export default {
       this.localAvatar = this.idxMap[this.selectedIndex + 1]
       this.visible = false
     },
-    getInitials(string) {
-      return string.split(' ').map(name => name[0]).join('').toUpperCase();
-    },
     show() {
+      // Start on the avatar they have now. Not at mount: a name being edited
+      // gets its avatar after this has mounted.
+      let foundIndex = Object.values(this.idxMap).indexOf(this.localAvatar)
+      this.selectedIndex = foundIndex > -1 ? foundIndex + 1 : 0
       this.visible = true
       this.$nextTick(() => {
         for (let idx = 1; idx <= 16; idx++) {
@@ -170,15 +133,42 @@ export default {
 }
 </script>
 <style>
-.icon-text {
-  font-family: Georgia, serif;
+.avatar-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 2px 4px;
 }
 
-.avatar-circle {
-  border-radius: 50%;
+.avatar-picker:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+}
+
+.avatar-picker-face {
+  position: relative;
   display: flex;
-  justify-content: center;
+  border-radius: 50%;
+  transition: box-shadow 0.2s;
+}
+
+.avatar-picker:hover .avatar-picker-face {
+  box-shadow: 0 0 0 3px rgb(var(--v-theme-primary)) !important;
+}
+
+.avatar-picker-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
 }
 
 .safe-bottom {

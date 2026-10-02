@@ -270,7 +270,7 @@ export default {
     async updateUser(username, avatar, color) {
       // Check if user exists (they just need to re-login)
       let user = await pbService.users.getUser(username, this.gameId)
-      if (Object.prototype.hasOwnProperty.call(user, "id") && user.username != this.userStore.username) {
+      if (Object.prototype.hasOwnProperty.call(user, "id") && user.id != this.userStore.userId) {
         this.$emit("snack", "Username already exists. Please enter a new one (or ignore if it's you).", "warning")
         return
       } else {
