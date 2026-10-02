@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"io/fs"
@@ -7,10 +7,11 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/morleyd/telestrations/web"
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// The web app's catch-all route (bindSPA). A tab still running an old build
+// The web app's catch-all route (BindSPA). A tab still running an old build
 // asks for chunk files that no longer exist; those must be plain 404s (the
 // client router then reloads into the new build), while every page route
 // still gets index.html.
@@ -25,8 +26,8 @@ func TestSPAServesFilesPagesAndRealMisses(t *testing.T) {
 		"assets/index-new.css": {Data: []byte("body{}")},
 	}
 	h := serve(t, app, func(se *core.ServeEvent) {
-		bindAPIRoutes(se)
-		bindSPA(se, dist)
+		BindRoutes(se)
+		BindSPA(se, dist)
 	})
 
 	cases := []struct {
@@ -62,10 +63,10 @@ func TestSPAServesFilesPagesAndRealMisses(t *testing.T) {
 	}
 }
 
-// The binary embeds the built app (go:embed web/dist/*); a change to that
+// The binary embeds the built app (go:embed dist/* in web/embed.go); a change to that
 // pattern or the build output path would ship a server with no UI.
 func TestTheBinaryEmbedsTheBuiltApp(t *testing.T) {
-	dist, err := fs.Sub(embeddedFiles, "web/dist")
+	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		t.Fatal(err)
 	}

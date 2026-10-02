@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"fmt"
@@ -12,13 +12,13 @@ import (
 	"github.com/pocketbase/pocketbase/tools/security"
 )
 
-// The rotation lives in two SQL views (migrations/1757700000_robust_rotation
-// and later rewrites, most recently 1784300000_rounds). Each story passes seat
-// to seat from its starter, round the table once per round; a seat is a
-// player's rank by (position, id), so whatever raw positions the users hold
-// (duplicates, gaps, all zero) the seats come out a clean 0..N-1. These play
-// whole games across player counts, position layouts and rounds and check
-// both views at every step.
+// The rotation lives in two SQL views (internal/migrations: first
+// 1757700000_robust_rotation, most recently 1784300000_rounds). Each story
+// passes seat to seat from its starter, round the table once per round; a
+// seat is a player's rank by (position, id), so whatever raw positions the
+// users hold (duplicates, gaps, all zero) the seats come out a clean 0..N-1.
+// These play whole games across player counts, position layouts and rounds
+// and check both views at every step.
 
 // positionLayouts are raw `position` values for N players, in join order.
 var positionLayouts = map[string]func(i, n int) int{

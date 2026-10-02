@@ -7,23 +7,35 @@ Admin account (PocketBase dashboard at `/_/`): `asdf@asdf.asdf` / `asdfasdfasdf`
 ## Play on your local network
 
 This builds everything into a single binary. It serves the API and the web app
-from the same origin, so every device only needs one URL.
+from the same origin, so every device only needs one URL. You need Go and Node.
 
 ```sh
-# 1. Build the frontend so it talks to whatever host served it
-cd web && npm install && VITE_POCKETBASE_URL=/ npm run build && cd ..
-
-# 2. Build the server (embeds web/dist) and listen on all interfaces
-go build -o telestrations-server .
-./telestrations-server serve --http 0.0.0.0:8090
+make run      # npm install, build the web app and the server, serve on 0.0.0.0:8090
 ```
+
+`make run HTTP=0.0.0.0:9000` picks another port, and `make build` just builds
+`bin/telestrations`. To run that yourself, give it the data directory:
+`./bin/telestrations serve --dir pb_data --http 0.0.0.0:8090`. The games are
+kept in `pb_data`; without `--dir`, a built server keeps them next to itself,
+in `bin/pb_data`.
 
 Find your machine's LAN IP (macOS: `ipconfig getifaddr en0`). Then everyone opens
 `http://<that-ip>:8090` on their own device, all on the same Wi-Fi. If macOS asks
 whether to allow incoming connections, allow them.
 
-Rebuild the frontend (step 1) and the binary (step 2) after any frontend change,
-because the web app is embedded at build time.
+The web app is embedded at build time, so rebuild after any change to it.
+`make help` lists every target.
+
+## Layout
+
+- `cmd/telestrations`: the server's `main`. It puts the pieces below together.
+- `internal/game`: the game itself: the record hooks and write guards, the
+  host controls, End Game and Play again, the API routes, and the Go tests.
+- `internal/migrations`: the database schema and the views the turn rotation
+  runs on.
+- `web`: the Vue app; `web/embed.go` embeds its build (`web/dist`) in the
+  binary.
+- `sim`: a Node soak test that plays whole games against a running server.
 
 ## Tracing a game
 
@@ -113,8 +125,8 @@ gets a "⏱ *name* ran out of time" slide.
 Run each of these in its own terminal:
 
 ```sh
-go run . serve                 # backend on http://127.0.0.1:8090
-make -C web setup dev          # Vite dev server on http://localhost:3000
+make dev-server     # backend on http://127.0.0.1:8090
+make dev-web        # Vite dev server on http://localhost:3000, with live reload
 ```
 
 In dev, the frontend points at `http://127.0.0.1:8090/` unless you set
@@ -122,15 +134,16 @@ In dev, the frontend points at `http://127.0.0.1:8090/` unless you set
 
 ## Tests
 
-- Browser E2E (Playwright): `cd web && npm run test:e2e`. See `web/tests/e2e/README.md`.
-  `run-e2e.sh` is NixOS-specific; on other systems, run `npx playwright test`.
-- Go: `go test ./...` tests the server against a throwaway PocketBase built
+- Browser E2E (Playwright): `make e2e`. See `web/tests/e2e/README.md`. On NixOS,
+  use `web/run-e2e.sh` instead.
+- Go: `make test` (`go test ./...`) tests the server against a throwaway PocketBase built
   from the migrations, through the real routes and guards: write races (two
   requests landing together), the refusal codes the client acts on, the
   rotation views, random whole games, migrations, skips and timeouts, the
   client log and static serving. `-short` skips the concurrent soaks and
-  plays fewer random games; `MODEL_SEED=<n>` replays one random game; `-race`
-  works too.
+  plays fewer random games; `MODEL_SEED=<n>` replays one random game.
+  `make test-race` runs them under the race detector, as CI does.
+- `make lint` runs gofmt, `go vet` and ESLint.
 - Rotation soak test: see `sim/README.md`.
 
 CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, ESLint, the Go tests and

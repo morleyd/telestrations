@@ -102,7 +102,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       # Warm the build cache so the backend's `go run` starts well inside
       # Playwright's webServer timeout.
-      - run: go build -o /dev/null .
+      - run: go build -o /dev/null ./cmd/telestrations
         working-directory: .
       - run: npm ci
       # Not `npm run test:e2e`, which wraps the NixOS-only run-e2e.sh.

@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"database/sql"
@@ -597,7 +597,7 @@ func notYourTurn(app core.App, storyID, userID string, index int) error {
 
 // requestedTurnIndex is the turn_index a client sent with its turn: the place
 // in the story of the turn it was shown, or -1 if it sent none (a page from
-// before rounds). The server numbers turns itself (see bindGameHooks); this is
+// before rounds). The server numbers turns itself (see BindHooks); this is
 // only for checking the client is writing the turn it thinks it is.
 func requestedTurnIndex(e *core.RecordRequestEvent) int {
 	info, err := e.RequestInfo()

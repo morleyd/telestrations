@@ -23,7 +23,7 @@ validated.
 Start the server (from the repo root):
 
 ```sh
-go run . serve --http=127.0.0.1:8090
+go run ./cmd/telestrations serve --http=127.0.0.1:8090
 ```
 
 Then run the simulator against it:

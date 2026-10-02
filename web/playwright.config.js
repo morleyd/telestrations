@@ -37,7 +37,7 @@ export default defineConfig({
       // Real backend on a test port, against a fresh data dir. The wipe lives
       // here rather than in a globalSetup because Playwright starts webServers
       // *before* globalSetup runs.
-      command: `rm -rf .e2e-pb-data && go run . serve --dir .e2e-pb-data --http 127.0.0.1:${PB_PORT}`,
+      command: `rm -rf .e2e-pb-data && go run ./cmd/telestrations serve --dir .e2e-pb-data --http 127.0.0.1:${PB_PORT}`,
       cwd: repoRoot,
       url: `http://127.0.0.1:${PB_PORT}/api/health`,
       reuseExistingServer: false,
