@@ -695,7 +695,10 @@ const endCountdown = 10 * time.Second
 
 // gameOverSQL is true for a game past its End Game deadline and the grace
 // after it. The progress view (migration 1784300000) tests the same, so the
-// rotation stops when the guards do.
+// rotation stops when the guards do. The view's copy is stored in each
+// database when that migration runs, so changing the grace here also takes a
+// new migration that rewrites the progress view
+// (TestEndGameGraceIsTheSameInTheViewAndTheGuards checks the two agree).
 const gameOverSQL = `(ends_at != '' AND ends_at < strftime('%Y-%m-%d %H:%M:%fZ', 'now', '-5 seconds'))`
 
 // gameOver reports whether gameID is over: the host ended it and the
