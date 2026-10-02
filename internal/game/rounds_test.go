@@ -249,6 +249,36 @@ func TestEndGame(t *testing.T) {
 	}
 }
 
+// The grace after End Game's deadline is written twice: in the progress view,
+// which the rotation and the turn guard read, and in gameOver here, which
+// decides who's finished and guards new stories. The view's copy is stored in
+// the database by its migration, so nothing shared keeps them together; this
+// checks they agree just inside the grace and just past it.
+func TestEndGameGraceIsTheSameInTheViewAndTheGuards(t *testing.T) {
+	app := newTestApp(t)
+	g := newGame(t, app, "ann", "ben").withRounds(t, 1, true)
+	g.play(t, "ann", "ann")
+	for _, c := range []struct {
+		ago  time.Duration
+		over bool
+	}{
+		{3 * time.Second, false},
+		{7 * time.Second, true},
+	} {
+		g.endedAgo(t, c.ago)
+		s, err := loadStory(app, g.stories["ann"].Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if over := gameOver(app, g.game.Id); s.GameOver != c.over || over != c.over {
+			t.Errorf("deadline %v ago: the view says over %v, gameOver %v; want %v", c.ago, s.GameOver, over, c.over)
+		}
+		if waiting := s.NextUser != ""; waiting == c.over {
+			t.Errorf("deadline %v ago: the story waits on someone: %v, want %v", c.ago, waiting, !c.over)
+		}
+	}
+}
+
 // The upgrade a running server goes through: a game in progress when the
 // rounds migration runs keeps its turns, numbered in the order they were
 // written, is a one-round game, and plays on.

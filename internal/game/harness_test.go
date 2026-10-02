@@ -199,11 +199,17 @@ func (g *testGame) end(api http.Handler, host *core.Record) *httptest.ResponseRe
 // the players' countdown had run out a while ago.
 func (g *testGame) timeUp(t *testing.T) {
 	t.Helper()
+	g.endedAgo(t, time.Minute)
+}
+
+// endedAgo sets the game's End Game deadline to ago before now.
+func (g *testGame) endedAgo(t *testing.T, ago time.Duration) {
+	t.Helper()
 	game, err := g.app.FindRecordById("games", g.game.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	game.Set("ends_at", time.Now().Add(-time.Minute))
+	game.Set("ends_at", time.Now().Add(-ago))
 	if err := g.app.Save(game); err != nil {
 		t.Fatal(err)
 	}
