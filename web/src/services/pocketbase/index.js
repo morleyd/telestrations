@@ -68,12 +68,28 @@ function createWithRetry(collection, data) {
   )
 }
 
-// When the host's End Game runs out (a Date), or null while the game is on.
-// PocketBase writes dates as "2026-10-01 12:00:00.000Z"; Safari only parses
-// them with a "T" in place of the space.
-export function endsAt(game) {
-  const t = game?.ends_at ? Date.parse(game.ends_at.replace(" ", "T")) : NaN
+// A PocketBase date as a Date, or null. PocketBase writes them as
+// "2026-10-01 12:00:00.000Z"; Safari only parses them with a "T" in place of
+// the space.
+function parseDate(s) {
+  const t = s ? Date.parse(s.replace(" ", "T")) : NaN
   return Number.isNaN(t) ? null : new Date(t)
+}
+
+// When the host's End Game runs out (a Date), or null while the game is on.
+export function endsAt(game) {
+  return parseDate(game?.ends_at)
+}
+
+// How many seconds End Game gave players to finish their turns, or null while
+// the game is on. The server's /end sets ends_at and updated in one save, and
+// nothing else saves a game while anyone is still on a turn (Play again waits
+// for everyone to finish), so the gap between them is its countdown, by the
+// server's clock.
+export function endCountdown(game) {
+  const at = endsAt(game)
+  const from = parseDate(game?.updated)
+  return at && from ? Math.max(0, Math.round((at - from) / 1000)) : null
 }
 
 // The stable code a refused write carries (refuse() in host.go), so callers
@@ -203,6 +219,7 @@ export const pbService = {
           gameId: resp.id,
           isStarted: resp.isStarted,
           endsAt: endsAt(resp),
+          endCountdown: endCountdown(resp),
           // The game the host started after this one (Play again), if any.
           nextGame: resp.next_game || "",
         }

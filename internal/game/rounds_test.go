@@ -212,6 +212,11 @@ func TestEndGame(t *testing.T) {
 	if d := endsAt.Sub(before); d < endCountdown-time.Second || d > endCountdown+time.Second {
 		t.Errorf("ends_at is %v after End, want about %v", d, endCountdown)
 	}
+	// Pages read the countdown off the game record as ends_at - updated (see
+	// endCountdown in services/pocketbase), so End must set both in one save.
+	if d := endsAt.Sub(game.GetDateTime("updated").Time()); d.Round(time.Second) != endCountdown {
+		t.Errorf("ends_at is %v after the game's updated, want %v", d, endCountdown)
+	}
 	if rec := g.end(api, g.players["ann"]); rec.Code != http.StatusOK {
 		t.Fatalf("second end: %d %s", rec.Code, rec.Body)
 	}
