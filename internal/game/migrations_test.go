@@ -137,6 +137,7 @@ func TestMigrationsRevertAndReapply(t *testing.T) {
 	if owes := g.owes(t, "ann"); len(owes) != 0 {
 		t.Fatalf("after a full game on the re-applied schema, ann still owes %v", owes)
 	}
+	requireRoundsPlay(t, app, serveAPI(t, app))
 }
 
 // The schema-index migration's clean-up of legacy rows from before the
@@ -205,6 +206,7 @@ func TestSchemaIndexMigrationCleansUpDuplicates(t *testing.T) {
 	if _, err := runner.Up(); err != nil {
 		t.Fatal(err)
 	}
+	requireRoundsPlay(t, app, serveAPI(t, app))
 }
 
 // A server that ran master before PR #5 already had the schema-index
@@ -257,4 +259,5 @@ func TestHostControlMigrationsApplyOntoAnExistingDatabase(t *testing.T) {
 	if s, _ := loadStory(app, g.stories["ann"].Id); s.NextUser != g.players["cat"].Id {
 		t.Fatalf("ann's story should have passed ben by, but waits on %s", g.name(s.NextUser))
 	}
+	requireRoundsPlay(t, app, api)
 }

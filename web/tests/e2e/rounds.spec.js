@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   createGame, joinGame, startGame, driveGameToReview, expectStoriesAlternate,
-  turnState, submitWord, submitDrawing, stroke, PB_URL,
+  turnState, submitWord, submitDrawing, stroke, PB_URL, PNG_PIXEL,
 } from './helpers.js'
 
 // Rounds: each story goes round the group once per round, or (Infinite) until
@@ -128,4 +128,79 @@ test('Infinite: the host ends it, and everyone mid-turn gets the countdown', asy
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
+})
+
+// Playtest game hseqa: with one player every turn after the first is their
+// second (third, ...) turn on the same story. It stuck at the first drawing;
+// it must keep coming round to them until the host ends it.
+test('one player, Infinite: the story keeps coming back to them until the host ends it', async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const code = await createGame(page, { username: 'solo', endless: true })
+  await startGame(page)
+  await expect(page.getByText('Enter your starting prompt')).toBeVisible()
+  await submitWord(page, 'a teapot')
+  for (const [kind, act] of [
+    ['draw', () => submitDrawing(page)],
+    ['word', () => submitWord(page, 'a kettle')], // a guess at their own drawing
+    ['draw', () => submitDrawing(page)],
+  ]) {
+    await expect.poll(() => turnState(page), { timeout: 15_000 }).toBe(kind)
+    await act()
+  }
+  await expect.poll(() => turnState(page), { timeout: 15_000 }).toBe('word')
+
+  await page.getByRole('button', { name: 'Manage players' }).click()
+  page.once('dialog', (d) => d.accept())
+  await page.getByRole('button', { name: 'End Game' }).click()
+  await page.waitForURL(/\/review$/, { timeout: 20_000 })
+
+  const game = await gameRecord(request, code)
+  const filter = encodeURIComponent(`game_id="${game.id}"`)
+  const turns = (await (await request.get(
+    `${PB_URL}/api/collections/results/records?sort=turn_number&filter=${filter}`)).json()).items
+  expect(turns.map((t) => Boolean(t.drawing))).toEqual([false, true, false, true])
+})
+
+// Playtest games szwxs and hseqa: the server refused a turn with an error and
+// no code (a unique index left over on an upgraded server), and the page read
+// it as "already taken": it marked the turn done, dropped the player's work
+// and waited for good. A turn refused without a code must stay on screen,
+// say so, and go through when sent again.
+test('a turn the server refuses without a code stays on screen to send again', async ({ page }) => {
+  await createGame(page, { username: 'solo', endless: true })
+  await startGame(page)
+  await submitWord(page, 'a teapot')
+  await expect.poll(() => turnState(page), { timeout: 15_000 }).toBe('draw')
+
+  // The first send of the drawing is refused the way a unique index refuses it.
+  let refused = 0
+  await page.route('**/api/collections/turns/records', async (route) => {
+    if (route.request().method() !== 'POST' || refused++) return route.continue()
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 400, message: 'Failed to create record.',
+        data: {
+          story_id: { code: 'validation_not_unique', message: 'Value must be unique.' },
+          user_id: { code: 'validation_not_unique', message: 'Value must be unique.' },
+        },
+      }),
+    })
+  })
+  await page.getByRole('tab', { name: /Upload Photo/ }).click()
+  await page.locator('#fileInput').setInputFiles({ name: 'd.png', mimeType: 'image/png', buffer: PNG_PIXEL })
+  const submit = page.locator('.v-window-item--active').getByRole('button', { name: 'Submit' })
+  await submit.click()
+  await expect(page.getByText(/Failed to create record/)).toBeVisible()
+  expect(refused).toBe(1)
+
+  // Still on the drawing, upload and all: sending it again goes through.
+  expect(await turnState(page)).toBe('draw')
+  await Promise.all([
+    page.waitForResponse((r) => /\/api\/collections\/turns\/records/.test(r.url()) &&
+      r.request().method() === 'POST' && r.status() === 200),
+    submit.click(),
+  ])
+  await expect.poll(() => turnState(page), { timeout: 15_000 }).toBe('word')
 })
