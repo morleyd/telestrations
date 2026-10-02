@@ -375,8 +375,7 @@ func requireRoundsPlay(t *testing.T, app core.App, api http.Handler) {
 // turns unique by player and story, as idx_turns_story_user, a name the rounds
 // migration didn't know. It refused every turn after a player's first on a
 // story: round two never started, and a one-player game stuck at its first
-// drawing (playtest games szwxs and hseqa). The 1784500000 migration drops
-// it, whatever it's called.
+// drawing. The 1784500000 migration drops it, whatever it's called.
 func TestALeftoverOneTurnPerPlayerIndexIsDropped(t *testing.T) {
 	app := newTestApp(t)
 	revertThrough(t, app, "1784500000_turns_per_player.go")
