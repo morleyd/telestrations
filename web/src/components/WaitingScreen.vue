@@ -59,6 +59,7 @@ export default {
       if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
+        return // keep what we had; the next refresh retries
       }
       this.progress = resp.data
     },

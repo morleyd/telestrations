@@ -95,11 +95,12 @@ test('a player who misses the new game starting still gets moved across', async 
 
 // An endless game is only done once the host has ended it and the countdown
 // (and the grace after it) is over, and nothing is written at that moment:
-// the host's review must notice by itself.
+// the host's review must notice by itself, and so must the stories' progress,
+// for the players and for someone who only opened the link.
 test('after End Game, the host can start a new game without reloading', async ({ browser }) => {
   test.setTimeout(120_000)
-  const contexts = await Promise.all([browser.newContext(), browser.newContext()])
-  const [host, guest] = await Promise.all(contexts.map((c) => c.newPage()))
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const [host, guest, viewer] = await Promise.all(contexts.map((c) => c.newPage()))
   try {
     const code = await createGame(host, { username: 'hosty', endless: true })
     await joinGame(guest, code, 'buddy')
@@ -110,12 +111,18 @@ test('after End Game, the host can start a new game without reloading', async ({
       await expect.poll(() => turnState(page)).toBe('word')
       await submitWord(page, 'the opening word')
     }
+    await viewer.goto(`/${code}/review`)
+    await expect(viewer.locator('.review-intro')).toContainText('The stories so far')
 
     await host.getByRole('button', { name: 'Manage players' }).click()
     host.once('dialog', (d) => d.accept())
     await host.getByRole('button', { name: 'End Game' }).click()
     await Promise.all([host.waitForURL(/\/review$/, { timeout: 20_000 }), guest.waitForURL(/\/review$/, { timeout: 20_000 })])
     await expect(host.getByRole('button', { name: 'Start new game' })).toBeVisible({ timeout: 20_000 })
+    for (const page of [host, guest, viewer]) {
+      await expect(page.locator('.review-intro')).toContainText("That's the game!")
+      await expect(page.locator('.story-waiting')).toHaveText(['Done', 'Done'])
+    }
 
     await host.getByRole('button', { name: 'Start new game' }).click()
     await expect(host.getByRole('dialog').getByLabel('Infinite')).toBeChecked() // this game's settings

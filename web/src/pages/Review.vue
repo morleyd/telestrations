@@ -315,6 +315,11 @@ export default {
       this.me = resp.data.find(p => p.id === this.userStore.userId) || null
     },
     async poll() {
+      // Re-read the progress for anyone looking, players or not: End Game's
+      // deadline passes with nothing written, and a failed read needs a retry.
+      // Not before the players' names are in: the list indexes them, and
+      // created reads the progress itself once it has asked for them.
+      if (this.userMap) this.getProgress()
       if (!this.inThisGame || this.following) return
       if (this.movingAcross) {
         this.followNextGame() // the last try failed
@@ -378,7 +383,7 @@ export default {
       if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
-        return // keep what we had; the next turn retries
+        return // keep what we had; the poll retries once the names are in
       }
       this.users = resp.data
       this.progressLoaded = true

@@ -172,6 +172,95 @@ test('a player who finishes early is told so, and sees who each story is waiting
   }
 })
 
+// A read of the stories' progress that fails keeps the list it had, on the
+// waiting screen and on the review (where losing it broke the page), and a
+// review whose first read fails tries again. Only the full read fails: the turn
+// page's own read of what it owes is left alone.
+test('a failed progress read keeps the list it had, and the review tries again', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext()])
+  const [host, guest] = await Promise.all(contexts.map((c) => c.newPage()))
+  const errors = []
+  host.on('pageerror', (e) => errors.push(e.message))
+  const fullProgress = (url) => url.pathname.endsWith('/api/collections/progress/records') &&
+    Boolean(url.searchParams.get('filter')?.includes('game_code'))
+  let failed = 0
+  const failWith = (message) => (route) => {
+    failed++
+    return route.fulfill({ status: 500, json: { message } })
+  }
+  const down = failWith('progress is down')
+  const downAgain = failWith('progress is down again')
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+    await submitWord(host, 'a teapot')
+    const waiting = host.locator('.story-waiting')
+    await expect(waiting).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+
+    // The waiting screen refreshes while the host waits. Wait for a second
+    // failed read: the first is counted before the page has handled it.
+    await host.route(fullProgress, down)
+    await expect.poll(() => failed, { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
+    await expect(waiting).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+
+    // Still failing as the review opens: nothing to show yet, until a retry
+    // gets through.
+    await host.goto(`/${code}/review`)
+    await expect(host.locator('.v-snackbar')).toContainText('progress is down')
+    await expect(host.locator('.user-item')).toHaveCount(0)
+    await expect(host.locator('.review-intro')).toHaveCount(0)
+    await host.unroute(fullProgress, down)
+    await expect(host.locator('.review-intro')).toContainText('The stories so far', { timeout: 15_000 })
+    await expect(storyItem(host, 'hosty')).toContainText('Waiting on buddy')
+    await expect(storyItem(host, 'buddy')).toContainText('Waiting on buddy')
+
+    // Then a refresh fails.
+    await host.route(fullProgress, downAgain)
+    await expect(host.locator('.v-snackbar')).toContainText('progress is down again', { timeout: 15_000 })
+    await expect(storyItem(host, 'hosty')).toContainText('Waiting on buddy')
+    await expect(storyItem(host, 'buddy')).toContainText('Waiting on buddy')
+    await expect(host.locator('.review-intro')).toContainText('The stories so far')
+    // A render that throws leaves the old rows on screen, so this is what
+    // shows the page broke.
+    expect(errors).toEqual([])
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// The review re-reads the progress now and then, and the list can't be drawn
+// without the players' names: a slow read of the names mustn't let the
+// progress in first.
+test('the review waits for the players\' names before listing the stories', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const [host, guest, viewer] = await Promise.all(contexts.map((c) => c.newPage()))
+  const errors = []
+  viewer.on('pageerror', (e) => errors.push(e.message))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+
+    // Longer than Review.vue's POLL_MS, so the poll fires while the names are
+    // still on the way.
+    await viewer.route((url) => url.pathname.endsWith('/api/collections/users/records'), async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 7000))
+      return route.continue()
+    })
+    await viewer.goto(`/${code}/review`)
+    await expect(storyItem(viewer, 'hosty')).toContainText('Waiting on hosty', { timeout: 15_000 })
+    await expect(storyItem(viewer, 'buddy')).toContainText('Waiting on buddy')
+    expect(errors).toEqual([])
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
 // A PNG's width and height, from its header.
 function pngSize(bytes) {
   const b = Buffer.from(bytes)
