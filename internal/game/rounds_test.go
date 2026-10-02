@@ -299,6 +299,46 @@ func TestRoundsMigrationUpgradesAGameInProgress(t *testing.T) {
 	if s, _ := loadStory(app, g.stories["ann"].Id); s.NextUser != "" || s.Taken != 3 {
 		t.Errorf("ann's story should be done after the upgrade: %+v", s)
 	}
+	requireRoundsPlay(t, app, serveAPI(t, app))
+}
+
+// requireRoundsPlay starts a three-player, two-round game on app and plays it
+// to the end through the real routes: every player takes a turn on every story
+// twice, and everyone finishes. The tests that upgrade or re-apply the schema
+// end with it: a schema can look right and still refuse a player's second
+// turn on a story, which is how round two once never started on an upgraded
+// server (see TestALeftoverOneTurnPerPlayerIndexIsDropped).
+// api is app's (see serveAPI), which can only be built once per app.
+func requireRoundsPlay(t *testing.T, app core.App, api http.Handler) {
+	t.Helper()
+	g := newGame(t, app, "xia", "yon", "zed").withRounds(t, 2, false)
+	for played := true; played; {
+		played = false
+		for starter := range g.stories {
+			s, err := loadStory(app, g.stories[starter].Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.NextUser == "" {
+				continue
+			}
+			name := g.name(s.NextUser)
+			if rec := g.submit(t, api, starter, name); rec.Code != http.StatusOK {
+				t.Fatalf("a two-round game: %s's turn %d on %s's story: %d %s", name, s.Taken, starter, rec.Code, rec.Body)
+			}
+			played = true
+		}
+	}
+	for starter, story := range g.stories {
+		if s, err := loadStory(app, story.Id); err != nil || s.Taken != 6 {
+			t.Errorf("a two-round game: %s's story ended with %d turns, want 6 (%v)", starter, s.Taken, err)
+		}
+	}
+	for name, p := range g.status(t, api) {
+		if !p.Finished {
+			t.Errorf("a two-round game is over but %s isn't finished: %+v", name, p)
+		}
+	}
 }
 
 // A database that ran an early draft of the host-controls migration still had
@@ -347,4 +387,5 @@ func TestALeftoverOneTurnPerPlayerIndexIsDropped(t *testing.T) {
 			t.Fatalf("ann's next turn on her own story: %d %s", rec.Code, rec.Body)
 		}
 	}
+	requireRoundsPlay(t, app, api)
 }
