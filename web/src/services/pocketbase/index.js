@@ -77,13 +77,14 @@ export function endsAt(game) {
 }
 
 // The stable code a refused write carries (refuse() in host.go), so callers
-// branch on it rather than on the message. A second turn on one story that
-// slipped past the server's guard and hit the unique index is "turn_taken" too.
+// branch on it rather than on the message. Anything else, a unique-index error
+// included, gets no code: the server's guard is what says a turn was really
+// taken ("turn_taken", checked at its place in the story). Reading an index
+// error as "taken" once marked turns done that were never saved, and the
+// player waited forever (a leftover one-turn-per-player index; see migration
+// 1784500000). Without a code the turn stays on screen to send again.
 function refusalCode(err) {
-  const data = err?.response?.data || {}
-  if (data.code?.code) return data.code.code
-  if ([data.user_id, data.story_id].some((f) => f?.code === "validation_not_unique")) return "turn_taken"
-  return ""
+  return err?.response?.data?.code?.code || ""
 }
 
 export const pbService = {

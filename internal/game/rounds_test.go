@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"time"
 
@@ -254,18 +253,9 @@ func TestEndGame(t *testing.T) {
 // rounds migration runs keeps its turns, numbered in the order they were
 // written, is a one-round game, and plays on.
 func TestRoundsMigrationUpgradesAGameInProgress(t *testing.T) {
-	const rounds = "1784300000_rounds.go"
 	app := newTestApp(t)
 	runner := core.NewMigrationsRunner(app, core.AppMigrations)
-	// Back to just before the rounds migration: it and every later one.
-	items := core.AppMigrations.Items()
-	at := slices.IndexFunc(items, func(m *core.Migration) bool { return m.File == rounds })
-	if at < 0 {
-		t.Fatalf("no %s among the app migrations", rounds)
-	}
-	if _, err := runner.Down(len(items) - at); err != nil {
-		t.Fatal(err)
-	}
+	revertThrough(t, app, "1784300000_rounds.go")
 	if hasField(t, app, "turns", "turn_index") || hasField(t, app, "games", "rounds") {
 		t.Fatal("the pre-rounds schema already has the rounds fields")
 	}
@@ -308,5 +298,53 @@ func TestRoundsMigrationUpgradesAGameInProgress(t *testing.T) {
 	g.play(t, "ben", "cat")
 	if s, _ := loadStory(app, g.stories["ann"].Id); s.NextUser != "" || s.Taken != 3 {
 		t.Errorf("ann's story should be done after the upgrade: %+v", s)
+	}
+}
+
+// A database that ran an early draft of the host-controls migration still had
+// turns unique by player and story, as idx_turns_story_user, a name the rounds
+// migration didn't know. It refused every turn after a player's first on a
+// story: round two never started, and a one-player game stuck at its first
+// drawing (playtest games szwxs and hseqa). The 1784500000 migration drops
+// it, whatever it's called.
+func TestALeftoverOneTurnPerPlayerIndexIsDropped(t *testing.T) {
+	app := newTestApp(t)
+	revertThrough(t, app, "1784500000_turns_per_player.go")
+	turns, err := app.FindCollectionByNameOrId("turns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns.AddIndex("idx_turns_story_user", true, "story_id, user_id", "")
+	if err := app.Save(turns); err != nil {
+		t.Fatal(err)
+	}
+	g := newGame(t, app, "ann").withRounds(t, 1, true)
+	g.play(t, "ann", "ann")
+	if err := app.Save(func() *core.Record {
+		r := core.NewRecord(turns)
+		r.Load(g.nextTurn(t, "ann", "ann"))
+		return r
+	}()); err == nil {
+		t.Fatal("the leftover index didn't refuse ann's drawing: this test no longer reproduces the bug")
+	}
+
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Up(); err != nil {
+		t.Fatal(err)
+	}
+	turns, err = app.FindCollectionByNameOrId("turns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turns.GetIndex("idx_turns_story_user") != "" {
+		t.Error("the leftover index is still there")
+	}
+	if turns.GetIndex("idx_turns_story_index") == "" {
+		t.Error("the migration dropped the place-in-story index too")
+	}
+	api := serveAPI(t, app)
+	for range 3 { // her drawing, guess and drawing on her own story
+		if rec := g.submit(t, api, "ann", "ann"); rec.Code != http.StatusOK {
+			t.Fatalf("ann's next turn on her own story: %d %s", rec.Code, rec.Body)
+		}
 	}
 }

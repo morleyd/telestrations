@@ -63,6 +63,21 @@ func hasField(t *testing.T, app core.App, collection, field string) bool {
 	return col.Fields.GetByName(field) != nil
 }
 
+// revertThrough reverts the app's migrations back to and including file: it
+// and every one after it. Returns file's index in core.AppMigrations.Items().
+func revertThrough(t *testing.T, app core.App, file string) int {
+	t.Helper()
+	items := core.AppMigrations.Items()
+	at := slices.IndexFunc(items, func(m *core.Migration) bool { return m.File == file })
+	if at < 0 {
+		t.Fatalf("no %s among the app migrations", file)
+	}
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Down(len(items) - at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
 // migrationsExcept is core.AppMigrations without the files starting with
 // any of the given prefixes.
 func migrationsExcept(prefixes ...string) core.MigrationsList {
