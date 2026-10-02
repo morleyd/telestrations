@@ -51,7 +51,7 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pb, pbService, endsAt } from '@/services/pocketbase'
+import { pb, pbService, endsAt, endCountdown } from '@/services/pocketbase'
 import { log } from '@/services/log'
 
 // One turn: a story and a place in it. With rounds, a story comes back to the
@@ -61,9 +61,6 @@ const turnKeyOf = (storyId, index) => `${storyId}:${index ?? 0}`
 const POLL_MS = 2500
 const DROPPED_CHECK_TICKS = 4 // ~10s
 const END_CHECK_TICKS = 2 // ~5s, the realtime game update's fallback
-// End Game's countdown (endCountdown in host.go): the most this page gives the
-// player, whatever its clock says about the deadline.
-const END_SECONDS = 10
 export default {
   name: "TakeTurn",
   data() {
@@ -207,7 +204,7 @@ export default {
         // Just set, so the full countdown is left, whatever this device's
         // clock says about the deadline.
         const at = endsAt(e.record)
-        if (at) that.startEnding(at, END_SECONDS)
+        if (at) that.startEnding(at, endCountdown(e.record), { justSet: true })
       })
 
       // Polling fallback. Advancing a turn is driven by the realtime
@@ -230,7 +227,7 @@ export default {
         ticks++
         if (!that.endsAt && ticks % END_CHECK_TICKS == 0) {
           const game = await pbService.games.checkGameStatus(that.$route.params.gameCode)
-          if (game.endsAt) that.startEnding(game.endsAt)
+          if (game.endsAt) that.startEnding(game.endsAt, game.endCountdown)
         }
         if (that.userState === "waiting" || that.userState === "loading") {
           that.getTurns()
@@ -291,21 +288,26 @@ export default {
       this.duration = validGame.duration
       return validGame.gameId
     },
-    // The host ended the game. Whoever is on a turn gets `seconds` to finish
-    // it, and then it's submitted as it stands; everyone else goes to the
-    // review now. Nobody starts another turn (see resolveTurns, showTurn).
-    // Without `seconds` (found by the poll, maybe late), they're estimated
-    // from the deadline by this device's clock: the server takes turns for a
-    // few seconds past it.
-    startEnding(at, seconds) {
+    // The host ended the game. Whoever is on a turn gets the rest of the
+    // server's `countdown` (seconds, see endCountdown) to finish it, and then
+    // it's submitted as it stands; everyone else goes to the review now.
+    // Nobody starts another turn (see resolveTurns, showTurn). `justSet` (the
+    // realtime update) leaves the whole countdown. Otherwise (found by the
+    // poll, maybe late) what's left is estimated from the deadline by this
+    // device's clock, never more than the countdown: the server takes turns
+    // for a few seconds past it.
+    startEnding(at, countdown, { justSet = false } = {}) {
       if (this.endsAt || this.leaving) return
       this.endsAt = at
-      log.info("game.ending", { endsAt: at.toISOString(), state: this.userState, story: this.turnKey, seconds })
+      log.info("game.ending", {
+        endsAt: at.toISOString(), state: this.userState, story: this.turnKey, countdown, justSet,
+      })
       if (!this.onTurn) {
         this.goToReview("The host ended the game.")
         return
       }
-      this.endLeft = seconds ?? Math.min(END_SECONDS, Math.max(0, Math.round((at - Date.now()) / 1000)))
+      const byClock = Math.max(0, Math.round((at - Date.now()) / 1000))
+      this.endLeft = countdown == null ? byClock : justSet ? countdown : Math.min(countdown, byClock)
       if (this.endLeft <= 0) {
         this.onEndTimerFinished()
         return
