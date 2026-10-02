@@ -111,14 +111,26 @@ export default {
     reset() {
       this.engine.reset()
     },
+    /**
+     * finish completes a stroke or shape still being drawn. The pointer may
+     * still be down: from here on its moves are only hovers, and letting go
+     * does nothing.
+     */
+    finish() {
+      this.pointerId = null
+      this.engine.finish()
+    },
     setShift(shift) {
       this.engine.setShift(shift)
     },
-    setBackground(hex, options) {
-      this.engine.setBackground(hex, options)
+    setBackground(hex) {
+      this.engine.setBackground(hex)
     },
     previewBackground(hex) {
       this.engine.previewBackground(hex)
+    },
+    endPreview() {
+      this.engine.endPreview()
     },
     isBlank() {
       return this.engine.isBlank()

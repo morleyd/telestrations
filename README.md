@@ -103,7 +103,7 @@ can be undone.
 - Keys: **B**, **E**, **G**, **I** and **S** for the brush, eraser, fill,
   eyedropper and spray; **L**, **R**, **O** and **T** for shapes; **H** for
   Behind lines; **[** **]** or **1**–**5** for size; **Shift** snaps a shape;
-  **Ctrl+Z** and **Ctrl+Shift+Z** undo and redo.
+  **Ctrl+Z** undoes, and **Ctrl+Y** or **Ctrl+Shift+Z** redoes.
 
 ## Saving the stories
 

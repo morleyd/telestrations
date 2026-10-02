@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Paint engine test page</title>
+</head>
+<body>
+  <!-- Test-only: Vite's dev server serves this page to the specs; the
+       production build only builds index.html, so it never ships. It puts the
+       paint modules and a few pixel helpers on window.paint. -->
+  <script type="module">
+    import PaintEngine, * as engine from '/src/services/paint/engine.js'
+    import * as color from '/src/services/paint/color.js'
+    import * as fill from '/src/services/paint/fill.js'
+    import * as palette from '/src/services/paint/palette.js'
+    import * as shapes from '/src/services/paint/shapes.js'
+    import * as tools from '/src/services/paint/tools.js'
+
+    const { WIDTH, HEIGHT } = engine
+
+    // A fresh engine on its own canvas (kept off the page, so it's freed with
+    // the engine). `s` is its live settings object: change a field and the
+    // engine sees it on its next action.
+    function make(settings = {}) {
+      const canvas = document.createElement('canvas')
+      const s = { tool: 'brush', color: '#000000', size: 1, shapeStyle: 'outline', behind: false, ...settings }
+      const changes = []
+      const e = new PaintEngine(canvas, { settings: () => s, onChange: (state) => changes.push(state) })
+      return { e, s, changes, canvas }
+    }
+
+    const layer = (e, k) => e.layers[k].ctx.getImageData(0, 0, WIDTH, HEIGHT).data
+
+    // FNV-1a over both layers and the background: equal hashes mean equal pictures.
+    function hash(e) {
+      let h = 2166136261
+      for (const k of ['color', 'ink']) {
+        const d = layer(e, k)
+        for (let i = 0; i < d.length; i++) h = Math.imul(h ^ d[i], 16777619)
+      }
+      for (const ch of e.bg) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+      return h >>> 0
+    }
+
+    const at = (e, k, x, y) => Array.from(e.layers[k].ctx.getImageData(x, y, 1, 1).data)
+    const shown = (e, x, y) => Array.from(e.display.getImageData(x, y, 1, 1).data)
+    const opaque = (e, k) => { let n = 0; const d = layer(e, k); for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n }
+
+    // One drag with the current tool through the points, released at the last one.
+    function drag(e, points, { shift = false, release = true } = {}) {
+      e.start(points[0], shift)
+      for (const p of points.slice(1)) e.move(p, shift)
+      if (release) e.end()
+    }
+
+    // The PNG's type and size, and the pixels at the given points.
+    async function png(e, points = []) {
+      const blob = await e.toBlob()
+      const bmp = await createImageBitmap(blob)
+      const c = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')
+      c.drawImage(bmp, 0, 0)
+      return { type: blob.type, width: bmp.width, height: bmp.height, pixels: points.map(({ x, y }) => Array.from(c.getImageData(x, y, 1, 1).data)) }
+    }
+
+    // A starting picture with something on both layers: a red block behind the
+    // lines, and on top a black rectangle outline around it and a stroke below.
+    function base(e, s) {
+      Object.assign(s, { behind: true, tool: 'rect', shapeStyle: 'fill', color: '#E52B2B', size: 1 })
+      drag(e, [{ x: 400, y: 200 }, { x: 800, y: 600 }])
+      Object.assign(s, { behind: false, shapeStyle: 'outline', color: '#000000' })
+      drag(e, [{ x: 300, y: 150 }, { x: 900, y: 650 }])
+      s.tool = 'brush'
+      drag(e, [{ x: 200, y: 700 }, { x: 600, y: 720 }, { x: 1000, y: 700 }])
+    }
+
+    // How many pixels down column x of a layer are mostly opaque.
+    function thickness(e, k, x) {
+      const d = e.layers[k].ctx.getImageData(x, 0, 1, HEIGHT).data
+      let n = 0
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 127) n++
+      return n
+    }
+
+    // The brush outline and shape previews: how much is on the overlay, and its alpha at a point.
+    const overlay = (e) => { let n = 0; const d = e.overlay.ctx.getImageData(0, 0, WIDTH, HEIGHT).data; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n }
+    const overlayAt = (e, x, y) => e.overlay.ctx.getImageData(x, y, 1, 1).data[3]
+
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()))
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+    window.paint = {
+      PaintEngine, engine, color, fill, palette, shapes, tools,
+      make, layer, hash, at, shown, opaque, drag, png, base, thickness, overlay, overlayAt, frame, wait,
+    }
+    window.paintReady = true
+  </script>
+</body>
+</html>
