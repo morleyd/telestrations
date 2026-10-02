@@ -90,7 +90,7 @@ people on your network: they stop mistakes, not a determined cheat.
 
 On the review page, the last card of each story has **Download this story**,
 which saves it as one image: each turn in order, with who wrote or drew it.
-**Download all stories** (there and at the top of the player list) saves a zip
+**Download all stories**, at the top of the player list, saves a zip
 of every story's image. Any player can download, not just the host.
 
 ## Playing again
