@@ -134,6 +134,8 @@ test('any player can download a story, or every story in the game', async ({ bro
     for (let k = 0; k < 3; k++) await page.locator('.v-window__right').click()
     await expect(visible('.v-window-item')).toHaveCount(1)
     await expect(page.getByText(`That's ${player.name}'s story!`)).toBeVisible()
+    // The card is about this story; every story at once is in the player list.
+    await expect(visible('.v-window-item').getByRole('button', { name: 'Download all stories' })).toHaveCount(0)
 
     const [story] = await Promise.all([
       page.waitForEvent('download'),

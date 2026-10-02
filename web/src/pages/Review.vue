@@ -82,7 +82,8 @@
           </div>
         </div>
       </v-carousel-item>
-      <!-- The end of the story: save it. Next still wraps round to the start. -->
+      <!-- The end of the story: save it. Next still wraps round to the start.
+           (Every story at once is at the top of the player list.) -->
       <v-carousel-item key="end" gradient="#2c5ea3, #e3eefc">
         <div class="slide">
           <div class="slide-main align-center ga-4">
@@ -90,10 +91,6 @@
             <v-btn color="primary" size="x-large" prepend-icon="mdi-download" :loading="downloading == 'story'"
               :disabled="Boolean(downloading)" @click="downloadStory">
               Download this story
-            </v-btn>
-            <v-btn variant="tonal" prepend-icon="mdi-folder-download" :loading="downloading == 'all'"
-              :disabled="Boolean(downloading)" @click="downloadAll">
-              Download all stories
             </v-btn>
           </div>
         </div>
