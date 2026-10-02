@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
-import { createGame, joinGame, startGame, startThreePlayerGame, driveGameToReview, submitWord } from './helpers.js'
+import { createGame, joinGame, startGame, startThreePlayerGame, driveGameToReview, storyItem, submitDrawing, submitWord } from './helpers.js'
 
 // The review walks through a story one turn per slide. Each slide shows what the
 // player was given (the word they drew, or the drawing they guessed) above what
@@ -90,13 +90,13 @@ test('the review is open mid-game, and players can get back to the game', async 
     await host.getByRole('button', { name: 'Manage players' }).click()
     await host.getByRole('button', { name: 'View results' }).click()
     await host.waitForURL(/\/review$/)
-    await expect(host.locator('.user-item', { hasText: 'hosty' })).toContainText('1 / 2')
-    await host.locator('.user-item', { hasText: 'hosty' }).click()
+    await expect(storyItem(host, 'hosty')).toContainText('1 / 2')
+    await storyItem(host, 'hosty').click()
     await expect(host.locator('.v-carousel').getByText('a teapot')).toBeVisible()
 
     // buddy opens the link mid-turn, and goes back to it.
     await guest.goto(`/${code}/review`)
-    await expect(guest.locator('.user-item', { hasText: 'buddy' })).toContainText('0 / 2')
+    await expect(storyItem(guest, 'buddy')).toContainText('0 / 2')
     await guest.getByRole('link', { name: 'Back to game' }).click()
     await guest.waitForURL(/\/draw$/)
     await expect(guest.getByText('Enter your starting prompt')).toBeVisible()
@@ -107,6 +107,66 @@ test('the review is open mid-game, and players can get back to the game', async 
     await driveGameToReview([host, guest])
     await expect(host.locator('.user-item').first()).toBeVisible()
     await expect(host.getByRole('link', { name: 'Back to game' })).toHaveCount(0)
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// A player who finishes while others are still playing is sent to the review,
+// and a playtester took its empty space for a bug: before a story is open it
+// says what's going on, and every story in the list says who it's waiting on.
+// So does the waiting screen, under each bar (a tooltip nobody found, before).
+test('a player who finishes early is told so, and sees who each story is waiting on', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext()])
+  const [host, guest] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+
+    // Both stories wait on buddy: a drawing of the host's word, and buddy's own.
+    await submitWord(host, 'a teapot')
+    await expect(host.locator('.story-waiting')).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+
+    // The host draws buddy's word, and that's all their turns.
+    await submitWord(guest, 'a kite')
+    await expect(host.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
+    await submitDrawing(host)
+    await host.waitForURL(/\/review$/)
+    const intro = host.locator('.review-intro')
+    await expect(intro).toContainText("You've finished all your turns!")
+    await expect(storyItem(host, 'hosty')).toContainText('Waiting on buddy')
+    await expect(storyItem(host, 'buddy')).toContainText('Done')
+
+    // On a phone the list leaves too little room beside it, so it's in the list.
+    await host.setViewportSize({ width: 390, height: 844 })
+    await expect(host.locator('.v-alert.review-intro')).toContainText("You've finished all your turns!")
+    // With the list closed it's where a story would be, with a way back.
+    await host.locator('.mdi-close').click()
+    await expect(host.locator('.v-alert.review-intro')).toHaveCount(0)
+    await host.getByRole('button', { name: 'Show the stories' }).click()
+    await expect(storyItem(host, 'hosty')).toBeVisible()
+    await host.setViewportSize({ width: 1280, height: 720 })
+
+    // buddy, still to draw, looks in: the story they owe a turn says so.
+    await guest.goto(`/${code}/review`)
+    await expect(guest.locator('.review-intro')).toContainText('The stories so far')
+    await expect(storyItem(guest, 'hosty')).toContainText('Waiting on you')
+    await guest.getByRole('link', { name: 'Back to game' }).click()
+    await expect(guest.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
+    await submitDrawing(guest)
+    await guest.waitForURL(/\/review$/)
+
+    // The host, still looking, hears the game is over.
+    await expect(intro).toContainText("That's the game!")
+    await expect(storyItem(host, 'hosty')).toContainText('Done')
+
+    // Opening a story replaces it.
+    await storyItem(host, 'hosty').click()
+    await expect(host.locator('.v-carousel').getByText('a teapot')).toBeVisible()
+    await expect(intro).toHaveCount(0)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
@@ -130,7 +190,7 @@ test('any player can download a story, or every story in the game', async ({ bro
     const page = player.page
     const visible = (selector) => page.locator(`${selector}:visible`)
 
-    await page.locator('.user-item', { hasText: player.name }).click()
+    await storyItem(page, player.name).click()
     for (let k = 0; k < 3; k++) await page.locator('.v-window__right').click()
     await expect(visible('.v-window-item')).toHaveCount(1)
     await expect(page.getByText(`That's ${player.name}'s story!`)).toBeVisible()

@@ -10,6 +10,10 @@
         <v-btn icon="mdi-close" v-tooltip:bottom="'close'" @click="sidebarVisible = false" />
       </v-toolbar>
       <v-container id="chat-scroll" class="overflow-y-auto" height="calc(100vh - 96px)">
+        <!-- On a phone the list leaves the story a sliver of the screen, too
+             narrow for what's going on; say it up here instead. -->
+        <v-alert v-if="showIntro && introInSidebar" class="review-intro mb-2" color="secondary" variant="tonal"
+          density="compact" :icon="intro.icon" :title="intro.title" :text="intro.text" />
         <!-- The review is open while the game is still going (the host has a
              button for it; anyone can use the link), so players can get back. -->
         <!-- Play again: the same players, straight into a new game. -->
@@ -32,7 +36,10 @@
         <v-row v-for="(item, index) in users" no-gutters :key="index">
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
             <AvatarIcon :user="userMap[item.starter_user_id]" />
-            <span>{{ userMap[item.starter_user_id]?.username }}</span>
+            <div class="user-item-text">
+              <span class="user-item-name">{{ userMap[item.starter_user_id]?.username }}</span>
+              <span class="story-waiting text-caption text-medium-emphasis">{{ waitingOn(item, userMap, myId) }}</span>
+            </div>
             <span>({{ storyProgress(item).label }})</span>
           </div>
         </v-row>
@@ -96,6 +103,18 @@
         </div>
       </v-carousel-item>
     </v-carousel>
+    <!-- Before a story is open: a player who has just been sent here took this
+         blank space for a bug, so say what's going on. -->
+    <div v-else-if="showIntro && !introInSidebar" class="intro-space" :style="getWindowWidth">
+      <v-card class="review-intro pa-6 text-center" max-width="520">
+        <v-icon :icon="intro.icon" color="secondary" size="48" />
+        <v-card-title class="wrap text-h5">{{ intro.title }}</v-card-title>
+        <v-card-text class="text-body-1">{{ intro.text }}</v-card-text>
+        <v-btn v-if="!sidebarVisible" color="secondary" prepend-icon="mdi-menu" @click="sidebarVisible = true">
+          Show the stories
+        </v-btn>
+      </v-card>
+    </div>
   </div>
 
   <v-dialog v-model="showPlayAgain" max-width="500">
@@ -121,7 +140,7 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
 import { log } from '@/services/log'
-import { storyProgress } from '@/services/progress'
+import { storyProgress, waitingOn } from '@/services/progress'
 import { reviewTurns, ranOutOfTime, turnBanner } from '@/services/story'
 import { storyImage, zipFiles, fileSafe, saveFile } from '@/services/storyImage'
 import { settingsOf, gameFields } from '@/services/settings'
@@ -158,8 +177,11 @@ export default {
       // moving them across failed and they can try again.
       joinOffer: false,
       pollTimer: null,
-      // Whose story is open.
+      // Whose story is open, and whether it's still on its way.
       starterId: "",
+      storyLoading: false,
+      // The stories' progress has been read at least once.
+      progressLoaded: false,
       // The download being made: "story", "all", or "".
       downloading: "",
     }
@@ -188,6 +210,46 @@ export default {
     // A player in this game who still has turns to play.
     stillPlaying() {
       return Boolean(this.me && !this.me.finished && !this.me.dropped)
+    },
+    // Whoever is looking, for "Waiting on you": only a player in this game.
+    myId() {
+      return this.inThisGame ? this.userStore.userId : ""
+    },
+    // No story is waiting on anyone: they've all had their last turn, or the
+    // game is over.
+    allDone() {
+      return this.users.length > 0 && this.users.every(row => !row.next_user_id)
+    },
+    // What the page says before a story is opened.
+    intro() {
+      if (this.allDone) {
+        return {
+          icon: "mdi-flag-checkered",
+          title: "That's the game!",
+          text: "The game is over. Pick a story from the list to see how it turned out.",
+        }
+      }
+      if (this.me?.finished && !this.me.dropped) {
+        return {
+          icon: "mdi-check-circle",
+          title: "You've finished all your turns!",
+          text: "The others are still playing. While you wait, pick a story from the list to see how it's going. " +
+            "Each one says who it's waiting on.",
+        }
+      }
+      return {
+        icon: "mdi-book-open-variant",
+        title: "The stories so far",
+        text: "Pick a story from the list to see how it's going. Each one says who it's waiting on.",
+      }
+    },
+    // Once we know which intro it is (a player's own status comes separately
+    // from the stories), and while no story is open or on its way.
+    showIntro() {
+      return !this.story && !this.storyLoading && this.progressLoaded && (!this.inThisGame || this.players.length > 0)
+    },
+    introInSidebar() {
+      return this.$vuetify.display.xs && this.sidebarVisible
     },
   },
   async created() {
@@ -239,10 +301,12 @@ export default {
   },
   methods: {
     storyProgress,
+    waitingOn,
     ranOutOfTime,
     turnBanner,
-    // Where this viewer stands in the game, for "Back to game". The stored
-    // user can be from an earlier game, so only one from this game counts.
+    // Where this viewer stands in the game, for "Back to game" and what the
+    // page says before a story is open. The stored user can be from an
+    // earlier game, so only one from this game counts.
     async getMe() {
       if (!this.inThisGame) return
       const resp = await pbService.games.getPlayers(this.gameId)
@@ -314,8 +378,10 @@ export default {
       if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
+        return // keep what we had; the next turn retries
       }
       this.users = resp.data
+      this.progressLoaded = true
     },
     async getUsername(userId) {
       let resp = await pbService.users.getUsername(userId)
@@ -327,11 +393,13 @@ export default {
     async onUserClick(userId) {
       this.story = null // Reset the story while waiting so index resets
       this.starterId = userId
+      this.storyLoading = true
       // On a phone the list leaves the story a sliver of the screen; get it
       // out of the way once they've picked one.
       if (this.$vuetify.display.xs) this.sidebarVisible = false
       let resp = await pbService.progress.getUserStoryWithTurns(userId)
       if (this.starterId !== userId) return // another story was opened meanwhile
+      this.storyLoading = false
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }
@@ -413,6 +481,26 @@ export default {
 
 .user-item:active {
   transform: scale(1.02);
+}
+
+/* The name, and under it who the story is waiting on. */
+.user-item-text {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.25;
+}
+
+/* Where a story would be, before one is open. */
+.intro-space {
+  justify-self: right;
+  height: calc(100vh - 48px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
 
 .back-image {

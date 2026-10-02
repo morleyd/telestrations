@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, PB_URL } from './helpers.js'
+import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, storyItem, PB_URL } from './helpers.js'
 
 // Timed rounds. When the timer runs out, partial work is submitted as the
 // player's turn; with nothing entered the server skips the turn (an opening
@@ -47,9 +47,9 @@ test('timeouts: partial work is kept, empty turns are skipped, and the review sa
     expect(alphaDrawing.drawing).not.toBe('')
 
     // The review marks them.
-    await alpha.locator('.user-item', { hasText: 'alpha' }).click()
+    await storyItem(alpha, 'alpha').click()
     await expect(alpha.getByText('⏱ Ran out of time, so we picked a random word')).toBeVisible()
-    await alpha.locator('.user-item', { hasText: 'bravo' }).click()
+    await storyItem(alpha, 'bravo').click()
     await expect(alpha.getByText('⏱ Ran out of time', { exact: true })).toBeVisible()
     await expect(alpha.locator('.v-carousel').getByText('pea')).toBeVisible()
   } finally {
