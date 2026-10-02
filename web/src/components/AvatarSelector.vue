@@ -18,10 +18,9 @@
               <v-card class="elevation-0 bg-transparent py-4" style="justify-items: center; border-radius: 50%;"
                 width="112" height="112" @click="toggle" :style="selectedStyle(isSelected)">
                 <v-scroll-y-transition>
-                  <AvatarCircle v-if="n == 1" :color="color" :name="username" :size="80" style="justify-self: anchor-center;" />
-                  <div v-else :id="'avatar' + n" style="width: 80px; height: 80px;" class="avatar-circle"
-                    @click="toggle" :style="{ 'background-color': color }">
-                  </div>
+                  <AvatarCircle v-if="n == 1" id="avatar1" :color="color" :name="username" :size="80"
+                    style="justify-self: anchor-center;" />
+                  <AvatarCircle v-else :id="'avatar' + n" :avatar="idxMap[n]" :color="color" :size="80" />
                 </v-scroll-y-transition>
               </v-card>
             </v-item>
@@ -63,6 +62,8 @@ export default {
     return {
       selectedIndex: 0,
       visible: false,
+      // Spot 1 is the letters. TODO It'll take editing all the SVGs, but
+      // consider editing their stroke color.
       idxMap: {
         2: glee,
         3: goofy,
@@ -104,7 +105,9 @@ export default {
       return {}
     },
     onSubmit() {
-      this.localAvatar = this.idxMap[this.selectedIndex + 1]
+      // Spot 1, the letters, has no face: "" clears a face already saved,
+      // where undefined would be left out of the update.
+      this.localAvatar = this.idxMap[this.selectedIndex + 1] ?? ""
       this.visible = false
     },
     show() {
@@ -113,21 +116,6 @@ export default {
       let foundIndex = Object.values(this.idxMap).indexOf(this.localAvatar)
       this.selectedIndex = foundIndex > -1 ? foundIndex + 1 : 0
       this.visible = true
-      this.$nextTick(() => {
-        for (let idx = 1; idx <= 16; idx++) {
-          // Save the first spot for the letter avatar
-          if (idx == 1) {
-            continue
-          }
-
-          let avatar = document.getElementById(`avatar${idx}`)
-          avatar.innerHTML = this.idxMap[idx];
-          // TODO It'll take editing all the SVGs, but consider editing stroke color
-          // icon.querySelectorAll('[stroke]').forEach(el => {
-          //   el.setAttribute('stroke', 'red')   // <-- dynamic stroke color
-          // })
-        }
-      })
     },
   },
 }

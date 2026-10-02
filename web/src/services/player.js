@@ -7,15 +7,22 @@ export function sameName(a, b) {
   return nameKey(a) === nameKey(b)
 }
 
+// NFC first, so an accent typed as its own mark after the letter is the same
+// name as the accented letter.
 function nameKey(name) {
-  return String(name ?? "").toLowerCase()
+  return String(name ?? "").normalize("NFC").toLowerCase()
 }
 
-const graphemes = new Intl.Segmenter()
+let graphemes
 
 // A word's first character as a reader sees it: a whole emoji, or a letter
-// with its accent mark.
+// with its accent mark. Browsers without Intl.Segmenter get the first code
+// point, so this module still loads there.
 function firstCharacter(word) {
+  if (typeof Intl.Segmenter !== "function") {
+    return Array.from(word)[0]
+  }
+  graphemes ??= new Intl.Segmenter()
   const [first] = graphemes.segment(word)
   return first.segment
 }

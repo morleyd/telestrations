@@ -20,7 +20,24 @@ test('names match whatever their capitals', () => {
   expect(sameName('Sam', 'sam')).toBe(true)
   expect(sameName('BUDDY', 'Buddy')).toBe(true)
   expect(sameName('Émile', 'émile')).toBe(true)
+  // The accent typed as its own mark after the letter is the same name.
+  expect(sameName('\u00c9mile', 'e\u0301mile')).toBe(true)
   expect(sameName('Sam', 'Samuel')).toBe(false)
+})
+
+// The module is imported by every page, so a browser without Intl.Segmenter
+// must still load it; initials then fall back to whole code points.
+test('initials work without Intl.Segmenter', async () => {
+  const { Segmenter } = Intl
+  delete Intl.Segmenter
+  try {
+    // A fresh copy of the module, loaded with no Segmenter around.
+    const fresh = await import('../../src/services/player.js?no-segmenter')
+    expect(fresh.initials('Buddy With A Long Name')).toBe('BN')
+    expect(fresh.initials('🐮 cow')).toBe('🐮C')
+  } finally {
+    Intl.Segmenter = Segmenter
+  }
 })
 
 test('a name gets the same color whatever its capitals', () => {
@@ -154,4 +171,15 @@ test('the avatar picker is a labeled button from the start, and the face picked 
   await page.getByRole('button', { name: 'Submit' }).click()
   await expect(page.getByText('Edit your Username!')).toBeHidden()
   await expect(page.locator('.drag-item svg')).toHaveCount(1)
+
+  // Picking the letters takes the saved face off again.
+  await page.locator('.drag-item').getByRole('button').first().click()
+  await picker.click()
+  await page.locator('#avatar1').click()
+  await page.getByRole('button', { name: 'Submit' }).last().click()
+  await expect(page.getByText('Pick your avatar')).toBeHidden()
+  await page.getByRole('button', { name: 'Submit' }).click()
+  await expect(page.getByText('Edit your Username!')).toBeHidden()
+  await expect(page.locator('.drag-item svg')).toHaveCount(0)
+  await expect(page.locator('.drag-item .v-avatar')).toHaveText('H')
 })
