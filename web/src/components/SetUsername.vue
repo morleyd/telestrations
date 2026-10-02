@@ -1,5 +1,6 @@
 <template>
-  <v-card class="bg-transparent elevation-0 w-100">
+  <!-- Not clipped: the field's label sits on its top edge, past the card's -->
+  <v-card class="bg-transparent elevation-0 w-100 overflow-visible">
     <v-form ref="form" @submit.prevent="onSubmit">
       <v-row class="pa-2">
         <v-col v-if="pickAvatar" cols="auto">

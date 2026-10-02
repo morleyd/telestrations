@@ -5,7 +5,7 @@
          (see .slide-prompt). -->
     <v-btn v-if="!sidebarVisible" icon="mdi-menu" color="secondary" elevation="6" @click="sidebarVisible = true"
       class="ms-2 mt-14 position-absolute left-0 top-0" style="z-index: 1;" />
-    <v-card v-else class="position-absolute left-0 bottom-0" width="250" height="calc(100vh - 48px)">
+    <v-card v-else class="position-absolute left-0 bottom-0 review-sidebar" width="250" height="calc(100vh - 48px)">
       <v-toolbar color="secondary" density="compact" elevation="4" title="Users">
         <v-btn icon="mdi-close" v-tooltip:bottom="'close'" @click="sidebarVisible = false" />
       </v-toolbar>
@@ -37,7 +37,7 @@
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
             <AvatarIcon :user="userMap[item.starter_user_id]" />
             <div class="user-item-text">
-              <span class="user-item-name">{{ userMap[item.starter_user_id]?.username }}</span>
+              <span class="hand user-item-name">{{ userMap[item.starter_user_id]?.username }}</span>
               <span class="story-waiting text-caption text-medium-emphasis">{{ waitingOn(item, userMap, myId) }}</span>
             </div>
             <span>({{ storyProgress(item).label }})</span>
@@ -47,13 +47,14 @@
     </v-card>
   </v-slide-x-transition>
   <div style="display: grid;">
-    <v-carousel v-if="story" height="calc(100vh - 48px)" progress="surface" style="justify-self: right;"
-      :style="getWindowWidth">
-      <v-carousel-item v-for="(turn, idx) in story" :key="idx" lazy-src="@/assets/logo.svg" gradient="#2c5ea3, #e3eefc">
+    <v-carousel v-if="story" class="review-carousel" height="calc(100vh - 48px)" progress="primary"
+      hide-delimiter-background style="justify-self: right;" :style="getWindowWidth">
+      <v-carousel-item v-for="(turn, idx) in story" :key="idx">
         <!-- One column, top to bottom: banner, what the turn was made from, the
              turn itself, who made it. The turn takes whatever height is left,
-             so a drawing can never grow over the name. -->
-        <div class="slide">
+             so a drawing can never grow over the name. Each slide is a card on
+             a sheet of a different paper color. -->
+        <div class="slide" :class="`slide--${idx % 5}`">
           <div v-if="turnBanner(turn)" class="turn-banner px-4 py-1">
             {{ turnBanner(turn) }}
           </div>
@@ -67,7 +68,7 @@
           <template v-else-if="turn.drawing">
             <div v-if="turn.prev?.prompt" class="slide-prompt">
               <div class="slide-prompt-label">Prompt</div>
-              <div class="text-h6">{{ turn.prev.prompt }}</div>
+              <div class="hand slide-prompt-text">{{ turn.prev.prompt }}</div>
             </div>
             <div class="slide-main">
               <img class="slide-drawing" :src="turn.drawing" :alt="`Drawing by ${userMap[turn.turn_user_id].username}`">
@@ -80,19 +81,19 @@
                 :alt="`Drawing by ${userMap[turn.prev.turn_user_id].username}`">
             </div>
             <div class="slide-main">
-              <v-card-title class="wrap text-h4">{{ turn.prompt }}</v-card-title>
+              <div class="wrap hand slide-guess">{{ turn.prompt }}</div>
             </div>
           </template>
           <div class="slide-author">
             <AvatarIcon :user="userMap[turn.turn_user_id]" />
-            <span class="text-h6">{{ userMap[turn.turn_user_id].username }}</span>
+            <span class="hand text-h5">{{ userMap[turn.turn_user_id].username }}</span>
           </div>
         </div>
       </v-carousel-item>
       <!-- The end of the story: save it. Next still wraps round to the start.
            (Every story at once is at the top of the player list.) -->
-      <v-carousel-item key="end" gradient="#2c5ea3, #e3eefc">
-        <div class="slide">
+      <v-carousel-item key="end">
+        <div class="slide" :class="`slide--${story.length % 5}`">
           <div class="slide-main align-center ga-4">
             <v-card-title class="wrap text-h4">That's {{ starterName }}'s story!</v-card-title>
             <v-btn color="primary" size="x-large" prepend-icon="mdi-download" :loading="downloading == 'story'"
@@ -106,7 +107,7 @@
     <!-- Before a story is open: a player who has just been sent here took this
          blank space for a bug, so say what's going on. -->
     <div v-else-if="showIntro && !introInSidebar" class="intro-space" :style="getWindowWidth">
-      <v-card class="review-intro pa-6 text-center" max-width="520">
+      <v-card class="review-intro pa-6 text-center sketch-card" max-width="520">
         <v-icon :icon="intro.icon" color="secondary" size="48" />
         <v-card-title class="wrap text-h5">{{ intro.title }}</v-card-title>
         <v-card-text class="text-body-1">{{ intro.text }}</v-card-text>
@@ -464,17 +465,22 @@ export default {
 };
 </script>
 <style scoped>
+.review-sidebar {
+  border-right: 2.5px solid var(--ink);
+  border-radius: 0;
+}
+
 .user-item {
   width: 100%;
-  padding: 10px;
+  padding: 8px 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 5px 0;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  box-shadow: 1px 2px 5px 1px rgba(0, 0, 0, 0.3);
+  margin: 6px 4px 6px 0;
+  background: rgb(var(--v-theme-surface));
+  border: 2px solid var(--ink);
+  border-radius: var(--wobble-small);
+  box-shadow: 3px 3px 0 var(--ink);
   cursor: pointer;
   /* Prevent text selection during drag */
   user-select: none;
@@ -485,7 +491,13 @@ export default {
 }
 
 .user-item:active {
-  transform: scale(1.02);
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.user-item-name {
+  font-size: 1.35rem;
+  line-height: 1.1;
 }
 
 /* The name, and under it who the story is waiting on. */
@@ -519,15 +531,99 @@ export default {
   background-position: center center;
 }
 
+/* The arrows sit in the bottom corners, level with the slide dots, which
+   leaves the slide's sides to the card. */
+.review-carousel :deep(.v-window__controls) {
+  align-items: flex-end;
+  padding: 0 20px 12px;
+  /* Over the dots' strip, which spans the bottom: the arrows must take the
+     clicks (the rest of this layer lets them through) */
+  z-index: 2;
+}
+
+.review-carousel :deep(.v-carousel__controls) {
+  height: 72px;
+  color: var(--ink);
+}
+
+/* This slide's dot, in red */
+.review-carousel :deep(.v-carousel__controls__item.v-btn--active) {
+  color: rgb(var(--v-theme-tertiary));
+}
+
+.review-carousel :deep(.v-carousel__controls__item.v-btn--active .v-icon) {
+  opacity: 1;
+}
+
+.review-carousel :deep(.v-carousel__controls__item.v-btn--active > .v-btn__overlay) {
+  opacity: 0;
+}
+
+/* An inked card on a sheet of colored paper. The sheet and the card's paper
+   are drawn behind the content, the sheet askew. */
 .slide {
+  --sheet: rgb(var(--v-theme-grass));
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 100%;
-  /* The bottom padding clears the carousel's slide dots. */
-  padding: 16px 16px 64px;
+  gap: 10px;
+  width: calc(100% - 40px);
+  max-width: 1100px;
+  /* The bottom margin clears the arrows and slide dots, the top the sheet's
+     tilted corner. */
+  height: calc(100% - 108px);
+  margin: 24px auto 84px;
+  padding: 16px 18px 14px;
+}
+
+.slide::before,
+.slide::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--wobble-card);
+}
+
+/* A little bigger than the card and firmly askew, so it shows as a sheet
+   underneath at every screen size (a tilt alone shows far more of it on a
+   narrow card than a wide one) */
+.slide::before {
+  inset: -6px;
+  background: var(--sheet);
+  box-shadow: 0 4px 0 rgba(43, 33, 24, 0.12);
+  transform: rotate(-1.6deg);
+}
+
+.slide::after {
+  background: rgb(var(--v-theme-surface));
+  border: 2.5px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.slide--1 {
+  --sheet: rgb(var(--v-theme-primary));
+}
+
+.slide--2 {
+  --sheet: rgb(var(--v-theme-tertiary));
+}
+
+.slide--3 {
+  --sheet: rgb(var(--v-theme-plum));
+}
+
+.slide--4 {
+  --sheet: rgb(var(--v-theme-secondary));
+}
+
+@media (max-width: 600px) {
+  .slide::before {
+    inset: -4px;
+    transform: rotate(-2.6deg);
+  }
 }
 
 /* Takes the height the rest of the slide leaves. */
@@ -539,57 +635,87 @@ export default {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  /* Keep text clear of the carousel's arrows. */
-  padding: 0 56px;
 }
 
+/* Inked round the picture itself (not the letterbox round it), with the
+   cards' hard shadow */
 .slide-drawing {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  filter: drop-shadow(2px 0 0 var(--ink)) drop-shadow(-2px 0 0 var(--ink)) drop-shadow(0 2px 0 var(--ink))
+    drop-shadow(0 -2px 0 var(--ink)) drop-shadow(4px 4px 0 var(--ink));
 }
 
-/* Narrower than the slide by the sidebar button's corner on each side. */
+.slide-guess {
+  font-size: clamp(2rem, 1.2rem + 2.5vw, 3.25rem);
+  line-height: 1.15;
+}
+
+/* Narrower than the card by the sidebar button's corner on each side. */
 .slide-prompt,
 .turn-banner {
   max-width: calc(100% - 96px);
 }
 
-/* On the left, past the sidebar button's corner (see .slide-prompt above). */
+/* What the turn was made from, a word or a drawing, on a scrap of paper
+   pinned to the card. On the left, past the sidebar button's corner. */
 .slide-prompt {
+  position: relative;
   flex: none;
+  align-self: flex-start;
+  margin: 8px 0 4px 24px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  align-self: flex-start;
-  margin-left: 48px;
-  padding: 2px 12px 6px;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 12px;
+  gap: 6px;
+  padding: 12px 14px 12px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 3px 0 rgba(43, 33, 24, 0.1), 0 8px 16px rgba(43, 33, 24, 0.14);
+  transform: rotate(-2deg);
   text-align: left;
   white-space: break-spaces;
   word-break: break-word;
 }
 
-.slide-prompt .text-h6 {
-  line-height: 1.3;
+.slide-prompt::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.6) 0 3px, transparent 3.5px),
+    rgb(var(--v-theme-tertiary));
+  border-radius: 50%;
+  box-shadow: 0 2px 0 rgba(43, 33, 24, 0.25);
 }
 
 .slide-prompt-label {
-  font-size: 0.7rem;
-  font-weight: 500;
-  letter-spacing: 0.1em;
+  padding: 3px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: rgb(var(--v-theme-grass-darken-1));
+  background: rgba(var(--v-theme-grass), 0.16);
+  border-radius: 999px;
+}
+
+.slide-prompt-text {
+  font-size: 1.6rem;
+  line-height: 1.2;
 }
 
 .slide-thumb {
+  display: block;
   max-width: 100%;
   max-height: min(25vh, 200px);
   object-fit: contain;
-  background: white;
-  border-radius: 8px;
 }
 
 .slide-author {
@@ -600,11 +726,11 @@ export default {
 
 .turn-banner {
   flex: none;
-  background: rgba(255, 243, 205, 0.95);
-  border: 1px solid #e0b252;
-  border-radius: 16px;
-  color: #6b4e00;
-  font-weight: 500;
+  background: rgb(var(--v-theme-secondary-lighten-3));
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .wrap {

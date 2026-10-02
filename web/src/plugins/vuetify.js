@@ -11,41 +11,50 @@ import 'vuetify/styles'
 // Composables
 import { createVuetify } from 'vuetify'
 
-// Theme
+// Theme: a sketchbook. Ink on dot-grid paper, with construction-paper colors:
+// a marker blue, sunflower yellow and tomato red, plus grass and plum for the
+// paper shapes and badges (see styles/sketchbook.css).
 const myCustomLightTheme = {
   dark: false,
   colors: {
-    background: '#d0d7de',
-    surface: '#e1eefe',
+    background: '#F6F1E7',
+    'on-background': '#1F1B16',
+    surface: '#FFFDF8',
+    'on-surface': '#1F1B16',
     'surface-bright': '#FFFFFF',
-    'surface-light': '#EEEEEE',
-    'surface-variant': '#424242',
-    'on-surface-variant': '#EEEEEE',
-    'primary-lighten-1': '#42607c',
-    primary: '#13385b',
-    'primary-darken-1': '#0C2338',
-    'secondary-lighten-4': '#d0dfee',
-    'secondary-lighten-3': '#a0bfdc',
-    'secondary-lighten-2': '#719fcb',
-    'secondary-lighten-1': '#427fb9',
-    secondary: '#125fa8',
-    'secondary-darken-1': '#0e477e',
-    'secondary-darken-2': '#092f54',
-    'tertiary-lighten-3': '#dccba0',
-    'tertiary-lighten-2': '#cbb171',
-    'tertiary-lighten-1': '#b99742',
-    tertiary: '#a87d12',
-    'tertiary-darken-1': '#7e5e0e',
-    'tertiary-darken-2': '#543f09',
-    'tertiary-darken-3': '#2a1f05',
-    error: '#B00020',
-    info: '#2196F3',
-    success: '#4CAF50',
-    warning: '#FB8C00',
+    'surface-light': '#EFE8DA',
+    'surface-variant': '#2B2520',
+    'on-surface-variant': '#F6F1E7',
+    'primary-lighten-1': '#5C77DA',
+    primary: '#3355D1',
+    'primary-darken-1': '#26409D',
+    'secondary-lighten-4': '#FDF0D5',
+    'secondary-lighten-3': '#FCE1AA',
+    'secondary-lighten-2': '#FAD180',
+    'secondary-lighten-1': '#F9C255',
+    secondary: '#F7B32B',
+    'on-secondary': '#1F1B16',
+    'secondary-darken-1': '#B98620',
+    'secondary-darken-2': '#7C5A16',
+    'tertiary-lighten-3': '#F4D8D1',
+    'tertiary-lighten-2': '#DE8B74',
+    'tertiary-lighten-1': '#D36445',
+    tertiary: '#C83D17',
+    'tertiary-darken-1': '#962E11',
+    'tertiary-darken-2': '#641E0C',
+    'tertiary-darken-3': '#320F06',
+    grass: '#2A7D45',
+    'grass-darken-1': '#1F5E33',
+    plum: '#7B3FA0',
+    error: '#C62828',
+    info: '#3355D1',
+    success: '#2A7D45',
+    warning: '#E08600',
   },
   variables: {
-    'border-color': '#ff0000ff', // This is probs a bad idea, but it makes the timer look cool
-    'border-opacity': 0.82,        // This is probs a bad idea, but it makes the timer look cool
+    // Ink, for dividers and outlines
+    'border-color': '#1F1B16',
+    'border-opacity': 0.16,
     'high-emphasis-opacity': 0.87,
     'medium-emphasis-opacity': 0.60,
     'disabled-opacity': 0.38,
@@ -65,6 +74,14 @@ const myCustomLightTheme = {
 
 // https://vuetifyjs.com/en/introduction/why-vuetify/#feature-guides
 export default createVuetify({
+  // Fields drawn as inked boxes (see sketchbook.css), each label always up on
+  // the box's edge as a tag, an empty field's too
+  defaults: {
+    VTextField: { variant: 'outlined', persistentPlaceholder: true },
+    VTextarea: { variant: 'outlined', persistentPlaceholder: true },
+    VSelect: { variant: 'outlined', persistentPlaceholder: true },
+    VNumberInput: { variant: 'outlined', persistentPlaceholder: true },
+  },
   theme: {
     defaultTheme: 'myCustomLightTheme',
     themes: {

@@ -1,0 +1,156 @@
+/* The sketchbook theme: dot-grid paper, ink outlines that look hand-drawn,
+   and buttons like stickers. Colors come from the Vuetify theme
+   (plugins/vuetify.js), fonts and type from settings.scss.
+
+   Rules start with :root where they restyle a Vuetify component, so they win
+   over its own stylesheet (which may load after this one) and also reach the
+   dialogs and snackbars, which sit outside .v-application. */
+
+:root {
+  --ink: rgb(var(--v-theme-on-surface));
+  /* For what players write: names, prompts and guesses */
+  --hand: 'Patrick Hand', 'Comic Sans MS', 'Chalkboard SE', cursive;
+  /* Hand-drawn edges: corners that don't quite match */
+  --wobble: 255px 18px 225px 18px / 18px 225px 18px 255px;
+  --wobble-card: 26px 10px 24px 12px / 12px 24px 10px 26px;
+  --wobble-small: 16px 6px 14px 8px / 8px 14px 6px 16px;
+}
+
+/* Paper. Isolated so the paper shapes (PaperShapes.vue) can sit between the
+   paper and everything on it. */
+:root .v-application {
+  isolation: isolate;
+  background-color: rgb(var(--v-theme-background));
+  background-image: radial-gradient(circle, rgba(31, 27, 22, 0.17) 1.1px, transparent 1.5px);
+  background-size: 20px 20px;
+}
+
+/* Patrick Hand has one weight: don't let a title make it a fake bold */
+:root .hand {
+  font-family: var(--hand);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* An ink-outlined card. Dialogs get it too. */
+:root .sketch-card,
+:root .v-dialog > .v-overlay__content > .v-card,
+:root .v-dialog > .v-overlay__content > form > .v-card {
+  background: rgb(var(--v-theme-surface));
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble-card);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+/* Sticker buttons: inked edge, a hard shadow, and pressed flat when tapped */
+:root .v-btn.v-btn--variant-elevated,
+:root .v-btn.v-btn--variant-flat,
+:root .v-btn.v-btn--variant-tonal,
+:root .v-btn.v-btn--variant-outlined {
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble);
+  transition-property: transform, box-shadow, opacity, background;
+}
+
+:root .v-btn.v-btn--variant-elevated,
+:root .v-btn.v-btn--variant-flat {
+  font-weight: 800;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+:root .v-btn.v-btn--variant-tonal,
+:root .v-btn.v-btn--variant-outlined {
+  border-width: 2px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+:root .v-btn.v-btn--variant-elevated:active,
+:root .v-btn.v-btn--variant-flat:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+:root .v-btn.v-btn--variant-tonal:active,
+:root .v-btn.v-btn--variant-outlined:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+/* Round stickers for icon buttons that stand on their own */
+:root .v-btn.v-btn--icon.v-btn--variant-elevated,
+:root .v-btn.v-btn--icon.v-btn--variant-flat {
+  border-radius: 50% 46% 52% 48% / 48% 52% 46% 50%;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+:root .v-btn.v-btn--disabled {
+  box-shadow: none;
+  transform: none;
+}
+
+/* Fields: a paper box, inked, a little uneven, with a small hard shadow that
+   turns blue while it has the focus */
+:root .v-field.v-field--variant-outlined {
+  background: rgb(var(--v-theme-surface-bright));
+  border-radius: 12px 5px 10px 6px / 6px 10px 5px 12px;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: box-shadow 0.15s;
+}
+
+:root .v-field.v-field--variant-outlined.v-field--focused {
+  box-shadow: 3px 3px 0 rgb(var(--v-theme-primary));
+}
+
+:root .v-field--variant-outlined .v-field__outline {
+  --v-field-border-width: 2px;
+  --v-field-border-opacity: 1;
+}
+
+:root .v-field--variant-outlined.v-field--focused .v-field__outline {
+  --v-field-border-width: 2.5px;
+}
+
+/* The label, once it moves up onto the box's edge: a tag on paper of its own,
+   so it reads the same where it sits over the box and over the page */
+:root .v-field--variant-outlined .v-label.v-field-label--floating {
+  opacity: 1;
+  padding: 0 7px;
+  font-weight: 700;
+  background: rgb(var(--v-theme-surface-bright));
+  border: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+/* The Rounds field's up and down buttons: small stickers that fit in the box
+   (the chevrons keep their size) */
+:root .v-number-input__control {
+  align-items: center;
+  gap: 6px;
+  padding-inline: 4px 8px;
+}
+
+:root .v-number-input .v-divider {
+  display: none;
+}
+
+:root .v-number-input__control .v-btn.v-btn {
+  width: 30px;
+  /* Over the button's own inline height, the field's full height */
+  height: 30px !important;
+  background: rgb(var(--v-theme-surface));
+  border-width: 2px;
+  border-radius: var(--wobble-small);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+:root .v-snackbar .v-snackbar__wrapper {
+  border: 2.5px solid var(--ink);
+  border-radius: var(--wobble-small);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+/* A progress bar drawn as an inked pill */
+:root .sketch-bar.v-progress-linear {
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+}

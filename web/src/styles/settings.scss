@@ -1,0 +1,17 @@
+// Vuetify's SASS settings (see vite.config.mjs): the sketchbook theme's fonts
+// and type. Colors live in plugins/vuetify.js; the paper, ink and stickers in
+// sketchbook.css.
+@use 'vuetify/settings' with (
+  $body-font-family: ('Bricolage Grotesque Variable', system-ui, sans-serif),
+  $heading-font-family: ('Bricolage Grotesque Variable', system-ui, sans-serif),
+  $typography: (
+    'h1': ('weight': 800, 'letter-spacing': -0.02em),
+    'h2': ('weight': 800, 'letter-spacing': -0.02em),
+    'h3': ('weight': 800, 'letter-spacing': -0.015em),
+    'h4': ('weight': 800, 'letter-spacing': -0.01em),
+    'h5': ('weight': 700, 'letter-spacing': -0.005em),
+    'h6': ('weight': 700, 'letter-spacing': 0),
+    // Buttons in sentence case: "New Game", not "NEW GAME"
+    'button': ('weight': 700, 'letter-spacing': 0, 'text-transform': none),
+  ),
+);

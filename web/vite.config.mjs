@@ -2,7 +2,6 @@
 import Components from 'unplugin-vue-components/vite'
 import Vue from '@vitejs/plugin-vue'
 import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
-import ViteFonts from 'unplugin-fonts/vite'
 
 // Utilities
 import { defineConfig } from 'vite'
@@ -30,17 +29,19 @@ export default defineConfig({
       template: { transformAssetUrls }
     }),
     // https://github.com/vuetifyjs/vuetify-loader/tree/master/packages/vite-plugin#readme
-    Vuetify(),
+    // The settings file swaps Vuetify's fonts and type (the fonts themselves are
+    // bundled, see main.js, so a game on a LAN needs no internet).
+    Vuetify({ styles: { configFile: 'src/styles/settings.scss' } }),
     Components(),
-    ViteFonts({
-      google: {
-        families: [{
-          name: 'Roboto',
-          styles: 'wght@100;300;400;500;700;900',
-        }],
-      },
-    }),
   ],
+  // Vuetify's SASS (see the settings file above) on Sass's current API, not
+  // the deprecated one, which warns on every file
+  css: {
+    preprocessorOptions: {
+      sass: { api: 'modern-compiler' },
+      scss: { api: 'modern-compiler' },
+    },
+  },
   define: {
     'process.env': {},
     'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId),

@@ -1,6 +1,7 @@
 <template>
   <div v-if="duration >= 0" class="timer">
-    <v-progress-circular :size="100" :width="15" :model-value="percentage" color="teal">
+    <!-- Time left in blue, time gone in red -->
+    <v-progress-circular :size="100" :width="15" :model-value="percentage" color="primary" bg-color="tertiary">
 
       <span v-if="timeLeft > 15" :style="dramaticStyling">{{ timeLeft }}</span>
       <div v-else>
@@ -82,6 +83,10 @@ export default {
   margin: 16px;
   position: absolute;
   z-index: 1;
+  /* A paper sticker, so it reads over the drawing */
+  background: rgb(var(--v-theme-surface));
+  border-radius: 50%;
+  box-shadow: 0 0 0 2.5px var(--ink), 4px 4px 0 2.5px var(--ink);
 }
 
 .scale-enter-active,

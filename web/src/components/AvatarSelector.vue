@@ -1,38 +1,36 @@
 <template>
   <button type="button" class="avatar-picker" aria-label="Choose your avatar" @click="show">
-    <span class="avatar-picker-face elevation-2">
+    <span class="avatar-picker-face">
       <AvatarCircle :avatar="avatar" :color="color" :name="username" :size="56" />
-      <span class="avatar-picker-badge elevation-1">
+      <span class="avatar-picker-badge">
         <v-icon icon="mdi-pencil" size="14" />
       </span>
     </span>
     <span class="text-caption text-primary font-weight-medium">Pick avatar</span>
   </button>
   <v-dialog v-model="visible" max-width="500">
-    <v-item-group v-model="selectedIndex" mandatory>
-      <v-card class="pa-4 overflow-auto" style="justify-self: center;" max-height="calc(100vh - 48px)">
-        <v-card-title class="text-center text-h5 pb-4">Pick your avatar</v-card-title>
-        <v-row style="text-align: -webkit-center;">
-          <v-col v-for="n in 16" :key="n" cols="12" md="3" class="pa-0">
-            <v-item v-slot="{ isSelected, toggle }">
-              <v-card class="elevation-0 bg-transparent py-4" style="justify-items: center; border-radius: 50%;"
-                width="112" height="112" @click="toggle" :style="selectedStyle(isSelected)">
-                <v-scroll-y-transition>
-                  <AvatarCircle v-if="n == 1" id="avatar1" :color="color" :name="username" :size="80"
-                    style="justify-self: anchor-center;" />
-                  <AvatarCircle v-else :id="'avatar' + n" :avatar="idxMap[n]" :color="color" :size="80" />
-                </v-scroll-y-transition>
-              </v-card>
-            </v-item>
-          </v-col>
-        </v-row>
-        <v-row class="justify-center" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
-          <v-btn size="large" color="primary" @click="onSubmit">
-            Submit
-          </v-btn>
-        </v-row>
-      </v-card>
-    </v-item-group>
+    <!-- A dialog card like the others: the faces scroll, Submit stays in view
+         below them -->
+    <v-card class="pa-4">
+      <v-card-title class="text-center text-h5 pb-4">Pick your avatar</v-card-title>
+      <v-item-group v-model="selectedIndex" class="avatar-options" mandatory>
+        <v-item v-for="n in 16" :key="n" v-slot="{ isSelected, toggle }">
+          <v-card class="avatar-option" :class="{ 'avatar-option--selected': isSelected }" flat @click="toggle">
+            <v-scroll-y-transition>
+              <AvatarCircle v-if="n == 1" id="avatar1" :color="color" :name="username" :size="72" />
+              <!-- The name too, so each face shows on this player's own scrap -->
+              <AvatarCircle v-else :id="'avatar' + n" :avatar="idxMap[n]" :color="color" :name="username"
+                :size="72" />
+            </v-scroll-y-transition>
+          </v-card>
+        </v-item>
+      </v-item-group>
+      <v-card-actions class="justify-center pt-4" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+        <v-btn size="large" color="primary" variant="elevated" @click="onSubmit">
+          Submit
+        </v-btn>
+      </v-card-actions>
+    </v-card>
   </v-dialog>
 </template>
 <script>
@@ -94,16 +92,6 @@ export default {
     },
   },
   methods: {
-    selectedStyle(isSelected) {
-      if (isSelected) {
-        return {
-          'border': '3px solid black',
-          'border-radius': '50%',
-          'padding-top': '14px !important',
-        }
-      }
-      return {}
-    },
     onSubmit() {
       // Spot 1, the letters, has no face: "" clears a face already saved,
       // where undefined would be left out of the update.
@@ -137,12 +125,12 @@ export default {
 .avatar-picker-face {
   position: relative;
   display: flex;
-  border-radius: 50%;
-  transition: box-shadow 0.2s;
+  transition: transform 0.2s;
 }
 
+/* Lifted, like a sticker about to be peeled off */
 .avatar-picker:hover .avatar-picker-face {
-  box-shadow: 0 0 0 3px rgb(var(--v-theme-primary)) !important;
+  transform: rotate(-6deg) scale(1.06);
 }
 
 .avatar-picker-badge {
@@ -157,6 +145,37 @@ export default {
   border-radius: 50%;
   background: rgb(var(--v-theme-primary));
   color: rgb(var(--v-theme-on-primary));
+  box-shadow: 0 0 0 2px rgb(var(--v-theme-on-surface));
+}
+
+/* Three faces a row on a phone, four on anything wider. Only the faces
+   scroll, so Submit stays in view. */
+.avatar-options {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  justify-items: center;
+  gap: 6px 0;
+  padding: 4px 6px 8px;
+}
+
+.avatar-option.v-card {
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 2.5px solid transparent;
+  border-radius: var(--wobble-small);
+}
+
+/* The one picked, on a sticker of its own */
+.avatar-option.v-card.avatar-option--selected {
+  background: rgb(var(--v-theme-secondary-lighten-3));
+  border-color: rgb(var(--v-theme-on-surface));
+  box-shadow: 3px 3px 0 rgb(var(--v-theme-on-surface));
 }
 
 .safe-bottom {

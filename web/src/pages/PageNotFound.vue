@@ -4,7 +4,7 @@
 
 <template>
   <AppBar />
-  <v-card class="pa-10" style="text-align: center;" elevation="20">
+  <v-card class="pa-10 ma-6 sketch-card" style="text-align: center;">
     <v-card-title class="text-h2 ma-4">404 not found</v-card-title>
     <v-img class="mb-4" height="150" src="@/assets/sad_cow_icon.svg" />
     <v-card-subtitle class="text-h6">The page you're looking for doesn't exist!</v-card-subtitle>
