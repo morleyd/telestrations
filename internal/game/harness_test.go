@@ -424,9 +424,9 @@ func soakGames(t *testing.T, rounds int, round func(round int, app core.App, api
 }
 
 // refusal is a refused write as the client reads it (refusalCode in
-// web/src/services/pocketbase): the code a guard attached, or "turn_taken"
-// for a second turn on a story that got past the guard and hit the unique
-// index. byIndex says which of the two it was.
+// web/src/services/pocketbase): the code a guard attached, or "" for anything
+// else. byIndex says the write got past the guards and hit a unique index,
+// which the client deliberately doesn't read as a code.
 func refusal(rec *httptest.ResponseRecorder) (code string, byIndex bool) {
 	var body struct {
 		Data map[string]struct {
@@ -437,8 +437,10 @@ func refusal(rec *httptest.ResponseRecorder) (code string, byIndex bool) {
 	if c := body.Data["code"].Code; c != "" {
 		return c, false
 	}
-	if body.Data["user_id"].Code == "validation_not_unique" || body.Data["story_id"].Code == "validation_not_unique" {
-		return "turn_taken", true
+	for _, field := range body.Data {
+		if field.Code == "validation_not_unique" {
+			return "", true
+		}
 	}
 	return "", false
 }

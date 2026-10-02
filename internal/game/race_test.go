@@ -16,12 +16,12 @@ import (
 // per story, every refusal one the client can act on (see refusal), no story
 // left waiting on a dropped player, and seats a clean 0..N-1.
 
-// The same player in two tabs submits the same turn. The guard reads, then
-// the insert writes, so both can pass the guard; the unique index on
-// (user_id, story_id) is the real arbiter. Either way the loser must read as
-// turn_taken, which the client treats as done and moves on.
+// The same player in two tabs submits the same turn. The guard and the insert
+// share one write transaction (inWriteTx), so the second tab's guard sees the
+// first tab's turn: the loser must read as turn_taken, which the client treats
+// as done and moves on. The unique (story_id, turn_index) index is only a
+// backstop, and a write it catches has no code (see refusal).
 func TestTwoTabsSubmittingTheSameTurn(t *testing.T) {
-	byIndex := 0
 	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newGame(t, app, "ann", "ben")
 		word := g.nextTurn(t, "ann", "ann")
@@ -37,18 +37,14 @@ func TestTwoTabsSubmittingTheSameTurn(t *testing.T) {
 		if won.Code != http.StatusOK || lost.Code != http.StatusBadRequest {
 			t.Fatalf("round %d: want one 200 and one 400, got %d and %d (%s)", round, a.Code, b.Code, lost.Body)
 		}
-		code, index := refusal(lost)
-		if code != "turn_taken" {
-			t.Fatalf("round %d: the second tab reads as %q, want turn_taken: %s", round, code, lost.Body)
-		}
-		if index {
-			byIndex++
+		if code, byIndex := refusal(lost); code != "turn_taken" || byIndex {
+			t.Fatalf("round %d: the second tab reads as %q (by the unique index: %v), want turn_taken from the guard: %s",
+				round, code, byIndex, lost.Body)
 		}
 		if n := len(g.turnsBy(t, "ann", "ann")); n != 1 {
 			t.Fatalf("round %d: ann has %d turns on her story", round, n)
 		}
 	})
-	t.Logf("%d rounds: the unique index caught %d, the guard the rest", soakRounds, byIndex)
 }
 
 // The host skips a player in the same instant the player submits that turn.

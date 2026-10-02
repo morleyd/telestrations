@@ -112,8 +112,7 @@ func TestRefusalCodes(t *testing.T) {
 
 // Every write takes the next place in its story, whatever the writer sent:
 // the server numbers turns. Under that, the unique (story_id, turn_index)
-// index refuses a second write to one place, and the error names story_id,
-// which the client's fallback looks for (refusalCode in services/pocketbase).
+// index refuses a second write to one place.
 func TestOneWritePerPlaceInAStory(t *testing.T) {
 	app := newTestApp(t)
 	g := newGame(t, app, "ann", "ben")
