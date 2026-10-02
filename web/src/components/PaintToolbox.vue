@@ -59,8 +59,8 @@ export default {
     return {
       tools: TOOLS,
       sizes: SIZES,
-      // How big each size looks here
-      dots: [4, 7, 11, 15, 20],
+      // How big each size looks here: the line widths scaled to 4-20px dots
+      dots: SIZES.map((s) => Math.round(4 + (16 * (s - SIZES[0])) / (SIZES[SIZES.length - 1] - SIZES[0]))),
       styles: [
         { id: "outline", name: "Outline", icon: "mdi-square-outline" },
         { id: "fill", name: "Filled", icon: "mdi-square" },

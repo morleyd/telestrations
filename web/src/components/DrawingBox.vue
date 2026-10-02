@@ -34,7 +34,7 @@
         </div>
         <PaintHelp v-if="layout.help" class="paint-help" />
         <PaintPalette v-model:target="target" class="paint-colors" :color="color" :bg-color="bgColor"
-          @pick="onPick" @preview="onPreview" />
+          @pick="onPick" @preview="onPreview" @preview-end="onPreviewEnd" />
       </div>
     </div>
   </v-card>
@@ -69,8 +69,6 @@ export default {
       bgColor: "#FFFFFF",
       // Which color the palette sets: "pen" or "bg"
       target: "pen",
-      // The background before the color picker started previewing others
-      bgBeforePreview: null,
       canUndo: false,
       canRedo: false,
       coords: null,
@@ -100,7 +98,7 @@ export default {
     edits() {
       return [
         { label: "Undo", icon: "mdi-undo", title: "Undo (Ctrl+Z)", disabled: !this.canUndo, run: () => this.$refs.canvas.undo() },
-        { label: "Redo", icon: "mdi-redo", title: "Redo (Ctrl+Shift+Z)", disabled: !this.canRedo, run: () => this.$refs.canvas.redo() },
+        { label: "Redo", icon: "mdi-redo", title: "Redo (Ctrl+Y or Ctrl+Shift+Z)", disabled: !this.canRedo, run: () => this.$refs.canvas.redo() },
         { label: "Clear", icon: "mdi-refresh", title: "Clear the drawing (Undo brings it back)", disabled: false, run: () => this.$refs.canvas.clear() },
       ]
     },
@@ -153,26 +151,31 @@ export default {
      */
     onPick(hex, target) {
       if (target === "bg") {
-        const before = this.bgBeforePreview ?? undefined
-        this.bgBeforePreview = null
-        this.$refs.canvas.setBackground(hex, { before })
+        this.$refs.canvas.setBackground(hex)
         this.target = "pen"
         return
       }
       this.setPen(hex)
     },
     /**
-     * onPreview shows a color the picker is on, before it's chosen
+     * onPreview shows a color the picker is on. A pen color applies at once; a
+     * background is recorded when the picker closes (see onPreviewEnd).
      * @param {string} hex - the color
      * @param {string} target - "pen" or "bg"
      */
     onPreview(hex, target) {
-      if (target === "bg") {
-        this.bgBeforePreview ??= this.bgColor
-        this.$refs.canvas.previewBackground(hex)
-      } else {
-        this.setPen(hex)
-      }
+      if (target === "bg") this.$refs.canvas.previewBackground(hex)
+      else this.setPen(hex)
+    },
+    /**
+     * onPreviewEnd keeps the background the picker was showing, as one step,
+     * and hands the palette back to the pen
+     * @param {string} target - "pen" or "bg"
+     */
+    onPreviewEnd(target) {
+      if (target !== "bg") return
+      this.$refs.canvas.endPreview()
+      this.target = "pen"
     },
     setPen(hex) {
       this.color = hex
@@ -214,12 +217,17 @@ export default {
       if (tool) this.tool = tool.id
       else if (key === "h") this.behind = !this.behind
       else if (key === "[" || key === "]") this.size = Math.max(0, Math.min(SIZES.length - 1, this.size + (key === "]" ? 1 : -1)))
-      else if (key >= "1" && key <= "5") this.size = Number(key) - 1
+      else if (/^[1-9]$/.test(key) && Number(key) <= SIZES.length) this.size = Number(key) - 1
     },
     onKeyUp(e) {
       if (e.key === "Shift" && SHAPE_TOOLS.has(this.tool)) this.$refs.canvas.setShift(false)
     },
+    /**
+     * getDrawing returns the picture as a PNG, or null when nothing is drawn.
+     * A stroke still being drawn counts: the timer can run out mid-stroke.
+     */
     async getDrawing() {
+      this.$refs.canvas.finish()
       if (this.$refs.canvas.isBlank()) return null
       return await this.$refs.canvas.toBlob()
     },

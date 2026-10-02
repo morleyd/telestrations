@@ -3,7 +3,7 @@
 // PaintEngine draws a fixed-size picture in three layers: the background
 // color, a layer of color behind the lines, and the top layer. It shows them,
 // plus any shape preview or brush outline, on one visible canvas, and keeps an
-// undo history that saves only the pixels each action changed.
+// undo history that saves the area each action touched.
 //
 // Points are in picture pixels (WIDTH × HEIGHT); the visible canvas is scaled
 // to fit the screen, so the caller converts pointer positions.
@@ -14,19 +14,19 @@ import { FILLABLE_TOOLS, RING_TOOLS, SHAPE_TOOLS } from "./tools.js"
 
 export const WIDTH = 1200
 export const HEIGHT = 800
-// Line widths, in picture pixels, for sizes 1-5. The eraser is twice as wide.
+// Line widths, in picture pixels, smallest size first. The eraser is twice as wide.
 export const SIZES = [4, 10, 18, 28, 44]
-// Undo keeps up to this many steps, and drops the oldest sooner if they hold
-// more pixels than this (a Clear holds four whole layers).
-const MAX_UNDO = 80
-const MAX_UNDO_BYTES = 120 * 1024 * 1024
+// Undo keeps up to this many steps, and drops the oldest sooner if their pixel
+// data takes more bytes than this (a Clear holds two whole layers).
+export const MAX_UNDO = 80
+export const MAX_UNDO_BYTES = 120 * 1024 * 1024
 // How far a pixel's color may drift from the tapped one and still be filled.
 const FILL_TOLERANCE = 48
 // How many pixels a fill reaches under the edge of a line.
 const FILL_REACH = 2
 
-const entryBytes = (entry) =>
-  entry.type === "pixels" ? entry.patches.reduce((n, p) => n + p.before.data.length + p.after.data.length, 0) : 0
+export const entryBytes = (entry) =>
+  entry.type === "pixels" ? entry.patches.reduce((n, p) => n + p.pixels.data.length, 0) : 0
 
 function makeCanvas(readable = false) {
   const canvas = document.createElement("canvas")
@@ -59,6 +59,9 @@ export default class PaintEngine {
     this.overlay = makeCanvas()
     this.scratch = makeCanvas(true)
     this.bg = "#FFFFFF"
+    // The background from before the color picker began previewing others,
+    // which is what choosing a color undoes back to
+    this.previewFrom = null
     this.undoStack = []
     this.redoStack = []
     // Pixels held by both stacks, and whether old steps have been dropped
@@ -133,14 +136,12 @@ export default class PaintEngine {
       const y = Math.max(0, Math.floor(p.y0))
       const w = Math.min(WIDTH, Math.ceil(p.x1)) - x
       const h = Math.min(HEIGHT, Math.ceil(p.y1)) - y
+      // A step holds one copy of its area per layer: the pixels Undo puts back.
+      // The other side is always on the layer itself (see apply).
       if (w > 0 && h > 0) {
         this.push({
           type: "pixels", x, y,
-          patches: p.keys.map((k) => ({
-            k,
-            before: this.layers[k].snap.ctx.getImageData(x, y, w, h),
-            after: this.layers[k].ctx.getImageData(x, y, w, h),
-          })),
+          patches: p.keys.map((k) => ({ k, pixels: this.layers[k].snap.ctx.getImageData(x, y, w, h) })),
         })
       }
     }
@@ -159,12 +160,23 @@ export default class PaintEngine {
     }
   }
 
+  // A background step keeps both its colors. A pixel step swaps its copy with
+  // the layer's pixels: the layer is always in the state on the other side of
+  // the step, so what comes off it is exactly what the opposite move needs.
   apply(entry, side) {
     if (entry.type === "bg") {
+      // A preview showing now started from a background Undo has just replaced.
+      this.previewFrom = null
       this.bg = entry[side]
       return
     }
-    for (const patch of entry.patches) this.layers[patch.k].ctx.putImageData(patch[side], entry.x, entry.y)
+    for (const patch of entry.patches) {
+      const { ctx } = this.layers[patch.k]
+      const { width, height } = patch.pixels
+      const current = ctx.getImageData(entry.x, entry.y, width, height)
+      ctx.putImageData(patch.pixels, entry.x, entry.y)
+      patch.pixels = current
+    }
   }
 
   changed() {
@@ -203,9 +215,9 @@ export default class PaintEngine {
 
   // ---------- whole-picture actions ----------
 
-  /** clear empties both layers, as one step that Undo brings back */
+  /** clear empties both layers as one step that Undo brings back. On a blank picture it does nothing, so Redo survives. */
   clear() {
-    if (this.active) return
+    if (this.active || this.isBlank()) return
     this.begin(["color", "ink"])
     for (const k of ["color", "ink"]) this.layers[k].ctx.clearRect(0, 0, WIDTH, HEIGHT)
     this.touch(0, 0, WIDTH, HEIGHT)
@@ -222,28 +234,41 @@ export default class PaintEngine {
     this.undoBytes = 0
     this.trimmed = false
     this.pending = null
+    this.previewFrom = null
     this.render()
     this.changed()
   }
 
   /**
-   * setBackground changes the background color as one undoable step
+   * setBackground changes the background color as one undoable step. After a
+   * preview, the step goes from the color before the preview began; choosing
+   * that same color again records nothing.
    * @param {string} hex - the new color
-   * @param {object} [options]
-   * @param {string} [options.before] - the color to undo back to, when previewBackground has already shown others
    */
-  setBackground(hex, { before = this.bg } = {}) {
+  setBackground(hex) {
+    const before = this.previewFrom ?? this.bg
+    this.previewFrom = null
     if (hex !== before) this.push({ type: "bg", before, after: hex })
     this.bg = hex
     this.render()
     this.changed()
   }
 
-  /** previewBackground shows a background color without recording it */
+  /** previewBackground shows a background color without recording it. setBackground or endPreview ends the preview. */
   previewBackground(hex) {
+    if (this.previewFrom === null) this.previewFrom = this.bg
     this.bg = hex
     this.render()
     this.changed()
+  }
+
+  /**
+   * endPreview keeps the background a preview is showing, as one step. It
+   * does nothing when no preview is pending (one never began, or a color
+   * chosen meanwhile already ended it).
+   */
+  endPreview() {
+    if (this.previewFrom !== null) this.setBackground(this.bg)
   }
 
   /** isBlank reports whether nothing is drawn (a background color alone doesn't count) */
@@ -344,6 +369,14 @@ export default class PaintEngine {
       this.commit()
     } else this.commitShape()
     this.active = null
+  }
+
+  /**
+   * finish completes a drag still in progress, as if the pointer had been let
+   * go, so a turn that ends mid-stroke keeps the stroke
+   */
+  finish() {
+    this.end()
   }
 
   /** setShift updates a shape being dragged when Shift goes down or up */

@@ -17,22 +17,21 @@
   </aside>
 </template>
 <script>
+import { SIZES } from "@/services/paint/engine";
+import { TOOLS } from "@/services/paint/tools";
+
 export default {
   name: "PaintHelp",
   data() {
     return {
+      // From the tool list itself, so a new or renamed tool shows up here.
       keys: [
-        { keys: "B", does: "Brush" },
-        { keys: "E", does: "Eraser" },
-        { keys: "G", does: "Fill" },
-        { keys: "I", does: "Eyedropper" },
-        { keys: "S", does: "Spray" },
-        { keys: "L R O T", does: "Shapes" },
+        ...TOOLS.filter((t) => t.key).map((t) => ({ keys: t.key.toUpperCase(), does: t.name })),
         { keys: "H", does: "Behind lines" },
-        { keys: "[ ] 1–5", does: "Size" },
+        { keys: `[ ] 1–${SIZES.length}`, does: "Size" },
         { keys: "Shift", does: "Snap shape" },
         { keys: "Ctrl Z", does: "Undo" },
-        { keys: "Ctrl Shift Z", does: "Redo" },
+        { keys: "Ctrl Y", does: "Redo" },
       ],
     }
   },

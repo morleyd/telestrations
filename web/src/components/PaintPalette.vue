@@ -68,8 +68,10 @@ export default {
     target: { type: String, required: true },
   },
   // pick(hex, target): a color was chosen. preview(hex, target): the picker is
-  // showing a color that isn't chosen yet.
-  emits: ["pick", "preview", "update:target"],
+  // showing a color, which applies as it's shown. preview-end(target): the
+  // picker closed, keeping what it showed unless another color was chosen
+  // meanwhile.
+  emits: ["pick", "preview", "preview-end", "update:target"],
   data() {
     return {
       palette: PALETTE,
@@ -98,14 +100,22 @@ export default {
         this.pickerColor = this.current
         return
       }
+      // Closing doesn't pick again: the previews already applied the color,
+      // and a tap on a swatch, which closes the picker just after it has
+      // picked, must win. A color the player kept joins the recent ones.
       const hex = this.pickerColor.toUpperCase()
-      if (hex !== this.pickerStart) {
-        this.$emit("pick", hex, this.pickerTarget)
-        this.addRecent(hex)
-      }
+      const kept = (this.pickerTarget === "bg" ? this.bgColor : this.color) === hex
+      this.$emit("preview-end", this.pickerTarget)
+      if (kept && hex !== this.pickerStart) this.addRecent(hex)
     },
+    // Only a color the player moved to is a preview, not the picker opening on
+    // the current one (which would switch the eraser to the brush, say).
+    // Compared with the picker's own target: a right-click on a swatch hands
+    // the palette back to the pen while the picker stays open.
     pickerColor(hex) {
-      if (this.pickerOpen) this.$emit("preview", hex.toUpperCase(), this.pickerTarget)
+      const color = hex.toUpperCase()
+      const shown = this.pickerTarget === "bg" ? this.bgColor : this.color
+      if (this.pickerOpen && color !== shown) this.$emit("preview", color, this.pickerTarget)
     },
   },
   methods: {
