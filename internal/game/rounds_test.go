@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/security"
 )
 
-// Rounds, endless games and End Game (migrations/1784300000_rounds): each
+// Rounds, endless games and End Game (internal/migrations/1784300000_rounds): each
 // story goes round the table once a round, or until the host ends the game,
 // and End Game gives everyone endCountdown to finish the turn they're on.
 

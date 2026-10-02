@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/morleyd/telestrations/internal/migrations" // the schema newTestApp builds
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
@@ -36,16 +37,16 @@ func newTestApp(t *testing.T) *tests.TestApp {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Cleanup)
-	bindGameHooks(app)
+	BindHooks(app)
 	return app
 }
 
 // serveAPI is app's HTTP API (the built-in record routes plus the game's own,
-// bindAPIRoutes), built the way `serve` builds it, so a test can send real
+// BindRoutes), built the way `serve` builds it, so a test can send real
 // requests through the request hooks without opening a port.
 func serveAPI(t *testing.T, app core.App) http.Handler {
 	t.Helper()
-	return serve(t, app, bindAPIRoutes)
+	return serve(t, app, BindRoutes)
 }
 
 // serve builds app's handler the way `serve` does, with bind registering the
