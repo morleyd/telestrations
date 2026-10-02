@@ -58,7 +58,7 @@
             </v-card-title>
           </div>
           <template v-else-if="turn.drawing">
-            <div v-if="turn.prev?.prompt" class="slide-prompt wrap">
+            <div v-if="turn.prev?.prompt" class="slide-prompt">
               <div class="slide-prompt-label">Prompt</div>
               <div class="text-h6">{{ turn.prev.prompt }}</div>
             </div>
@@ -464,14 +464,20 @@ export default {
   max-width: calc(100% - 96px);
 }
 
+/* On the left, past the sidebar button's corner (see .slide-prompt above). */
 .slide-prompt {
   flex: none;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
+  align-self: flex-start;
+  margin-left: 48px;
   padding: 2px 12px 6px;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 12px;
+  text-align: left;
+  white-space: break-spaces;
+  word-break: break-word;
 }
 
 .slide-prompt .text-h6 {
