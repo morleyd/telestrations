@@ -11,17 +11,15 @@
         <v-card-title class="wrap">{{ userMap[user.starter_user_id]?.username }}</v-card-title>
       </v-col>
       <v-col md="10">
-        <v-tooltip text="Tooltip" location="bottom" open-on-click open-delay="250">
-          <template v-slot:activator="{ props }">
-            <v-progress-linear v-bind="props" color="secondary" height="30" :model-value="storyProgress(user).percent"
-              striped>
-              <template v-slot:default>
-                <strong>{{ storyProgress(user).label }}</strong>
-              </template>
-            </v-progress-linear>
+        <v-progress-linear color="secondary" height="30" :model-value="storyProgress(user).percent" striped>
+          <template v-slot:default>
+            <strong>{{ storyProgress(user).label }}</strong>
           </template>
-          <span>Waiting on {{ userMap[user.next_user_id]?.username }}</span>
-        </v-tooltip>
+        </v-progress-linear>
+        <!-- Written out rather than in a tooltip: nobody thought to hover. -->
+        <div class="story-waiting text-caption text-medium-emphasis mt-1">
+          {{ waitingOn(user, userMap, userStore.userId) }}
+        </div>
       </v-col>
     </v-row>
   </v-card>
@@ -30,7 +28,7 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
-import { storyProgress } from '@/services/progress'
+import { storyProgress, waitingOn } from '@/services/progress'
 export default {
   name: "TakeTurn",
   data() {
@@ -55,6 +53,7 @@ export default {
   },
   methods: {
     storyProgress,
+    waitingOn,
     async getProgress() {
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
       if (resp.aborted) return // a newer refresh is on its way

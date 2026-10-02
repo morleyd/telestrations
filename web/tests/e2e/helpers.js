@@ -135,6 +135,12 @@ export async function driveGameToReview(pages) {
   }
 }
 
+// The review's list entry for the story `name` started. Matched on the name
+// alone: an entry also says who its story is waiting on, which can be anyone.
+export function storyItem(page, name) {
+  return page.locator('.user-item').filter({ has: page.locator('.user-item-name', { hasText: new RegExp(`^${name}$`) }) })
+}
+
 // Backend the suite runs against (see playwright.config.js).
 export const PB_URL = 'http://127.0.0.1:8091'
 

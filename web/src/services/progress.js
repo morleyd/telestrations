@@ -10,3 +10,13 @@ export function storyProgress(row) {
   }
   return { label: `${taken} / ${total}`, percent: total ? (taken / total) * 100 : 0 }
 }
+
+// Who a story is waiting on, from its row in the progress view, written
+// under its progress: "Waiting on Sam", "Waiting on you" (meId is whoever is
+// looking), or "Done" once it's had its last turn or the game is over.
+export function waitingOn(row, userMap, meId) {
+  const next = row?.next_user_id
+  if (!next) return "Done"
+  if (next === meId) return "Waiting on you"
+  return `Waiting on ${userMap?.[next]?.username || "someone"}`
+}
