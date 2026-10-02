@@ -1,15 +1,15 @@
 <template>
-  <v-card class="overflow-y-auto pb-16 align-content-space-evenly" height="100vh" width="100vw" color="background"
-    style="justify-items: center; display: grid;">
-    <v-img class="my-4" min-width="150" min-height="150" src="@/assets/logo.svg" />
+  <v-card class="overflow-y-auto pb-16 align-content-space-evenly" height="100vh" width="100vw" color="transparent"
+    flat style="justify-items: center; display: grid;">
+    <v-img class="my-4 home-logo" min-width="150" min-height="150" src="@/assets/logo.svg" />
 
     <div class="text-center">
-      <div class="text-body-2 font-weight-light mb-n1">Welcome to</div>
+      <div class="hand home-welcome">Welcome to</div>
 
-      <h1 class="text-h2 font-weight-bold">Telestrations!</h1>
+      <h1 class="text-h2"><span class="highlight">Telestrations!</span></h1>
     </div>
 
-    <v-card class="pa-4 ma-4" height="176px" width="900" max-width="calc(100vw - 32px)" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+    <v-card class="pa-4 ma-4 sketch-card" height="176px" width="900" max-width="calc(100vw - 32px)" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
       <v-row class="justify-center align-center">
         <v-dialog max-width="500">
           <template v-slot:activator="{ props: activatorProps }">
@@ -34,7 +34,7 @@
       <v-row class="justify-center align-center">
         <v-dialog max-width="500">
           <template v-slot:activator="{ props: activatorProps }">
-            <v-btn v-bind="activatorProps" class="ma-4" size="x-large" color="tertiary" variant="tonal">
+            <v-btn v-bind="activatorProps" class="ma-4" size="x-large" color="secondary">
               Join Game
             </v-btn>
           </template>
@@ -188,5 +188,23 @@ export default {
 
 .safe-bottom {
   margin-bottom: 64px;
+}
+
+.home-logo {
+  transform: rotate(-4deg);
+}
+
+.home-welcome {
+  font-size: 1.6rem;
+  line-height: 1.2;
+  color: rgba(var(--v-theme-on-background), var(--v-medium-emphasis-opacity));
+  transform: rotate(-3deg);
+}
+
+/* A highlighter swipe behind the name */
+.highlight {
+  padding: 0 0.12em;
+  background: linear-gradient(transparent 56%, rgb(var(--v-theme-secondary)) 56%,
+    rgb(var(--v-theme-secondary)) 92%, transparent 92%);
 }
 </style>

@@ -155,10 +155,11 @@ test('the avatar picker is a labeled button from the start, and the face picked 
   await expect(page.getByText('Pick your avatar')).toBeVisible()
   await page.locator('#avatar5').click()
   await page.getByRole('button', { name: 'Submit' }).click()
-  await expect(picker.locator('svg')).toHaveCount(1)
+  // The face (every avatar also has a scrap of paper behind it, an svg too)
+  await expect(picker.locator('.avatar-circle')).toHaveCount(1)
 
   await page.getByRole('button', { name: 'Begin!' }).click()
-  await expect(page.locator('.drag-item svg')).toHaveCount(1)
+  await expect(page.locator('.drag-item .avatar-circle')).toHaveCount(1)
 
   // Editing the name opens the picker on that face, so submitting it as is
   // keeps the face rather than switching back to initials.
@@ -167,10 +168,10 @@ test('the avatar picker is a labeled button from the start, and the face picked 
   await expect(page.getByText('Pick your avatar')).toBeVisible()
   await page.getByRole('button', { name: 'Submit' }).last().click()
   await expect(page.getByText('Pick your avatar')).toBeHidden()
-  await expect(picker.locator('svg')).toHaveCount(1)
+  await expect(picker.locator('.avatar-circle')).toHaveCount(1)
   await page.getByRole('button', { name: 'Submit' }).click()
   await expect(page.getByText('Edit your Username!')).toBeHidden()
-  await expect(page.locator('.drag-item svg')).toHaveCount(1)
+  await expect(page.locator('.drag-item .avatar-circle')).toHaveCount(1)
 
   // Picking the letters takes the saved face off again.
   await page.locator('.drag-item').getByRole('button').first().click()
@@ -180,6 +181,6 @@ test('the avatar picker is a labeled button from the start, and the face picked 
   await expect(page.getByText('Pick your avatar')).toBeHidden()
   await page.getByRole('button', { name: 'Submit' }).click()
   await expect(page.getByText('Edit your Username!')).toBeHidden()
-  await expect(page.locator('.drag-item svg')).toHaveCount(0)
+  await expect(page.locator('.drag-item .avatar-circle')).toHaveCount(0)
   await expect(page.locator('.drag-item .v-avatar')).toHaveText('H')
 })

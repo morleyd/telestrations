@@ -1,5 +1,6 @@
 <template>
-  <v-card class="container overflow-y-auto pa-4" style="height: calc(100vh - 28px); min-height: 300px; ">
+  <v-card class="container overflow-y-auto pa-4" style="height: calc(100vh - 28px); min-height: 300px; "
+    color="transparent" flat>
     <v-card-title v-if="isFirst">
       Enter your starting prompt:
     </v-card-title>
@@ -7,7 +8,7 @@
       <!-- <span>{{prevUser}}'s' image:</span> -->
       <v-img :src="prevDrawing || sadCow" width="100%" style="justify-self: center;" />
     </div>
-    <v-textarea v-model="prompt" bg-color="white" label="Your Prompt Here..." hide-details />
+    <v-textarea v-model="prompt" class="prompt-field" bg-color="white" label="Your Prompt Here..." hide-details />
     <v-btn class="ma-4" color="primary" variant="elevated" size="x-large" @click="onSaveClicked">
       Submit
     </v-btn>
@@ -46,6 +47,13 @@ export default {
   height: 400;
   justify-content: center;
   text-align: center;
+}
+
+/* What a player writes looks written */
+.prompt-field textarea {
+  font-family: var(--hand);
+  font-size: 1.6rem;
+  line-height: 1.3;
 }
 
 .white-box {

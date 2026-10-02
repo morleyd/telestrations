@@ -1,5 +1,6 @@
 <template>
   <v-app>
+    <PaperShapes />
     <v-main>
       <router-view :key="$route.path" @snack="updateSnackbar" />
       <InfoSnackbar ref="info" />

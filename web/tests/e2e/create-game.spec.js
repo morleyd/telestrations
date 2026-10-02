@@ -18,7 +18,7 @@ test('host creates a timed game (default 90s) and reaches the waiting room', asy
   await page.getByRole('button', { name: 'Begin!' }).click()
 
   await expect(page).toHaveURL(/\/[a-zA-Z]{5}$/)
-  await expect(page.getByText('Game Code:')).toBeVisible()
+  await expect(page.getByText('Game code', { exact: true })).toBeVisible()
   await expect(page.getByText('Welcome hosty!')).toBeVisible()
 })
 

@@ -1,5 +1,6 @@
 <template>
-  <v-card class="justify-center overflow-y-auto" width="100vw" height="calc(100vh - 48px)" loading="secondary">
+  <v-card class="justify-center overflow-y-auto" width="100vw" height="calc(100vh - 48px)" loading="secondary"
+    color="transparent" flat>
     <v-card-title class="wrap">
       Waiting for other users to finish their prompts.
     </v-card-title>
@@ -8,10 +9,11 @@
         <AvatarIcon :user="userMap[user.starter_user_id]" />
       </v-col>
       <v-col md="1" style="justify-items: center;">
-        <v-card-title class="wrap">{{ userMap[user.starter_user_id]?.username }}</v-card-title>
+        <v-card-title class="wrap hand text-h5">{{ userMap[user.starter_user_id]?.username }}</v-card-title>
       </v-col>
       <v-col md="10">
-        <v-progress-linear color="secondary" height="30" :model-value="storyProgress(user).percent" striped>
+        <v-progress-linear class="sketch-bar" color="secondary" bg-color="surface" bg-opacity="1" height="30"
+          :model-value="storyProgress(user).percent" striped>
           <template v-slot:default>
             <strong>{{ storyProgress(user).label }}</strong>
           </template>

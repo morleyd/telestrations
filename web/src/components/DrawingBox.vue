@@ -3,7 +3,7 @@
 // DrawingBox is the drawing turn's paint program: tools on the left, the canvas,
 // colors along the bottom, and Undo / Redo / Clear / Submit across the top
 <template>
-  <v-card class="paint py-3 px-4 overflow-y-auto elevation-0" max-height="calc(100vh - 124px)" width="100vw"
+  <v-card class="paint py-3 px-4 overflow-y-auto" color="transparent" flat max-height="calc(100vh - 124px)" width="100vw"
     :style="{ '--paint-canvas': layout.canvas + 'px' }">
     <div class="paint-inner">
       <div class="paint-head">
@@ -125,6 +125,11 @@ export default {
     window.addEventListener("keyup", this.onKeyUp)
     window.addEventListener("resize", this.measure)
     this.measure()
+    // The prompt above is in a web font: once it loads, the prompt can wrap
+    // differently and move this box
+    document.fonts?.ready.then(() => {
+      if (this.$el?.isConnected) this.measure()
+    })
   },
   beforeUnmount() {
     window.removeEventListener("keydown", this.onKeyDown)

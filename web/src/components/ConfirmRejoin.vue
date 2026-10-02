@@ -11,7 +11,7 @@
       </v-card-title>
       <div class="d-flex justify-center align-center ma-2">
         <AvatarIcon :user="user" />
-        <span class="text-h6">{{ user?.username }}</span>
+        <span class="text-h5 hand">{{ user?.username }}</span>
       </div>
       <v-card-text class="text-center">
         Is this you? Rejoin if you've switched devices or browsers, or lost your
