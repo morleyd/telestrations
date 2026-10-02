@@ -130,9 +130,10 @@ test('Infinite: the host ends it, and everyone mid-turn gets the countdown', asy
   }
 })
 
-// Playtest game hseqa: with one player every turn after the first is their
-// second (third, ...) turn on the same story. It stuck at the first drawing;
-// it must keep coming round to them until the host ends it.
+// With one player, every turn after the first is their second (third, ...)
+// turn on the same story. On an upgraded server that kept a one-turn-per-player
+// index it stuck at the first drawing; it must keep coming round to them until
+// the host ends it.
 test('one player, Infinite: the story keeps coming back to them until the host ends it', async ({ page, request }) => {
   test.setTimeout(90_000)
   const code = await createGame(page, { username: 'solo', endless: true })
@@ -161,11 +162,11 @@ test('one player, Infinite: the story keeps coming back to them until the host e
   expect(turns.map((t) => Boolean(t.drawing))).toEqual([false, true, false, true])
 })
 
-// Playtest games szwxs and hseqa: the server refused a turn with an error and
-// no code (a unique index left over on an upgraded server), and the page read
-// it as "already taken": it marked the turn done, dropped the player's work
-// and waited for good. A turn refused without a code must stay on screen,
-// say so, and go through when sent again.
+// When the server refused a turn with an error and no code (a unique index
+// left over on an upgraded server), the page read it as "already taken": it
+// marked the turn done, dropped the player's work and waited for good. A turn
+// refused without a code must stay on screen, say so, and go through when sent
+// again.
 test('a turn the server refuses without a code stays on screen to send again', async ({ page }) => {
   await createGame(page, { username: 'solo', endless: true })
   await startGame(page)
