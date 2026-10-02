@@ -86,6 +86,25 @@ the exception: it's shown with a "Skipped by the host" banner.
 There are no accounts, so these controls (like the rest of the game) trust the
 people on your network: they stop mistakes, not a determined cheat.
 
+## Drawing
+
+The drawing turn works like MS Paint: tools down the left, colors along the
+bottom, and **Undo**, **Redo**, **Clear** and **Submit** across the top. Clear
+can be undone.
+
+- **Colors:** tap one to draw with it. To set the background instead, tap the
+  back color square first (or right-click a color). **+** opens a full color
+  picker, and custom colors stay in the recent slots on that device.
+- **Fill bucket:** fills the area you tap, up to the lines around it.
+- **Behind lines:** while it's on, whatever you draw or fill goes under your
+  outlines, and the eraser takes off only that color.
+- Also an eyedropper, a spray can, lines, rectangles, ovals and triangles
+  (outlined or filled), and five sizes. Drawings are saved at 1200 × 800.
+- Keys: **B**, **E**, **G**, **I** and **S** for the brush, eraser, fill,
+  eyedropper and spray; **L**, **R**, **O** and **T** for shapes; **H** for
+  Behind lines; **[** **]** or **1**–**5** for size; **Shift** snaps a shape;
+  **Ctrl+Z** and **Ctrl+Shift+Z** undo and redo.
+
 ## Saving the stories
 
 On the review page, the last card of each story has **Download this story**,
