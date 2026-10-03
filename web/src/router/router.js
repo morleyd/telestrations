@@ -80,6 +80,16 @@ async function serverBuildId() {
   }
 }
 
+// Game codes are lowercase (see newGameCode in host.go), and the database
+// compares them exactly. The routes take any case and the waiting room shows
+// the code in capitals, so a code typed into the address bar as it's shown
+// found no game: send it to the lowercase address.
+router.beforeEach((to) => {
+  const code = to.params.gameCode
+  if (typeof code !== "string" || code === code.toLowerCase()) return true
+  return { name: to.name, params: { ...to.params, gameCode: code.toLowerCase() }, query: to.query, hash: to.hash, replace: true }
+})
+
 router.beforeEach(async (to, from) => {
   if (from === START_LOCATION) return true // just loaded: already the newest build
   const build = await serverBuildId()

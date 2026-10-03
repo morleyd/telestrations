@@ -12,11 +12,12 @@
       <v-card-title v-else>
         Waiting for host to Start Game:
       </v-card-title>
-      <!-- A paper tag, hole punched -->
-      <div class="code-tag my-3">
-        <div class="code-tag-label">Game code</div>
-        <div class="code-tag-value">{{ $route.params.gameCode }}</div>
-      </div>
+      <!-- A paper tag, hole punched. Clicking it copies the code. -->
+      <button type="button" class="code-tag my-3" :aria-label="`Copy the game code, ${shownCode}`"
+        title="Copy the game code" @click="copyCode">
+        <span class="code-tag-label">Game code <v-icon icon="mdi-content-copy" size="x-small" /></span>
+        <span class="code-tag-value">{{ shownCode }}</span>
+      </button>
     </div>
     <div class="mb-4 pa-4 waiting-box" style="min-height: 112px;">
       <draggable :list="users" :animation="200" :disabled="!userStore.is_host">
@@ -71,6 +72,7 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
 import { log } from '@/services/log'
+import { copyText } from '@/services/clipboard'
 export default {
   name: "TakeTurn",
   data() {
@@ -92,6 +94,10 @@ export default {
   },
   computed: {
     ...mapStores(useUserStore),
+    // The code as the tag shows it, in capitals.
+    shownCode() {
+      return String(this.$route.params.gameCode).toUpperCase()
+    },
   },
   async created() {
     // Get gameCode from path
@@ -185,6 +191,11 @@ export default {
           this.$refs.username?.set(stored.username, stored.avatar)
         })
       }
+    },
+    async copyCode() {
+      const code = this.shownCode
+      if (await copyText(code)) this.$emit("snack", `Copied the game code ${code}`, "success")
+      else this.$emit("snack", `Couldn't copy it. The game code is ${code}`, "warning")
     },
     onEditUserClick() {
       this.showEditUsernameDialog = true
@@ -403,15 +414,30 @@ export default {
   overflow-y: auto;
 }
 
-/* The game code on a paper tag, hole punched */
+/* The game code on a paper tag, hole punched, that presses in when clicked */
 .code-tag {
   position: relative;
+  display: block;
   padding: 10px 24px 10px 42px;
   color: var(--ink);
+  font: inherit;
+  text-align: left;
   background: rgb(var(--v-theme-secondary));
+  border: 0;
   border-radius: 14px 30px 30px 14px;
   box-shadow: 0 4px 0 rgb(var(--v-theme-secondary-darken-1));
   transform: rotate(-2deg);
+  cursor: pointer;
+}
+
+.code-tag:active {
+  box-shadow: 0 1px 0 rgb(var(--v-theme-secondary-darken-1));
+  transform: rotate(-2deg) translateY(3px);
+}
+
+.code-tag:focus-visible {
+  outline: 2.5px solid var(--ink);
+  outline-offset: 3px;
 }
 
 .code-tag::before {
@@ -428,6 +454,7 @@ export default {
 }
 
 .code-tag-label {
+  display: block;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -435,6 +462,7 @@ export default {
 }
 
 .code-tag-value {
+  display: block;
   font-size: 2.25rem;
   font-weight: 800;
   line-height: 1;
