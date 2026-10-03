@@ -37,7 +37,9 @@ after):
 - **Frontend** — Vite, pointed at the test backend via `VITE_POCKETBASE_URL`.
 
 No dev servers need to be running first; if you already have something on the
-default ports it won't collide (tests use 8091 / 5199).
+default ports it won't collide (tests use 8091 / 5199). To run the suite in two
+checkouts at once, give one of them other ports:
+`E2E_PB_PORT=8191 E2E_WEB_PORT=5299 ./run-e2e.sh`.
 
 ## In CI
 
