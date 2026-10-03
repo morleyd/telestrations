@@ -1,8 +1,9 @@
 // The cut paper an avatar is made of (see AvatarCircle): the avatar itself, an
 // uneven circle of the player's color, laid on a scrap of the opposite color
 // about its size, a blob or a bean, a little off center so it shows round one
-// side like a shadow. Every choice comes from the player's name, so a player
-// looks the same on every screen and every visit.
+// side like a shadow. Every choice comes from the player's name (or, before
+// they have one, their color), so a player looks the same on every screen and
+// every visit.
 
 // FNV-1a: similar names still land far apart
 function hash(text) {
@@ -54,9 +55,10 @@ function blob(random) {
 }
 
 // The opposite hue to the avatar's, a little darker so the two pieces read
-// apart. Colors are hsl() (see avatarColor); anything else gets sunflower.
+// apart. Colors are hsl() (see avatarColor), or hsla(), whose alpha the
+// scrap leaves off; anything else gets sunflower.
 export function scrapColor(color) {
-  const hsl = /hsl\(\s*([\d.]+)[\s,]+([\d.]+)%[\s,]+([\d.]+)%/.exec(color ?? "")
+  const hsl = /hsla?\(\s*([\d.]+)[\s,]+([\d.]+)%[\s,]+([\d.]+)%/.exec(color ?? "")
   if (!hsl) return "rgb(var(--v-theme-secondary))"
   const [hue, saturation, lightness] = hsl.slice(1).map(Number)
   return `hsl(${(hue + 180) % 360}, ${saturation}%, ${Math.max(35, lightness - 10)}%)`
@@ -66,8 +68,8 @@ export function scrapColor(color) {
 // where it sits, as shares of the avatar's size. The scrap is a little
 // bigger than the avatar and mostly under it, its center pushed 10-17% of the
 // way out at an angle of its own, so the most of it shows on that side.
-export function avatarPaper(name) {
-  const random = randoms(hash(String(name ?? "")))
+export function avatarPaper(seed) {
+  const random = randoms(hash(String(seed ?? "")))
   // Each corner a little off round: 42-58% instead of 50%
   const [a, b, c, d] = Array.from({ length: 4 }, () => Math.round(42 + random() * 16))
   const cut = `${a}% ${100 - a}% ${b}% ${100 - b}% / ${c}% ${d}% ${100 - d}% ${100 - c}%`

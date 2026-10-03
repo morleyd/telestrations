@@ -29,7 +29,7 @@ export default {
 <style scoped>
 /* The ink rule under the bar: a shadow, so the bar stays 48px tall */
 .app-bar {
-  box-shadow: 0 3px 0 rgb(var(--v-theme-on-surface));
+  box-shadow: 0 3px 0 var(--ink);
 }
 
 /* The logo's navy needs a paper backing on the blue */
@@ -41,7 +41,7 @@ export default {
   place-items: center;
   background: rgb(var(--v-theme-surface));
   border-radius: 50%;
-  box-shadow: 0 0 0 2px rgb(var(--v-theme-on-surface));
+  box-shadow: 0 0 0 2px var(--ink);
 }
 
 .app-bar-title {

@@ -76,11 +76,11 @@ export default {
   justify-content: center;
   column-gap: 12px;
   padding: 4px 18px;
-  color: rgb(var(--v-theme-on-surface));
+  color: var(--ink);
   background: rgb(var(--v-theme-secondary));
-  border: 2.5px solid rgb(var(--v-theme-on-surface));
+  border: 2.5px solid var(--ink);
   border-radius: 18px 8px 16px 10px / 10px 16px 8px 18px;
-  box-shadow: 4px 4px 0 rgb(var(--v-theme-on-surface));
+  box-shadow: 4px 4px 0 var(--ink);
   transform: rotate(-1deg);
 }
 
@@ -118,7 +118,7 @@ export default {
 /* Notebook divider tabs on an inked line: the open one white and standing
    taller, the other paper colored. Quieter than the note above. */
 .drawing-tabs {
-  border-bottom: 2.5px solid rgb(var(--v-theme-on-surface));
+  border-bottom: 2.5px solid var(--ink);
 }
 
 .drawing-tabs :deep(.v-slide-group__content) {
@@ -128,9 +128,9 @@ export default {
 
 .drawing-tabs :deep(.v-tab.v-tab.v-btn) {
   height: 36px;
-  color: rgb(var(--v-theme-on-surface));
+  color: var(--ink);
   background: rgb(var(--v-theme-secondary-lighten-3));
-  border: 2px solid rgb(var(--v-theme-on-surface));
+  border: 2px solid var(--ink);
   border-bottom: 0;
   border-radius: 14px 10px 0 0 / 12px 12px 0 0;
 }
