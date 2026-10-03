@@ -84,3 +84,24 @@ test('the game code copies without navigator.clipboard', async ({ browser }) => 
     await context.close()
   }
 })
+
+// The fallback copy says it couldn't when the page gives it no selection to
+// copy from (getSelection() can be null), rather than throwing.
+test('a copy with no selection to use says it couldn\'t', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => undefined })
+    window.getSelection = () => null
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  try {
+    const CODE = (await createGame(page, { username: 'hosty' })).toUpperCase()
+    await page.getByRole('button', { name: 'Copy the game code' }).click()
+    await expect(page.locator('.v-snackbar')).toContainText(`Couldn't copy it. The game code is ${CODE}`)
+    expect(errors).toEqual([])
+  } finally {
+    await context.close()
+  }
+})

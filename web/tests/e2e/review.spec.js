@@ -271,6 +271,45 @@ test('the review waits for the players\' names before listing the stories', asyn
   }
 })
 
+// Two progress reads can overlap: a turn taken while one is on its way starts
+// another, which cancels the first. The poll must still see the second as on
+// its way, or it cancels that for a third, and so on, and none lands.
+test('a progress read started while another is on its way still lands', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const [host, guest, viewer] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+
+    // Each read held longer than Review.vue's POLL_MS (keep it so). Overlap:
+    // a read arrived while another was still held.
+    const progress = (url) => url.pathname.endsWith('/api/collections/progress/records')
+    let held = 0
+    let overlapped = false
+    await viewer.route(progress, async (route) => {
+      if (held) overlapped = true
+      held++
+      await new Promise((resolve) => setTimeout(resolve, 7000))
+      held--
+      return route.continue().catch(() => {}) // cancelled meanwhile
+    })
+    const subscribed = viewer.waitForResponse((r) => r.url().endsWith('/api/realtime') && r.request().method() === 'POST')
+    const firstRead = viewer.waitForRequest((r) => progress(new URL(r.url())))
+    await viewer.goto(`/${code}/review`)
+    await Promise.all([subscribed, firstRead])
+    // The turn's event starts a second read while the first is on its way.
+    // Without that, the first could land showing the turn and pass alone.
+    await submitWord(host, 'a teapot')
+    await expect.poll(() => overlapped, { timeout: 6000 }).toBe(true)
+    await expect(storyItem(viewer, 'hosty')).toContainText('Waiting on buddy', { timeout: 25_000 })
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
 // A failed read of the players' names is tried again. The review's list used
 // to stay empty for good, and End Game went unnoticed; a turn taken meanwhile
 // mustn't list the stories without their names either. The waiting screen

@@ -63,14 +63,12 @@ export default {
     async getNames() {
       if (this.readingNames) return
       this.readingNames = true
-      const resp = await pbService.users.getUsers(this.$route.params.gameCode)
+      const resp = await pbService.users.getUserMap(this.$route.params.gameCode)
       this.readingNames = false
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }
-      if (resp.data) {
-        this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
-      }
+      if (resp.userMap) this.userMap = resp.userMap
     },
   },
 };
@@ -106,6 +104,8 @@ export default {
   overflow-wrap: anywhere;
 }
 
+/* A story's fourth item. Placed automatically it would start a new grid
+   row in the first column; column 3 puts it under the bar instead. */
 .story-waiting {
   grid-column: 3;
   margin: 4px 0 18px;
