@@ -268,6 +268,57 @@ test('the review waits for the players\' names before listing the stories', asyn
   }
 })
 
+// The waiting screen's rows line up at every width: each story's avatar, name
+// and bar on one line, the bars starting at the same place and wide enough to
+// read, and a long name wrapping between its words, never inside one.
+test('the waiting screen lines up its rows at every width', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const [host, long, short] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(long, code, 'Bartholomew Fizzlewick')
+    await joinGame(short, code, 'Jo')
+    await startGame(host, 3)
+    await submitWord(host, 'a teapot')
+    for (const name of ['hosty', 'Bartholomew Fizzlewick', 'Jo']) {
+      await expect(host.locator('.story-name').filter({ hasText: new RegExp(`^${name}$`) })).toHaveCount(1)
+    }
+
+    for (const width of [360, 390, 600, 800, 1000, 1440]) {
+      await host.setViewportSize({ width, height: 700 })
+      // Read in one go: nothing moves between measurements.
+      const rows = await host.locator('.story-row').evaluateAll((els) => els.map((row) => {
+        const box = (sel) => row.querySelector(sel).getBoundingClientRect()
+        const middle = (r) => r.top + r.height / 2
+        const [avatar, name, bar] = ['.avatar-cut', '.story-name', '.v-progress-linear'].map(box)
+        // Each word of the name, by how many lines it's on.
+        const text = row.querySelector('.story-name').firstChild
+        let at = 0
+        const lines = text.data.split(' ').map((word) => {
+          const range = document.createRange()
+          range.setStart(text, at)
+          range.setEnd(text, at + word.length)
+          at += word.length + 1
+          return [word, range.getClientRects().length]
+        })
+        return { avatar: middle(avatar), name: middle(name), bar: middle(bar), left: bar.left, right: bar.right, lines }
+      }))
+      for (const row of rows) {
+        const at = `${row.lines.map(([w]) => w).join(' ')} at ${width}px`
+        expect(Math.abs(row.avatar - row.bar), `avatar level with the bar: ${at}`).toBeLessThanOrEqual(2)
+        expect(Math.abs(row.name - row.bar), `name level with the bar: ${at}`).toBeLessThanOrEqual(2)
+        expect(row.left, `bars start together: ${at}`).toBeCloseTo(rows[0].left, 0)
+        expect(row.right - row.left, `bar wide enough: ${at}`).toBeGreaterThanOrEqual(120)
+        expect(row.right, `bar on screen: ${at}`).toBeLessThanOrEqual(width)
+        for (const [word, lines] of row.lines) expect(lines, `"${word}" on one line: ${at}`).toBe(1)
+      }
+    }
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
 // A PNG's width and height, from its header.
 function pngSize(bytes) {
   const b = Buffer.from(bytes)
