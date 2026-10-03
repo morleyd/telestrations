@@ -2,7 +2,7 @@
 <template>
   <AppBar />
   <div v-if="userState == 'waiting'" style="justify-self: center;">
-    <WaitingScreen ref="waiting" />
+    <WaitingScreen ref="waiting" :game-id="gameId" />
   </div>
   <div v-else-if="userState == 'finished'" style="justify-self: center;">
     <span>Finished...</span>
@@ -512,7 +512,12 @@ export default {
       if (stale.length) {
         log.warn("progress.staleStory", { turns: stale.map(p => turnKeyOf(p.story_id, p.turns_taken)) })
       }
+      // Taken from the end: the story that has been round the fewest times
+      // first, then by id. The waiting table orders a player's pile the same
+      // way under the one they're on (see seatPlayers), so the next one it
+      // shows is the next one they get.
       this.nextPrompts = next.filter(p => !done(p))
+        .sort((a, b) => b.turns_taken - a.turns_taken || (a.story_id < b.story_id ? 1 : -1))
       log.info("progress.next", {
         queued: this.nextPrompts.map(p => ({ story: p.story_id, taken: p.turns_taken })),
       })

@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
+import { PB_PORT } from './ports.js'
 
 const CODE_RE = /\/[a-zA-Z]{5}$/
 
@@ -142,7 +143,7 @@ export function storyItem(page, name) {
 }
 
 // Backend the suite runs against (see playwright.config.js).
-export const PB_URL = 'http://127.0.0.1:8091'
+export const PB_URL = `http://127.0.0.1:${PB_PORT}`
 
 // Checks what was actually saved, not just what the screens showed: every story
 // has one turn per player, opens with a word and then alternates word/drawing.
@@ -168,6 +169,16 @@ export async function expectStoriesAlternate(request, code, players, { stories =
     expect(new Set(list.map((t) => t.turn_user_id)).size, `distinct players on story ${starter}`).toBe(players)
   }
   return byStory
+}
+
+// A player's seat at the waiting screen's table: their avatar, name and status.
+export function seatOf(page, username) {
+  return page.locator(`.seat[data-player="${username}"]`)
+}
+
+// The notebooks in front of a player at the waiting screen's table.
+export function notebooksOf(page, username) {
+  return page.locator(`.story-paper[data-holder="${username}"]`)
 }
 
 // Seats in rotation order (stories pass seat 0 -> 1 -> ...), mapped back to the

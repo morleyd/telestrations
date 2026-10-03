@@ -2,15 +2,15 @@ import { defineConfig, devices } from '@playwright/test'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { PB_PORT, WEB_PORT } from './tests/e2e/ports.js'
 
 const webDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(webDir, '..')
 
 // Isolated ports/data so the suite never collides with a dev server or touches
 // the real pb_data: the backend starts on an empty .e2e-pb-data, which
-// PocketBase builds from the migrations (schema + API rules).
-const PB_PORT = 8091
-const WEB_PORT = 5199
+// PocketBase builds from the migrations (schema + API rules). The ports are in
+// ports.js.
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -47,7 +47,9 @@ export default defineConfig({
     },
     {
       // Frontend pointed at the test backend.
-      command: `./node_modules/.bin/vite --host 127.0.0.1 --port ${WEB_PORT}`,
+      // strictPort: with the port taken, fail rather than serve on the next
+      // one while the tests reach whatever holds this one
+      command: `./node_modules/.bin/vite --host 127.0.0.1 --port ${WEB_PORT} --strictPort`,
       cwd: webDir,
       env: { ...process.env, VITE_POCKETBASE_URL: `http://127.0.0.1:${PB_PORT}/` },
       url: `http://127.0.0.1:${WEB_PORT}`,
