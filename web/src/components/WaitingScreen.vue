@@ -34,27 +34,24 @@ export default {
   data() {
     return {
       progress: [],
-      userMap: {},
+      userMap: null,
+      // A read of the names is on its way.
+      readingNames: false,
     }
   },
   computed: {
     ...mapStores(useUserStore),
   },
   async mounted() {
-    let resp = await pbService.users.getUsers(this.$route.params.gameCode)
-    if (resp.errMsg) {
-      this.$emit("snack", resp.errMsg, "error")
-    }
-    if (resp.data) {
-      this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
-    }
-
     await this.getProgress()
   },
   methods: {
     storyProgress,
     waitingOn,
+    // TakeTurn calls this whenever it finds the player still waiting.
     async getProgress() {
+      // The names are read once, but until that works, again each time.
+      if (!this.userMap) await this.getNames()
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
       if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
@@ -62,6 +59,18 @@ export default {
         return // keep what we had; the next refresh retries
       }
       this.progress = resp.data
+    },
+    async getNames() {
+      if (this.readingNames) return
+      this.readingNames = true
+      const resp = await pbService.users.getUsers(this.$route.params.gameCode)
+      this.readingNames = false
+      if (resp.errMsg) {
+        this.$emit("snack", resp.errMsg, "error")
+      }
+      if (resp.data) {
+        this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
+      }
     },
   },
 };

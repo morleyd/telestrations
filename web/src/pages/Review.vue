@@ -178,6 +178,12 @@ export default {
       // moving them across failed and they can try again.
       joinOffer: false,
       pollTimer: null,
+      // Set once the page has closed (see unmounted).
+      tornDown: false,
+      // Reads on their way: of the players' names, and of the progress (the
+      // poll waits for these rather than cancel them).
+      readingNames: false,
+      progressReads: 0,
       // Whose story is open, and whether it's still on its way.
       starterId: "",
       storyLoading: false,
@@ -255,6 +261,9 @@ export default {
   },
   async created() {
     const game = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+    // The page can close while these reads are on their way; past this point
+    // nothing would clear the timer and subscriptions.
+    if (this.tornDown) return
     if (game.errMsg) {
       this.$emit("snack", game.errMsg, "error")
     }
@@ -263,6 +272,7 @@ export default {
     this.getMe()
     if (game.nextGame && this.inThisGame) {
       this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId)).notFound
+      if (this.tornDown) return
     }
     // Realtime brings the host's End Game and Play again, but a phone that
     // slept through the event would never hear of them; and once End Game's
@@ -270,20 +280,12 @@ export default {
     // check now and then.
     this.pollTimer = setInterval(() => this.poll(), POLL_MS)
 
-    let resp = await pbService.users.getUsers(this.$route.params.gameCode)
-    if (resp.errMsg) {
-      this.$emit("snack", resp.errMsg, "error")
-    }
-    if (resp.data) {
-      this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
-    }
-
-    this.getProgress()
+    this.refresh()
 
     let that = this
     pb.collection('turns').subscribe('*', async function (e) {
       console.log("turns subscription event", e)
-      that.getProgress()
+      that.refresh()
       that.getMe()
     }, { filter: `game_id.game_code="${that.$route.params.gameCode}"` })
     // The host ending the game finishes everyone; the host starting another
@@ -296,6 +298,9 @@ export default {
     }
   },
   unmounted() {
+    // created()'s awaits may still be on their way; this stops them going on
+    // to start the timer and subscriptions after they're cleared here.
+    this.tornDown = true
     pb.collection('turns').unsubscribe();
     pb.collection('games').unsubscribe();
     clearInterval(this.pollTimer)
@@ -318,9 +323,9 @@ export default {
     async poll() {
       // Re-read the progress for anyone looking, players or not: End Game's
       // deadline passes with nothing written, and a failed read needs a retry.
-      // Not before the players' names are in: the list indexes them, and
-      // created reads the progress itself once it has asked for them.
-      if (this.userMap) this.getProgress()
+      // Not over a read still on its way: it's as new, and cancelling it for
+      // one that takes as long would never let either land.
+      if (!this.progressReads) this.refresh()
       if (!this.inThisGame || this.following) return
       if (this.movingAcross) {
         this.followNextGame() // the last try failed
@@ -374,17 +379,43 @@ export default {
         else log.warn("game.follow.failed", { err: errMsg })
         return
       }
+      // They've left the page meanwhile: don't pull them back.
+      if (this.tornDown) {
+        this.following = false
+        return
+      }
       log.info("game.follow", { game: seat.expand?.game_id?.game_code, userId: seat.id })
       const { expand, ...user } = seat
       this.userStore.user = user
       this.$router.push({ name: "TakeTurn", params: { gameCode: expand.game_id.game_code } })
     },
+    // Brings the list up to date. It shows the players' names, so until
+    // they're in this reads them instead (and then the progress): a failed
+    // read of the names is tried again too.
+    refresh() {
+      if (this.userMap) this.getProgress()
+      else this.getNames()
+    },
+    async getNames() {
+      if (this.readingNames) return // it can take longer than the poll
+      this.readingNames = true
+      const resp = await pbService.users.getUsers(this.$route.params.gameCode)
+      this.readingNames = false
+      if (resp.errMsg) {
+        this.$emit("snack", resp.errMsg, "error")
+      }
+      if (!resp.data) return // the next refresh tries again
+      this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
+      this.getProgress()
+    },
     async getProgress() {
+      this.progressReads++
       let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
+      this.progressReads--
       if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
-        return // keep what we had; the poll retries once the names are in
+        return // keep what we had; the poll retries
       }
       this.users = resp.data
       this.progressLoaded = true

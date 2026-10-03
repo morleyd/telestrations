@@ -240,7 +240,8 @@ test('a failed progress read keeps the list it had, and the review tries again',
 
 // The review re-reads the progress now and then, and the list can't be drawn
 // without the players' names: a slow read of the names mustn't let the
-// progress in first.
+// progress in first. And the poll waits for a slow read rather than cancel it
+// for another as slow, which would never let one land.
 test('the review waits for the players\' names before listing the stories', async ({ browser }) => {
   test.setTimeout(90_000)
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
@@ -253,19 +254,91 @@ test('the review waits for the players\' names before listing the stories', asyn
     await startGame(host, 2)
     await guest.waitForURL(/\/draw$/)
 
-    // Longer than Review.vue's POLL_MS, so the poll fires while the names are
-    // still on the way.
-    await viewer.route((url) => url.pathname.endsWith('/api/collections/users/records'), async (route) => {
+    // Longer than Review.vue's POLL_MS, so the poll fires while the names,
+    // and then the progress, are still on the way.
+    const slow = async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 7000))
-      return route.continue()
-    })
+      return route.continue().catch(() => {}) // cancelled meanwhile
+    }
+    await viewer.route((url) => url.pathname.endsWith('/api/collections/users/records'), slow)
+    await viewer.route((url) => url.pathname.endsWith('/api/collections/progress/records'), slow)
     await viewer.goto(`/${code}/review`)
-    await expect(storyItem(viewer, 'hosty')).toContainText('Waiting on hosty', { timeout: 15_000 })
+    await expect(storyItem(viewer, 'hosty')).toContainText('Waiting on hosty', { timeout: 25_000 })
     await expect(storyItem(viewer, 'buddy')).toContainText('Waiting on buddy')
     expect(errors).toEqual([])
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
+})
+
+// A failed read of the players' names is tried again. The review's list used
+// to stay empty for good, and End Game went unnoticed; a turn taken meanwhile
+// mustn't list the stories without their names either. The waiting screen
+// showed its stories nameless until the player's next turn.
+test('a failed read of the players\' names is tried again, on the review and the waiting screen', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const [host, guest, viewer] = await Promise.all(contexts.map((c) => c.newPage()))
+  const errors = []
+  viewer.on('pageerror', (e) => errors.push(e.message))
+  const names = (url) => url.pathname.endsWith('/api/collections/users/records')
+  const down = (route) => route.fulfill({ status: 500, json: { message: 'names are down' } })
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+
+    await Promise.all([host, viewer].map((page) => page.route(names, down)))
+    // Subscribed once the realtime connection has sent what it's listening for.
+    const subscribed = viewer.waitForResponse((r) => r.url().endsWith('/api/realtime') && r.request().method() === 'POST')
+    await viewer.goto(`/${code}/review`)
+    await expect(viewer.locator('.v-snackbar')).toContainText('names are down')
+    await subscribed
+    await submitWord(host, 'a teapot')
+    await expect(host.locator('.story-waiting')).toHaveText(['Waiting on someone', 'Waiting on someone'])
+    await expect(host.locator('.story-name')).toHaveText(['', ''])
+    await expect(viewer.locator('.user-item')).toHaveCount(0)
+
+    await Promise.all([host, viewer].map((page) => page.unroute(names, down)))
+    await expect(storyItem(viewer, 'hosty')).toContainText('Waiting on buddy', { timeout: 15_000 })
+    await expect(storyItem(viewer, 'buddy')).toContainText('Waiting on buddy')
+    await expect(host.locator('.story-waiting')).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+    await expect(host.locator('.story-name').filter({ hasText: /^buddy$/ })).toHaveCount(1)
+    await expect(host.locator('.story-name').filter({ hasText: /^hosty$/ })).toHaveCount(1)
+    expect(errors).toEqual([])
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// A review left while it's still reading the game stops there. It used to
+// start its poll and subscriptions once the read landed, after it had gone,
+// and read the progress every few seconds from then on.
+test('a review left before it has loaded stops reading', async ({ page }) => {
+  test.setTimeout(60_000)
+  const code = await createGame(page, { username: 'hosty' })
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  const games = (url) => url.pathname.endsWith('/api/collections/games/records')
+  await page.route(games, async (route) => {
+    await held
+    return route.continue().catch(() => {}) // the page may have dropped it
+  })
+  await page.goto(`/${code}/review`)
+  await expect(page.locator('.review-sidebar')).toBeVisible()
+  await page.locator('.v-app-bar .mdi-home').click()
+  await expect(page.getByRole('button', { name: 'New Game' })).toBeVisible()
+
+  const reads = []
+  page.on('request', (r) => {
+    if (/\/api\/(collections\/(progress|users|turns)\/records|realtime)/.test(r.url())) reads.push(r.url())
+  })
+  release()
+  await page.unroute(games)
+  // Longer than Review.vue's POLL_MS.
+  await page.waitForTimeout(7000)
+  expect(reads).toEqual([])
 })
 
 // The waiting screen's rows line up at every width: each story's avatar, name
