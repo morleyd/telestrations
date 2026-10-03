@@ -2,17 +2,15 @@ import { defineConfig, devices } from '@playwright/test'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { PB_PORT, WEB_PORT } from './tests/e2e/ports.js'
 
 const webDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(webDir, '..')
 
 // Isolated ports/data so the suite never collides with a dev server or touches
 // the real pb_data: the backend starts on an empty .e2e-pb-data, which
-// PocketBase builds from the migrations (schema + API rules).
-// E2E_PB_PORT and E2E_WEB_PORT move them, so two checkouts can run the suite at
-// once.
-const PB_PORT = Number(process.env.E2E_PB_PORT) || 8091
-const WEB_PORT = Number(process.env.E2E_WEB_PORT) || 5199
+// PocketBase builds from the migrations (schema + API rules). The ports are in
+// ports.js.
 
 export default defineConfig({
   testDir: './tests/e2e',

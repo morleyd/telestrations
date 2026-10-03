@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
-import process from 'node:process'
+import { PB_PORT } from './ports.js'
 
 const CODE_RE = /\/[a-zA-Z]{5}$/
 
@@ -143,7 +143,7 @@ export function storyItem(page, name) {
 }
 
 // Backend the suite runs against (see playwright.config.js).
-export const PB_URL = `http://127.0.0.1:${process.env.E2E_PB_PORT || 8091}`
+export const PB_URL = `http://127.0.0.1:${PB_PORT}`
 
 // Checks what was actually saved, not just what the screens showed: every story
 // has one turn per player, opens with a word and then alternates word/drawing.
