@@ -2,7 +2,10 @@ import { test, expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
-import { createGame, joinGame, startGame, startThreePlayerGame, driveGameToReview, storyItem, submitDrawing, submitWord } from './helpers.js'
+import {
+  createGame, joinGame, startGame, startThreePlayerGame, driveGameToReview, storyItem, submitDrawing, submitWord,
+  seatOf, notebooksOf,
+} from './helpers.js'
 
 // The review walks through a story one turn per slide. Each slide shows what the
 // player was given (the word they drew, or the drawing they guessed) above what
@@ -122,7 +125,7 @@ test('the review is open mid-game, and players can get back to the game', async 
 // A player who finishes while others are still playing is sent to the review,
 // and a playtester took its empty space for a bug: before a story is open it
 // says what's going on, and every story in the list says who it's waiting on.
-// So does the waiting screen, under each bar (a tooltip nobody found, before).
+// So does the waiting screen: whose notebook a waiting player is waiting on.
 test('a player who finishes early is told so, and sees who each story is waiting on', async ({ browser }) => {
   test.setTimeout(90_000)
   const contexts = await Promise.all([browser.newContext(), browser.newContext()])
@@ -135,7 +138,8 @@ test('a player who finishes early is told so, and sees who each story is waiting
 
     // Both stories wait on buddy: a drawing of the host's word, and buddy's own.
     await submitWord(host, 'a teapot')
-    await expect(host.locator('.story-waiting')).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+    await expect(notebooksOf(host, 'buddy')).toHaveCount(2)
+    await expect(seatOf(host, 'hosty').locator('.seat-status')).toHaveText('Waiting on buddy')
 
     // The host draws buddy's word, and that's all their turns.
     await submitWord(guest, 'a kite')
@@ -179,7 +183,7 @@ test('a player who finishes early is told so, and sees who each story is waiting
   }
 })
 
-// A read of the stories' progress that fails keeps the list it had, on the
+// A read of the stories' progress that fails keeps what it had, on the
 // waiting screen and on the review (where losing it broke the page), and a
 // review whose first read fails tries again. Only the full read fails: the turn
 // page's own read of what it owes is left alone.
@@ -204,14 +208,14 @@ test('a failed progress read keeps the list it had, and the review tries again',
     await startGame(host, 2)
     await guest.waitForURL(/\/draw$/)
     await submitWord(host, 'a teapot')
-    const waiting = host.locator('.story-waiting')
-    await expect(waiting).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+    const notebooks = notebooksOf(host, 'buddy')
+    await expect(notebooks).toHaveCount(2)
 
     // The waiting screen refreshes while the host waits. Wait for a second
     // failed read: the first is counted before the page has handled it.
     await host.route(fullProgress, down)
     await expect.poll(() => failed, { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
-    await expect(waiting).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
+    await expect(notebooks).toHaveCount(2)
 
     // Still failing as the review opens: nothing to show yet, until a retry
     // gets through.
@@ -312,9 +316,9 @@ test('a progress read started while another is on its way still lands', async ({
 
 // A failed read of the players' names is tried again. The review's list used
 // to stay empty for good, and End Game went unnoticed; a turn taken meanwhile
-// mustn't list the stories without their names either. The waiting screen
-// showed its stories nameless until the player's next turn.
-test('a failed read of the players\' names is tried again, on the review and the waiting screen', async ({ browser }) => {
+// mustn't list the stories without their names either. The waiting screen,
+// which once showed its stories nameless, gets the names with the seats.
+test('a failed read of the players\' names is tried again on the review, and the waiting screen doesn\'t need it', async ({ browser }) => {
   test.setTimeout(90_000)
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
   const [host, guest, viewer] = await Promise.all(contexts.map((c) => c.newPage()))
@@ -335,16 +339,14 @@ test('a failed read of the players\' names is tried again, on the review and the
     await expect(viewer.locator('.v-snackbar')).toContainText('names are down')
     await subscribed
     await submitWord(host, 'a teapot')
-    await expect(host.locator('.story-waiting')).toHaveText(['Waiting on someone', 'Waiting on someone'])
-    await expect(host.locator('.story-name')).toHaveText(['', ''])
+    await expect(seatOf(host, 'hosty').locator('.seat-name')).toHaveText('hosty (you)')
+    await expect(seatOf(host, 'hosty').locator('.seat-status')).toHaveText('Waiting on buddy')
+    await expect(seatOf(host, 'buddy').locator('.seat-name')).toHaveText('buddy')
     await expect(viewer.locator('.user-item')).toHaveCount(0)
 
     await Promise.all([host, viewer].map((page) => page.unroute(names, down)))
     await expect(storyItem(viewer, 'hosty')).toContainText('Waiting on buddy', { timeout: 15_000 })
     await expect(storyItem(viewer, 'buddy')).toContainText('Waiting on buddy')
-    await expect(host.locator('.story-waiting')).toHaveText(['Waiting on buddy', 'Waiting on buddy'])
-    await expect(host.locator('.story-name').filter({ hasText: /^buddy$/ })).toHaveCount(1)
-    await expect(host.locator('.story-name').filter({ hasText: /^hosty$/ })).toHaveCount(1)
     expect(errors).toEqual([])
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
@@ -380,10 +382,11 @@ test('a review left before it has loaded stops reading', async ({ page }) => {
   expect(reads).toEqual([])
 })
 
-// The waiting screen's rows line up at every width: each story's avatar, name
-// and bar on one line, the bars starting at the same place and wide enough to
-// read, and a long name wrapping between its words, never inside one.
-test('the waiting screen lines up its rows at every width', async ({ browser }) => {
+// The waiting screen's list (the view that shows the stories as bars) lines up
+// its rows at every width: each story's avatar, name and bar on one line, the
+// bars starting at the same place and wide enough to read, and a long name
+// wrapping between its words, never inside one.
+test('the waiting screen\'s list lines up its rows at every width', async ({ browser }) => {
   test.setTimeout(90_000)
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
   const [host, long, short] = await Promise.all(contexts.map((c) => c.newPage()))
@@ -393,6 +396,7 @@ test('the waiting screen lines up its rows at every width', async ({ browser }) 
     await joinGame(short, code, 'Jo')
     await startGame(host, 3)
     await submitWord(host, 'a teapot')
+    await host.getByRole('button', { name: 'List' }).click()
     for (const name of ['hosty', 'Bartholomew Fizzlewick', 'Jo']) {
       await expect(host.locator('.story-name').filter({ hasText: new RegExp(`^${name}$`) })).toHaveCount(1)
     }

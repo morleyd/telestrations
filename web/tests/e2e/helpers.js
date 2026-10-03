@@ -171,6 +171,16 @@ export async function expectStoriesAlternate(request, code, players, { stories =
   return byStory
 }
 
+// A player's seat at the waiting screen's table: their avatar, name and status.
+export function seatOf(page, username) {
+  return page.locator(`.seat[data-player="${username}"]`)
+}
+
+// The notebooks in front of a player at the waiting screen's table.
+export function notebooksOf(page, username) {
+  return page.locator(`.story-paper[data-holder="${username}"]`)
+}
+
 // Seats in rotation order (stories pass seat 0 -> 1 -> ...), mapped back to the
 // test's pages by username. Seating is decided server-side at begin.
 export async function seatedPages(request, code, pagesByName) {
