@@ -334,6 +334,13 @@ export const pbService = {
         return { errMsg: "getUsername:" + JSON.stringify(err?.response?.message || err) }
       })
     },
+    // The game's players by id (whole records, for names and avatars):
+    // { userMap }, or { errMsg }, or { aborted } (see getUsers).
+    async getUserMap(gameCode) {
+      const resp = await pbService.users.getUsers(gameCode)
+      if (!resp.data) return resp
+      return { userMap: Object.fromEntries(resp.data.map((user) => [user.id, user])) }
+    },
     async getUsers(gameCode) {
       return await pb.collection('users').getFullList({
         filter: `game_id.game_code="${gameCode}"`

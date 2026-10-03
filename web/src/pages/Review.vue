@@ -181,7 +181,10 @@ export default {
       // Set once the page has closed (see unmounted).
       tornDown: false,
       // Reads on their way: of the players' names, and of the progress (the
-      // poll waits for these rather than cancel them).
+      // poll waits for these rather than cancel them). The progress is a
+      // count: a newer read (a turn event's, or the one after the names)
+      // cancels an older one, and the cancelled one finishing mustn't make
+      // the poll think none is on its way.
       readingNames: false,
       progressReads: 0,
       // Whose story is open, and whether it's still on its way.
@@ -399,13 +402,13 @@ export default {
     async getNames() {
       if (this.readingNames) return // it can take longer than the poll
       this.readingNames = true
-      const resp = await pbService.users.getUsers(this.$route.params.gameCode)
+      const resp = await pbService.users.getUserMap(this.$route.params.gameCode)
       this.readingNames = false
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
       }
-      if (!resp.data) return // the next refresh tries again
-      this.userMap = Object.fromEntries(resp.data.map(obj => [obj.id, obj]))
+      if (!resp.userMap) return // the next refresh tries again
+      this.userMap = resp.userMap
       this.getProgress()
     },
     async getProgress() {
