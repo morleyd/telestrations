@@ -1,7 +1,11 @@
 import PocketBase from 'pocketbase';
 import { sameName } from '@/services/player';
+import { fetchWhole } from './fetchWhole';
 
 export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://127.0.0.1:8090/")
+// So a cancelled request always rejects as cancelled, never as an empty answer
+// (see fetchWhole).
+pb.beforeSend = (url, options) => ({ url, options: { ...options, fetch: fetchWhole } })
 // A note on the SDK's auto-cancellation: it aborts an in-flight request whenever
 // a second one with the same resource key starts. That is exactly right for the
 // recurring state refreshes (e.g. WaitingRoom's roster refetch on every realtime
