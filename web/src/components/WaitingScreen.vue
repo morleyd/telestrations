@@ -115,7 +115,8 @@ export default {
         pbService.progress.getFullProgress(this.$route.params.gameCode),
         pbService.games.getPlayers(this.gameId),
       ])
-      if (rows.aborted || mine < this.shown) return // a newer refresh is on its way, or here
+      // Cancelled by a newer refresh, or a newer one has already landed
+      if (rows.aborted || mine < this.shown) return
       const errMsg = rows.errMsg || players.errMsg
       if (errMsg) {
         this.$emit("snack", errMsg, "error")

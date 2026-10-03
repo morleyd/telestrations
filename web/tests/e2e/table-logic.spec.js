@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { seatPlayers, roundTable, sidesTable, longTable, labelBox, pileSpot, travel } from '../../src/services/table.js'
+import {
+  seatPlayers, roundTable, sidesTable, longTable, crowded, labelBox, pileSpot, travel,
+} from '../../src/services/table.js'
 
 // The waiting screen's table: who sits where with which notebooks, and where
 // it all goes. No page is opened.
@@ -23,6 +25,11 @@ test('each player sits in turn order with the notebooks waiting on them, the one
   // A player writes their own opening word before anything else.
   expect(seats[1].papers).toEqual([{ id: 'sb', isDraw: false }, { id: 'sa', isDraw: true }])
   expect(seats.map((s) => s.status)).toEqual(['waiting', 'writing', 'writing'])
+})
+
+test('someone looking who isn\'t at the table is nobody\'s seat', () => {
+  const seats = seatPlayers([player('a'), player('b')], [story('s1', 'a', 0)], 'spectator')
+  expect(seats.map((s) => s.isMe)).toEqual([false, false])
 })
 
 test('the notebook a player was on stays on top of their pile', () => {
@@ -62,6 +69,12 @@ test('a player who has not opened the game yet gets a blank page; finished playe
   expect(seats[2].status).toBe('done')
   expect(seats[2].papers).toEqual([])
 
+  // Finished without a story of their own (the game ended before they opened
+  // it): nothing to write, so no blank page.
+  const ended = seatPlayers([player('a'), player('b', { has_story: false, finished: true })], [], 'a')
+  expect(ended[1].papers).toEqual([])
+  expect(ended[1].status).toBe('done')
+
   const fresh = seatPlayers([player('a'), player('b', { has_story: false })], [], 'a')
   expect(fresh[1].papers).toEqual([{ id: 'first:b', isDraw: false }])
   expect(fresh[1].status).toBe('writing')
@@ -71,6 +84,21 @@ test('a player who has not opened the game yet gets a blank page; finished playe
   const between = seatPlayers([player('a'), player('b', { has_story: false })],
     [{ ...story('sb', 'b', 0), starter_user_id: 'b' }], 'a')
   expect(between[1].papers).toEqual([{ id: 'sb', isDraw: false }])
+})
+
+test('notebooks the same number of turns in go in order of their stories, as the turn page takes them', () => {
+  const seats = seatPlayers([player('a'), player('b')], [story('s9', 'b', 2), story('s3', 'b', 2), story('s5', 'b', 2)], 'a')
+  expect(seats[1].papers.map((p) => p.id)).toEqual(['s3', 's5', 's9'])
+})
+
+test('a player\'s opening word goes on top of their pile, even over the one they were on last time', () => {
+  // The players said b had a story before the progress showed it, so last
+  // time a's notebook was on top. Now b's story is here: b writes that first.
+  const players = [player('a'), player('b')]
+  const rows = [story('sa', 'b', 1), story('sb', 'b', 0)]
+  const seats = seatPlayers(players, rows, 'a', new Map([['b', 'sa']]))
+  expect(seats[1].papers.map((p) => p.id)).toEqual(['sb', 'sa'])
+  expect(seats[1].status).toBe('writing')
 })
 
 test('a waiting player is waiting on whoever has the next notebook coming their way', () => {
@@ -176,20 +204,76 @@ test('round table fits a short screen, and never gets too short for the names', 
 const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
 const avatarBox = (seat, size) => ({ left: seat.x - size / 2, right: seat.x + size / 2, top: seat.y - size / 2, bottom: seat.y + size / 2 })
 
-// No name runs into another name or another player's avatar, and none is off
-// the screen
+// The room a pile of four notebooks takes, worked out from its sheets'
+// corners
+function pileBox(seat, { w, h }) {
+  const corners = [0, 1, 2, 3].flatMap((k) => {
+    const { x, y, rot } = pileSpot(seat, k)
+    const r = (rot * Math.PI) / 180
+    return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => [
+      x + (sx * w / 2) * Math.cos(r) - (sy * h / 2) * Math.sin(r),
+      y + (sx * w / 2) * Math.sin(r) + (sy * h / 2) * Math.cos(r),
+    ])
+  })
+  const xs = corners.map(([x]) => x)
+  const ys = corners.map(([, y]) => y)
+  return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) }
+}
+
+// No name runs into another name, another player's avatar or their pile of
+// notebooks, and none is off the screen; no avatars or piles overlap
 function expectRoom(layout, at) {
   const names = layout.seats.map((s) => labelBox(s.label))
+  const piles = layout.seats.map((s) => pileBox(s, layout.paper))
+  const avatars = layout.seats.map((s) => avatarBox(s, layout.avatar))
   for (const [i, name] of names.entries()) {
     expect(name.left, `name ${i} on screen ${at}`).toBeGreaterThanOrEqual(0)
     expect(name.right, `name ${i} on screen ${at}`).toBeLessThanOrEqual(layout.width)
-    for (const [j, seat] of layout.seats.entries()) {
+    expect(name.top, `name ${i} on screen ${at}`).toBeGreaterThanOrEqual(0)
+    expect(name.bottom, `name ${i} on screen ${at}`).toBeLessThanOrEqual(layout.height)
+    for (let j = 0; j < layout.seats.length; j++) {
       if (i === j) continue
       expect(hit(name, names[j]), `names ${i} and ${j} apart ${at}`).toBe(false)
-      expect(hit(name, avatarBox(seat, layout.avatar)), `name ${i} clear of avatar ${j} ${at}`).toBe(false)
+      expect(hit(name, avatars[j]), `name ${i} clear of avatar ${j} ${at}`).toBe(false)
+      expect(hit(name, piles[j]), `name ${i} clear of pile ${j} ${at}`).toBe(false)
+      expect(hit(avatars[i], avatars[j]), `avatars ${i} and ${j} apart ${at}`).toBe(false)
+      expect(hit(piles[i], piles[j]), `piles ${i} and ${j} apart ${at}`).toBe(false)
     }
   }
 }
+
+// Two players far apart at a table 1000 by 600: a name under each avatar, a
+// notebook above it. Each case below moves one thing of the second player's.
+function twoSeats() {
+  const seat = (x) => ({
+    x, y: 300,
+    paper: { x, y: 240, rot: 0 },
+    label: { x, y: 330, shift: { x: -50, y: 0 }, align: 'center', max: 100 },
+  })
+  return { width: 1000, height: 600, avatar: 50, paper: { w: 40, h: 50 }, seats: [seat(200), seat(700)] }
+}
+
+test('a table is crowded when anything of one player\'s runs into another\'s, or a name is off the screen', () => {
+  expect(crowded(twoSeats())).toBe(false)
+  const moved = (change) => {
+    const layout = twoSeats()
+    change(layout.seats[1])
+    return crowded(layout)
+  }
+  // Each runs into exactly one thing of the first player's
+  expect(moved((s) => { s.paper = { x: 205, y: 240, rot: 0 } }), 'piles').toBe(true)
+  expect(moved((s) => { s.x = 230; s.paper.x = 700 }), 'avatars').toBe(true)
+  expect(moved((s) => { s.label = { ...s.label, x: 200, y: 276 } }), 'name on avatar').toBe(true)
+  expect(moved((s) => { s.label = { ...s.label, x: 200, y: 200 } }), 'name on pile').toBe(true)
+  expect(moved((s) => { s.label = { ...s.label, x: 200, y: 340 } }), 'names').toBe(true)
+  // Off each edge
+  expect(moved((s) => { s.label = { ...s.label, x: 960 } }), 'off the right').toBe(true)
+  expect(moved((s) => { s.label = { ...s.label, x: 40 } }), 'off the left').toBe(true)
+  expect(moved((s) => { s.label = { ...s.label, y: -10 } }), 'off the top').toBe(true)
+  expect(moved((s) => { s.label = { ...s.label, y: 560 } }), 'off the bottom').toBe(true)
+  // A player's own things may touch: their notebook meets their avatar
+  expect(moved((s) => { s.paper = { x: 700, y: 262, rot: 0 } }), 'own pile on own avatar').toBe(false)
+})
 
 test('the round table squeezes in more players, then gives way to the table with two sides', () => {
   for (const [width, height] of [[1100, 700], [928, 560], [1400, 900]]) {

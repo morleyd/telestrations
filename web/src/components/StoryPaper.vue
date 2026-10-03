@@ -14,13 +14,13 @@
            own, since a dash pattern starts again at every stroke of a path.
            Before it starts, the dash sits wholly before the stroke, so not
            even its round end shows. -->
-      <path v-for="s in strokes" :key="s.d" :d="s.d" class="marks" :pathLength="still ? null : 1"
+      <path v-for="s in work.strokes" :key="s.d" :d="s.d" class="marks" :pathLength="still ? null : 1"
         :stroke-dasharray="still ? null : '1 1.1'" :stroke-dashoffset="still ? null : 1.05">
         <animate v-if="!still" attributeName="stroke-dashoffset" values="1.05;1.05;0;0" :keyTimes="s.keyTimes"
           :dur="dur" repeatCount="indefinite" />
       </path>
-      <g :transform="still ? `translate(${rest})` : null">
-        <animateMotion v-if="!still" :path="motion" calcMode="linear" keyPoints="0;1;1" :keyTimes="`0;${DRAWN};1`"
+      <g :transform="still ? `translate(${work.rest})` : null">
+        <animateMotion v-if="!still" :path="work.motion" calcMode="linear" keyPoints="0;1;1" :keyTimes="`0;${DRAWN};1`"
           :dur="dur" repeatCount="indefinite" />
         <!-- The pencil, its point at the origin, leaning back -->
         <g transform="rotate(35)" class="pencil">
@@ -35,41 +35,7 @@
   </svg>
 </template>
 <script>
-// What the pencil puts down, stroke by stroke, with each stroke's length (in
-// any unit, the same for all). Handwriting along the first three lines (each
-// hump of it the same length), and a house under the sun.
-const WRITING = [12, 10, 6].map((humps, i) => ({
-  d: `M15 ${21 + 10 * i} q1.5 -5 3 0` + " t3 0".repeat(humps - 1),
-  length: humps,
-}))
-const DRAWING = [
-  { d: "M16 60 L16 40 L30 27 L44 40 L44 60 Z", length: 20 + 20 + 28 + 2 * Math.hypot(14, 13) },
-  { d: "M26 60 L26 49 L34 49 L34 60", length: 30 },
-  { d: "M44 15 a4 4 0 1 0 8 0 a4 4 0 1 0 -8 0", length: 8 * Math.PI },
-]
-
-// The share of the loop the pencil spends drawing. Then it rests, and starts
-// over.
-const DRAWN = 0.8
-
-// When each stroke inks in: while the pencil, going along them all at an even
-// pace, is on it
-function timed(strokes) {
-  const total = strokes.reduce((sum, s) => sum + s.length, 0)
-  let done = 0
-  return strokes.map(({ d, length }) => {
-    const from = (done / total) * DRAWN
-    done += length
-    const to = (done / total) * DRAWN
-    return { d, keyTimes: `0;${from.toFixed(4)};${to.toFixed(4)};1` }
-  })
-}
-
-const MARKS = { writing: timed(WRITING), drawing: timed(DRAWING) }
-const MOTION = {
-  writing: WRITING.map((s) => s.d).join(" "),
-  drawing: DRAWING.map((s) => s.d).join(" "),
-}
+import { DRAWN, pencilWork } from '@/services/pencil'
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
 
@@ -91,16 +57,8 @@ export default {
     return { still: reducedMotion() }
   },
   computed: {
-    strokes() {
-      return MARKS[this.isDraw ? "drawing" : "writing"]
-    },
-    // The pencil's way: every stroke, jumping from one to the next
-    motion() {
-      return MOTION[this.isDraw ? "drawing" : "writing"]
-    },
-    // Where the pencil rests when nothing moves: at the end of what it drew
-    rest() {
-      return this.isDraw ? "44 15" : "33 41"
+    work() {
+      return pencilWork(this.isDraw)
     },
     // 3-4.4s, from the story's id, so the pencils round the table don't move
     // in step

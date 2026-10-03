@@ -8,11 +8,13 @@
 // there while it's still theirs.
 //
 // Each seat gets the notebooks waiting on that player, the one they're on
-// first: their own story while they write its opening word (TakeTurn does that
-// before anything else), then the one that has been round the table the fewest
-// times. A player who hasn't opened the game yet has no story of their own, so
-// a blank page stands in for it. Dropped players have left the table: the
-// server skips their turns as stories reach them.
+// first. That's their own story while they write its opening word (TakeTurn
+// does that before anything else); else the one on top last time; else the
+// one that has been round the table the fewest times, and of those the first
+// by id, which is the one TakeTurn gives them next. A player who hasn't opened
+// the game yet has no story of their own, so a blank page stands in for it.
+// Dropped players have left the table: the server skips their turns as
+// stories reach them.
 export function seatPlayers(players, rows, meId, onTop = new Map()) {
   const all = players || []
   const stories = rows || []
@@ -29,8 +31,13 @@ export function seatPlayers(players, rows, meId, onTop = new Map()) {
     if (player.dropped) return []
     const papers = piles.get(player.id)
     if (unstarted.has(player.id)) papers.push({ id: `first:${player.id}`, isDraw: false, taken: 0 })
+    // Their opening word (no turns taken) always first, even over the one on
+    // top last time: that was only our best guess, before their own story
+    // showed up. Then the one on top last time, then the one TakeTurn gives
+    // them next.
     const top = onTop.get(player.id)
-    papers.sort((a, b) => (b.id === top) - (a.id === top) || a.taken - b.taken)
+    papers.sort((a, b) => (a.taken > 0) - (b.taken > 0) || (b.id === top) - (a.id === top) ||
+      a.taken - b.taken || (a.id < b.id ? -1 : 1))
     const status = papers.length ? (papers[0].isDraw ? "drawing" : "writing") : player.finished ? "done" : "waiting"
     return [{
       player,
@@ -50,12 +57,12 @@ function nextFrom(player, all, stories) {
   const seat = new Map(all.map((p, i) => [p.id, i]))
   const n = all.length
   const mine = seat.get(player.id)
-  // Stories not started yet start at their player, with no turns taken
-  const total = stories[0]?.total_turns
   const holders = [
     ...stories.filter((r) => seat.has(r.next_user_id))
       .map((r) => ({ at: seat.get(r.next_user_id), taken: r.turns_taken || 0, total: r.total_turns })),
-    ...[...notStarted(all, stories)].map((id) => ({ at: seat.get(id), taken: 0, total })),
+    // A story not started yet starts at its player and has a turn for
+    // everyone: a round is a turn per seat
+    ...[...notStarted(all, stories)].map((id) => ({ at: seat.get(id), taken: 0, total: null })),
   ]
   let best = null
   for (const h of holders) {
@@ -99,7 +106,10 @@ const ROUND_AVATARS = [76, 68, 60, 52]
 // to: each game is as tight as the tightest smaller one, and once a game is
 // too big for the round table, so is every bigger one.
 export function roundTable({ width, height, count, meIndex = 0 }) {
+  // Where whoever's looking sits only turns the table round: the gaps are the
+  // same, so it doesn't matter to the fit
   const fits = (n, avatar) => !crowded(roundAt({ width, height, count: n, meIndex: 0, avatar }))
+  // The size each smaller game needed, so far: it only ever gets smaller
   let from = 0
   for (let n = 1; n <= count && from < ROUND_AVATARS.length; n++) {
     while (from < ROUND_AVATARS.length && !fits(n, ROUND_AVATARS[from])) from++
@@ -149,7 +159,7 @@ function clearOf({ cx, cy, rx, ry }, label) {
 // Whether anything at the table runs into anything else, or a name off the
 // screen: names, avatars and piles of notebooks, each against the other
 // players'.
-function crowded({ seats, avatar, paper, width, height }) {
+export function crowded({ seats, avatar, paper, width, height }) {
   const boxes = seats.map((s) => ({
     avatar: box(s.x, s.y, avatar / 2 + 2, avatar / 2 + 2),
     label: labelBox(s.label),
