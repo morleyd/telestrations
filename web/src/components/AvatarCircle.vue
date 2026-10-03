@@ -3,7 +3,7 @@
        (see services/avatarPaper) -->
   <span class="avatar-paper">
     <svg class="avatar-scrap" :style="scrapStyle" viewBox="-1 -1 2 2" aria-hidden="true">
-      <path :d="paper.scrap.path" :fill="scrap" />
+      <path :d="paper.scrap.path" :fill="scrapFill" />
     </svg>
     <div v-if="avatar" class="avatar-circle avatar-cut" v-html="avatar"
       :style="{ width: `${size}px`, height: `${size}px`, 'background-color': color, 'border-radius': paper.cut }">
@@ -40,7 +40,7 @@ export default {
     paper() {
       return avatarPaper(this.name || this.color)
     },
-    scrap() {
+    scrapFill() {
       return scrapColor(this.color)
     },
     scrapStyle() {
@@ -88,6 +88,6 @@ export default {
 }
 
 .avatar-paper .avatar-cut {
-  box-shadow: 0 0 0 2px rgb(var(--v-theme-on-surface));
+  box-shadow: 0 0 0 2px var(--ink);
 }
 </style>

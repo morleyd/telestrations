@@ -38,7 +38,9 @@ test('the scrap lies under the avatar like a shadow, a little off center, any wa
 test('the scrap is the avatar color\'s complement, a little darker', () => {
   expect(scrapColor('hsl(210, 80%, 65%)')).toBe('hsl(30, 80%, 55%)')
   expect(scrapColor('hsl(300, 70%, 40%)')).toBe('hsl(120, 70%, 35%)')
-  // Anything not hsl() (none are, today) gets a paper color instead
+  // An alpha is left off: the scrap is paper
+  expect(scrapColor('hsla(210, 80%, 65%, 0.5)')).toBe('hsl(30, 80%, 55%)')
+  // Anything else (none are, today) gets a paper color instead
   expect(scrapColor('#ff0000')).toBe('rgb(var(--v-theme-secondary))')
   expect(scrapColor(undefined)).toBe('rgb(var(--v-theme-secondary))')
 })

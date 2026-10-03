@@ -145,7 +145,7 @@ export default {
   border-radius: 50%;
   background: rgb(var(--v-theme-primary));
   color: rgb(var(--v-theme-on-primary));
-  box-shadow: 0 0 0 2px rgb(var(--v-theme-on-surface));
+  box-shadow: 0 0 0 2px var(--ink);
 }
 
 /* Three faces a row on a phone, four on anything wider. Only the faces
@@ -174,8 +174,8 @@ export default {
 /* The one picked, on a sticker of its own */
 .avatar-option.v-card.avatar-option--selected {
   background: rgb(var(--v-theme-secondary-lighten-3));
-  border-color: rgb(var(--v-theme-on-surface));
-  box-shadow: 3px 3px 0 rgb(var(--v-theme-on-surface));
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
 }
 
 .safe-bottom {

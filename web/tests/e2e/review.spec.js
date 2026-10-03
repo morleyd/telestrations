@@ -50,6 +50,13 @@ test('each review slide shows its prompt, and the drawing never covers the name'
     await next()
     await expect(visible('.slide-thumb')).toHaveAttribute('src', drawing)
 
+    // And back. The arrows sit over the strip the slide dots are in, and
+    // Playwright clicks only what's on top, so this click, like the next
+    // arrow's above, shows the arrows get them.
+    await host.locator('.v-window__left').click()
+    await expect(visible('.v-window-item')).toHaveCount(1)
+    await expect(visible('.slide-drawing')).toHaveAttribute('src', drawing)
+
     // On every screen, the drawing sits above the name, and the name above the
     // carousel's slide dots.
     for (const screen of SCREENS) {
