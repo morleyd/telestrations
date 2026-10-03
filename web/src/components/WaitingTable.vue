@@ -80,7 +80,10 @@ export default {
         for (const p of now) {
           const old = was.get(p.id)
           const el = this.els.get(p.id)
-          if (!old || !el || old.key !== p.key || (old.seat === p.seat && old.k === p.k)) continue
+          // Just arrived, or redrawn for a new layout: nothing to slide from
+          const fresh = !old || !el || old.key !== p.key
+          const moved = !fresh && (old.seat !== p.seat || old.k !== p.k)
+          if (!moved) continue
           this.slides.get(p.id)?.cancel()
           this.slides.set(p.id, this.slide(el, travel(old.spot, p.spot, this.layout, old.seat, p.seat)))
         }
