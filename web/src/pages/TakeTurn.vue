@@ -2,7 +2,7 @@
 <template>
   <AppBar />
   <div v-if="userState == 'waiting'" style="justify-self: center;">
-    <WaitingScreen ref="waiting" />
+    <WaitingScreen ref="waiting" :game-id="gameId" />
   </div>
   <div v-else-if="userState == 'finished'" style="justify-self: center;">
     <span>Finished...</span>
