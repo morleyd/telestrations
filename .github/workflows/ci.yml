@@ -71,6 +71,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - run: make frontend
       - run: go test ./...
       # The concurrent soaks are too slow under the race detector to run on
       # every PR, so -race gets the -short suite.
