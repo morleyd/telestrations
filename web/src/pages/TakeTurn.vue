@@ -695,6 +695,12 @@ export default {
           log.warn("turn.submit.alreadyTaken", { story: storyId, index })
           this.turnWritten(storyId, index, wasFirstTurn)
           break
+        case "unsupported_picture":
+          // The upload checks a picture's type before sending it, so only one
+          // the server reads differently gets here. Stay on it to pick another.
+          this.$emit("snack", "That kind of picture can't be used here. Try a JPEG or PNG.", "error")
+          if (this.endsAt && this.endLeft <= 0) this.goToReview()
+          break
         case "not_your_turn":
           // This screen is out of date; go find what's really waiting on us.
           log.warn("turn.submit.notYourTurn", { story: storyId })

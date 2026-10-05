@@ -6,8 +6,9 @@ import (
 )
 
 // BindHooks binds the record hooks the game relies on: the guards on
-// client writes (bindTurnGuards in host.go) and, after every turn, the audit
-// log and the auto-skip past dropped players. The Go tests bind the same set.
+// client writes (bindTurnGuards in host.go, bindDrawingTypes in drawings.go)
+// and, after every turn, the audit log and the auto-skip past dropped players.
+// The Go tests bind the same set.
 func BindHooks(app core.App) {
 	// Number every turn by its place in its story, whoever writes it (a
 	// submit, a skip, a timeout): the views find a story's previous turn by
@@ -55,6 +56,7 @@ func BindHooks(app core.App) {
 		return e.Next()
 	})
 	bindTurnGuards(app)
+	bindDrawingTypes(app)
 }
 
 // auditTurn logs a just-created turn with its place in the story (s, read after
