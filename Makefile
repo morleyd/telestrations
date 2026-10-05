@@ -7,12 +7,21 @@ BINARY := bin/telestrations
 DATA := pb_data
 # Where `make run` listens: every interface, so phones on the Wi-Fi can join.
 HTTP ?= 0.0.0.0:8090
+# This machine's address on the local network (192.168.x.x and the like), the
+# one other devices join at. Found from the interfaces; set it if it guesses wrong.
+LAN_IP ?= $(shell { ip -4 -o addr show 2>/dev/null || ifconfig 2>/dev/null; } \
+	| awk '{for (i = 1; i < NF; i++) if ($$i == "inet") print $$(i+1)}' \
+	| sed 's/^addr://; s|/.*||' \
+	| grep -E '^(192\.168|10|172\.(1[6-9]|2[0-9]|3[01]))\.' | head -1)
+# `make dev-server dev-web LAN=1` (or each in its own terminal) opens the
+# development servers to the network too; without it they stay on this machine.
+LAN ?=
 
 # The web app's npm tasks live in web/Makefile.
 WEB := $(MAKE) --no-print-directory -C web
 
 .DEFAULT_GOAL := build
-.PHONY: help deps frontend build run dev-server dev-web test test-race e2e lint fmt clean
+.PHONY: help deps frontend build run lan-url dev-server dev-web test test-race e2e lint fmt clean
 
 help: ## List the targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-11s %s\n", $$1, $$2}'
@@ -28,14 +37,24 @@ frontend: ## Build the web app into web/dist
 build: frontend ## Build the server binary, with the web app embedded
 	go build -o $(BINARY) ./cmd/telestrations
 
-run: build ## Build everything and serve it on your network (HTTP=host:port)
+run: build lan-url ## Build everything and serve it on your network (HTTP=host:port)
 	./$(BINARY) serve --dir $(DATA) --http $(HTTP)
 
-dev-server: ## Development backend on http://127.0.0.1:8090
-	go run ./cmd/telestrations serve
+lan-url: ## Print the address other devices on your network join at
+	@if [ -n "$(LAN_IP)" ]; then \
+		echo "Other devices on your network join at http://$(LAN_IP):$(lastword $(subst :, ,$(HTTP)))"; \
+	else \
+		echo "Couldn't find this machine's network address; set LAN_IP=..."; \
+	fi
 
-dev-web: deps ## Development web app (Vite, live reload) against dev-server
-	$(WEB) dev
+dev-server: ## Development backend on http://127.0.0.1:8090 (LAN=1: on your network)
+	go run ./cmd/telestrations serve $(if $(LAN),--http 0.0.0.0:8090)
+
+# On the network, the app on a phone must reach the backend at this machine's
+# address, not its own 127.0.0.1.
+dev-web: deps ## Development web app (Vite, live reload) against dev-server (LAN=1: on your network)
+	$(if $(LAN),@echo "Other devices on your network join at http://$(LAN_IP):3000")
+	$(if $(LAN),VITE_POCKETBASE_URL=http://$(LAN_IP):8090/ npm --prefix web run dev -- --host,$(WEB) dev)
 
 test: ## Go tests
 	go test ./...
