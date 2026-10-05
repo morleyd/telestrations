@@ -158,6 +158,11 @@ test('the avatar picker is a labeled button from the start, and the face picked 
   // The face (every avatar also has a scrap of paper behind it, an svg too)
   await expect(picker.locator('.avatar-circle')).toHaveCount(1)
 
+  // Drawn across the circle, not laid out as nothing (as Safari did when the
+  // face's svg had no width)
+  const face = await picker.locator('.avatar-circle svg').boundingBox()
+  expect(face.width).toBe(56)
+
   await page.getByRole('button', { name: 'Begin!' }).click()
   await expect(page.locator('.drag-item .avatar-circle')).toHaveCount(1)
 
