@@ -484,3 +484,25 @@ test('any player can download a story, or every story in the game', async ({ bro
     await Promise.all(contexts.map((c) => c.close()))
   }
 })
+
+// Regression: a drawing that wouldn't load (an iPhone's HEIC, on Chrome) left
+// the browser's stand-in, "Drawing by …", smeared by the drawing's ink
+// outline. It says so plainly instead, on its slide and as the next prompt.
+test('a drawing that won\'t load says so, readably', async ({ page }) => {
+  await createGame(page, { username: 'solo', rounds: 3 })
+  await startGame(page)
+  await page.route('**/api/files/**', (route) => route.abort())
+  await driveGameToReview([page])
+
+  const visible = (selector) => page.locator(`${selector}:visible`)
+  await page.locator('.user-item').first().click()
+  await expect(visible('.v-window-item')).toHaveCount(1)
+  await page.locator('.v-window__right').click()
+  await expect(visible('.v-window-item')).toHaveCount(1)
+  await expect(visible('.slide-main .slide-broken')).toHaveText("(this drawing couldn't be loaded)")
+  await expect(visible('.slide-drawing')).toHaveCount(0)
+
+  await page.locator('.v-window__right').click()
+  await expect(visible('.v-window-item')).toHaveCount(1)
+  await expect(visible('.slide-prompt .slide-broken')).toHaveText("(this drawing couldn't be loaded)")
+})
