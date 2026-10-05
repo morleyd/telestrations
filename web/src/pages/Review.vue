@@ -71,14 +71,18 @@
               <div class="hand slide-prompt-text">{{ turn.prev.prompt }}</div>
             </div>
             <div class="slide-main">
-              <img class="slide-drawing" :src="turn.drawing" :alt="`Drawing by ${userMap[turn.turn_user_id].username}`">
+              <img v-if="!brokenDrawings[turn.drawing]" class="slide-drawing" :src="turn.drawing"
+                :alt="`Drawing by ${userMap[turn.turn_user_id].username}`" @error="brokenDrawings[turn.drawing] = true">
+              <div v-else class="slide-broken">(this drawing couldn't be loaded)</div>
             </div>
           </template>
           <template v-else>
             <div v-if="turn.prev?.drawing" class="slide-prompt">
               <div class="slide-prompt-label">Prompt</div>
-              <img class="slide-thumb" :src="turn.prev.drawing"
-                :alt="`Drawing by ${userMap[turn.prev.turn_user_id].username}`">
+              <img v-if="!brokenDrawings[turn.prev.drawing]" class="slide-thumb" :src="turn.prev.drawing"
+                :alt="`Drawing by ${userMap[turn.prev.turn_user_id].username}`"
+                @error="brokenDrawings[turn.prev.drawing] = true">
+              <div v-else class="slide-broken slide-broken--thumb">(this drawing couldn't be loaded)</div>
             </div>
             <div class="slide-main">
               <div class="wrap hand slide-guess">{{ turn.prompt }}</div>
@@ -177,6 +181,10 @@ export default {
       // (we don't pull them away from the stories they came to look at), or
       // moving them across failed and they can try again.
       joinOffer: false,
+      // Drawings that wouldn't load, by address: shown as a note instead, as
+      // the browser's own stand-in (the alt text) is smeared by the drawing's
+      // ink outline.
+      brokenDrawings: {},
       pollTimer: null,
       // Set once the page has closed (see unmounted).
       tornDown: false,
@@ -681,6 +689,17 @@ export default {
   object-fit: contain;
   filter: drop-shadow(2px 0 0 var(--ink)) drop-shadow(-2px 0 0 var(--ink)) drop-shadow(0 2px 0 var(--ink))
     drop-shadow(0 -2px 0 var(--ink)) drop-shadow(4px 4px 0 var(--ink));
+}
+
+/* A drawing that wouldn't load (one in a type this browser can't draw). */
+.slide-broken {
+  align-self: center;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 1.25rem;
+}
+
+.slide-broken--thumb {
+  font-size: 0.9rem;
 }
 
 .slide-guess {
