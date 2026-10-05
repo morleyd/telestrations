@@ -15,7 +15,11 @@
     </div>
     <div>
       <input ref="file" id="fileInput" type="file" accept="image/*" @change="onChange" style="display: none;" />
-      <label v-if="previewSrc == ''" for="fileInput">
+      <div v-if="converting" class="pa-4">
+        <v-progress-circular indeterminate color="primary" />
+        <v-card-text>Getting your picture ready…</v-card-text>
+      </div>
+      <label v-else-if="previewSrc == ''" for="fileInput">
         <v-card-title v-if="isDragging">Release to upload.</v-card-title>
         <div v-else class="pa-4">
           <v-card-title>Drop your picture here!</v-card-title>
@@ -29,6 +33,8 @@
   </div>
 </template>
 <script>
+import { prepareUpload, UnsupportedPicture } from "@/services/uploadImage"
+
 export default {
   name: "UploadPhoto",
   data() {
@@ -36,6 +42,7 @@ export default {
       isDragging: false,
       file: null,
       previewSrc: '',
+      converting: false,
     }
   },
   methods: {
@@ -48,9 +55,25 @@ export default {
     /**
      * onChange sets the file after an image is dropped or inputted
      */
-    onChange() {
-      this.file = this.$refs.file.files[0]
-      this.previewSrc = URL.createObjectURL(this.file)
+    async onChange() {
+      const picked = this.$refs.file.files[0]
+      if (!picked) return
+      this.converting = true
+      try {
+        // A HEIC photo becomes a JPEG here, so it shows on every browser.
+        this.file = await prepareUpload(picked)
+        this.previewSrc = URL.createObjectURL(this.file)
+      } catch (e) {
+        if (e instanceof UnsupportedPicture) {
+          this.$emit("snack", "That kind of picture won't show for everyone. Try a JPEG or PNG", "error")
+        } else {
+          console.error("couldn't read the picture", e)
+          this.$emit("snack", "Couldn't read that picture, try another one", "error")
+        }
+        this.onClearClicked()
+      } finally {
+        this.converting = false
+      }
     },
     /**
      * onClearClicked clears out the selected file
@@ -58,6 +81,8 @@ export default {
     onClearClicked() {
       this.file = null;
       this.previewSrc = '';
+      // so picking the same file again still counts as a change
+      this.$refs.file.value = '';
     },
     /**
      * onDragover handles the dragover event

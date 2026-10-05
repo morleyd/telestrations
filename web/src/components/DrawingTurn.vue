@@ -19,7 +19,7 @@
         <DrawingBox ref="box" @drawing="saveDrawing" />
       </v-tabs-window-item>
       <v-tabs-window-item value="upload">
-        <DrawingUpload ref="upload" @drawing="saveDrawing" />
+        <DrawingUpload ref="upload" @drawing="saveDrawing" @snack="(...a) => $emit('snack', ...a)" />
       </v-tabs-window-item>
     </v-tabs-window>
   </v-card>
