@@ -73,6 +73,12 @@ export default {
   align-items: center;
 }
 
+/* The faces have a viewBox but no size of their own, which Safari lays out
+   as nothing at all. Chrome stretches them across the circle; say so. */
+.avatar-circle svg {
+  width: 100%;
+}
+
 /* Its own layer, so the scrap goes behind the avatar but no further */
 .avatar-paper {
   position: relative;
