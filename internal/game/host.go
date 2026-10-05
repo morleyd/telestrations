@@ -46,6 +46,9 @@ const (
 	msgWantWord    = "This story needs a starting word, not a drawing. Please refresh the page."
 	msgWantGuess   = "This turn needs a guess, not a drawing. Please refresh the page."
 	msgWantDrawing = "This turn needs a drawing, not a guess. Please refresh the page."
+
+	// The web app checks a picture's type before sending it; an old page may not.
+	msgBadPicture = "That kind of picture can't be used here. Try a JPEG or PNG."
 )
 
 // Refusal codes: a refused write carries one as data.code.code (see refuse), and
@@ -56,7 +59,8 @@ const (
 	codeTurnTaken     = "turn_taken"     // this player already wrote this turn
 	codeNotYourTurn   = "not_your_turn"  // the story is waiting on someone else
 	codeWrongTurnType = "wrong_turn_type"
-	codeGameOver      = "game_over" // the host ended the game and time is up
+	codeGameOver      = "game_over"           // the host ended the game and time is up
+	codeBadPicture    = "unsupported_picture" // a drawing of a type not every browser can use
 )
 
 // refusalCode is a PocketBase safe error item, so it reaches the client intact

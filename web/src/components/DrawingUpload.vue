@@ -43,6 +43,8 @@ export default {
       file: null,
       previewSrc: '',
       converting: false,
+      // counts picks, so a slow conversion outdated by a newer one is dropped
+      pick: 0,
     }
   },
   methods: {
@@ -53,36 +55,47 @@ export default {
       this.$emit("drawing", this.file)
     },
     /**
-     * onChange sets the file after an image is dropped or inputted
+     * onChange sets the file after an image is dropped or inputted. A HEIC
+     * photo becomes a JPEG here, so it shows on every browser. Converting can
+     * take a while: a pick or a Clear in the meantime outdates it, and only
+     * the newest pick is kept.
      */
     async onChange() {
-      const picked = this.$refs.file.files[0]
+      const picked = this.$refs.file?.files[0]
       if (!picked) return
+      const pick = ++this.pick
+      this.file = null
+      this.previewSrc = ''
       this.converting = true
       try {
-        // A HEIC photo becomes a JPEG here, so it shows on every browser.
-        this.file = await prepareUpload(picked)
-        this.previewSrc = URL.createObjectURL(this.file)
+        const file = await prepareUpload(picked)
+        if (pick !== this.pick) return
+        this.file = file
+        this.previewSrc = URL.createObjectURL(file)
       } catch (e) {
+        if (pick !== this.pick) return
         if (e instanceof UnsupportedPicture) {
-          this.$emit("snack", "That kind of picture won't show for everyone. Try a JPEG or PNG", "error")
+          this.$emit("snack", "That kind of picture can't be used here. Try a JPEG or PNG.", "error")
         } else {
           console.error("couldn't read the picture", e)
           this.$emit("snack", "Couldn't read that picture, try another one", "error")
         }
         this.onClearClicked()
       } finally {
-        this.converting = false
+        if (pick === this.pick) this.converting = false
       }
     },
     /**
      * onClearClicked clears out the selected file
      */
     onClearClicked() {
+      this.pick++
+      this.converting = false
       this.file = null;
       this.previewSrc = '';
-      // so picking the same file again still counts as a change
-      this.$refs.file.value = '';
+      // so picking the same file again still counts as a change (the input is
+      // gone if the player has moved on from this tab)
+      if (this.$refs.file) this.$refs.file.value = '';
     },
     /**
      * onDragover handles the dragover event
