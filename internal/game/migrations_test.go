@@ -109,6 +109,7 @@ func TestMigrationsRevertAndReapply(t *testing.T) {
 	}
 	for _, f := range []struct{ collection, field string }{
 		{"turns", "skipped"}, {"turns", "timed_out"}, {"users", "dropped"}, {"results", "skipped"},
+		{"users", "working_on"}, {"users", "seen_at"}, {"progress", "held_seconds"},
 	} {
 		if hasField(t, app, f.collection, f.field) {
 			t.Errorf("%s.%s survived its migration's down", f.collection, f.field)
