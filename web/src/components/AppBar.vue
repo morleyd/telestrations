@@ -10,6 +10,8 @@
       <v-toolbar-title class="app-bar-title">Telestrations</v-toolbar-title>
     </div>
     <v-spacer />
+    <!-- What a page adds for its own controls (TakeTurn: the notebooks) -->
+    <slot />
     <span class="me-4 hand app-bar-name">{{ userStore.username }}</span>
     <AvatarIcon :user="userStore.user" />
     <ManagePlayers />
