@@ -146,6 +146,36 @@ const onTable = ({ table }, x, y) => {
 }
 // The way a paper turned rot degrees faces: its bottom edge's direction
 const down = (rot) => ({ x: -Math.sin((rot * Math.PI) / 180), y: Math.cos((rot * Math.PI) / 180) })
+// The room a name and status w wide take, placed as the seat's label says
+const nameBox = (label, w) => labelBox({ ...label, max: w })
+// How far a box keeps from (x, y)
+const away = (b, x, y) => Math.hypot(Math.max(b.left - x, 0, x - b.right), Math.max(b.top - y, 0, y - b.bottom))
+// Whether a box is clear of the oval table grown by its ink and shadow (8px):
+// the nearest point of the box to its middle is outside it
+function offTable({ table }, b) {
+  const [rx, ry] = [table.w / 2 + 8, table.h / 2 + 8]
+  const [cx, cy] = [table.x + table.w / 2, table.y + table.h / 2]
+  const x = Math.min(Math.max(cx, b.left), b.right)
+  const y = Math.min(Math.max(cy, b.top), b.bottom)
+  return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 > 1
+}
+
+// Each name and status is behind its avatar, out from the middle of the
+// table, a few px from the avatar's outline (2px of ink) whether it's as short
+// as they get (a status of "Done") or as long, and clear of the table
+function expectNameBehind(layout, seat, at) {
+  const { table, avatar } = layout
+  const out = { x: seat.x - table.x - table.w / 2, y: seat.y - table.y - table.h / 2 }
+  for (const w of [70, 100, 150]) {
+    const b = nameBox(seat.label, w)
+    const gap = away(b, seat.x, seat.y) - avatar / 2 - 2
+    expect(gap, `${w}px name ${at} near its avatar`).toBeGreaterThanOrEqual(4 - 1e-9)
+    expect(gap, `${w}px name ${at} near its avatar`).toBeLessThanOrEqual(9)
+    const middle = { x: (b.left + b.right) / 2 - seat.x, y: (b.top + b.bottom) / 2 - seat.y }
+    expect(middle.x * out.x + middle.y * out.y, `${w}px name ${at} behind its avatar`).toBeGreaterThan(0)
+  }
+  expect(offTable(layout, nameBox(seat.label, seat.label.max)), `name ${at} off the table`).toBe(true)
+}
 
 for (const count of [1, 2, 3, 6, 8, 12]) {
   test(`round table for ${count}: avatars over the edge, notebooks on the table facing them, names behind`, () => {
@@ -168,23 +198,70 @@ for (const count of [1, 2, 3, 6, 8, 12]) {
       const facing = down(rot)
       const len = Math.hypot(toPlayer.x, toPlayer.y)
       expect(facing.x * toPlayer.x / len + facing.y * toPlayer.y / len, `notebook ${i} facing`).toBeCloseTo(1, 5)
-      // The name starts clear of the avatar, away from the table, and on screen.
-      const { label } = seat
-      expect(onTable(layout, label.x, label.y), `name ${i} off the table`).toBeGreaterThan(1)
-      expect(Math.hypot(label.x - seat.x, label.y - seat.y)).toBeGreaterThan(layout.avatar / 2)
-      expect(label.x).toBeGreaterThan(150)
-      expect(label.x).toBeLessThan(layout.width - 150)
-      expect(label.y).toBeGreaterThan(40)
-      expect(label.y).toBeLessThan(layout.height - 40)
-      // Nor does any of it reach back over the edge: the side of the name
-      // nearest the table, all along it, is off the table.
-      const near = label.align === 'center'
-        ? Array.from({ length: 16 }, (_, k) => ({ x: label.x - 75 + k * 10, y: label.y }))
-        : Array.from({ length: 14 }, (_, k) => ({ x: label.x, y: label.y - 26 + k * 4 }))
-      for (const p of near) expect(onTable(layout, p.x, p.y), `name ${i} clear of the edge`).toBeGreaterThan(1)
+      // The name's just behind the avatar, clear of it and the table.
+      expectNameBehind(layout, seat, `${i}`)
+    }
+    // Whoever's looking has theirs right under their avatar, and the player
+    // across the table (with an even number) right over theirs.
+    expect(me.label.x).toBeCloseTo(me.x, 5)
+    expect(labelBox(me.label).top - me.y - layout.avatar / 2).toBeCloseTo(6, 5)
+    if (count % 2 === 0 && count > 2) {
+      const across = layout.seats[(2 + count / 2) % count]
+      expect(across.label.x).toBeCloseTo(across.x, 5)
+      expect(across.y - layout.avatar / 2 - labelBox(across.label).bottom).toBeCloseTo(6, 5)
     }
   })
 }
+
+test('round table, 4 to 12 players on any screen: every name a few px from its avatar, clear of the table and the others', () => {
+  // The waiting screen is at most 1148 wide; the shorter, the more seats on
+  // the oval's slopes. Whether anything runs into another player's, the
+  // squeezing test below checks for the screens it has; here, for the rest.
+  const squeezed = ['928x560', '1100x700', '1400x900']
+  for (const [width, height] of [[960, 560], [1100, 700], [1148, 576], [1148, 756], [1148, 936]]) {
+    for (let count = 4; count <= 12; count++) {
+      const layout = roundTable({ width, height, count })
+      const at = `for ${count} at ${width}x${height}`
+      expect(layout, at).not.toBeNull()
+      for (const [i, seat] of layout.seats.entries()) expectNameBehind(layout, seat, `${i} ${at}`)
+      if (!squeezed.includes(`${width}x${height}`)) expectRoom(layout, at)
+    }
+  }
+})
+
+test('round table: a name leans the way its seat faces', () => {
+  // Between them, seats facing straight up, down and to each side, and at
+  // a slant between
+  const kinds = new Set()
+  for (const [i, seat, { table }] of [9, 12].flatMap((count) => {
+    const layout = roundTable({ width: 1148, height: 756, count })
+    return layout.seats.map((seat, i) => [`${i} of ${count}`, seat, layout])
+  })) {
+    const b = labelBox(seat.label)
+    const middle = { x: (b.left + b.right) / 2 - seat.x, y: (b.top + b.bottom) / 2 - seat.y }
+    const out = { x: seat.x - table.x - table.w / 2, y: seat.y - table.y - table.h / 2 }
+    // Up or down, left or right, or level
+    const way = (d) => (Math.abs(d) < 1e-6 ? 0 : Math.sign(d))
+    if (Math.abs(out.x) >= Math.abs(out.y)) {
+      // Facing sideways: wholly to that side of the avatar's middle, its
+      // lines flush with the side nearest it, and higher up for a seat higher
+      // up
+      const right = out.x > 0
+      expect(right ? b.left - seat.x : seat.x - b.right, `name ${i} beside`).toBeGreaterThan(0)
+      expect(seat.label.align, `name ${i} flush`).toBe(right ? 'left' : 'right')
+      expect(way(middle.y), `name ${i} level`).toBe(way(out.y))
+      kinds.add(way(out.y) ? 'beside, at a slant' : 'beside')
+    } else {
+      // Facing up or down: wholly over or under the avatar's middle, and to
+      // the side a seat's to the side
+      const up = out.y < 0
+      expect(up ? seat.y - b.bottom : b.top - seat.y, `name ${i} over or under`).toBeGreaterThan(0)
+      expect(way(middle.x), `name ${i} across`).toBe(way(out.x))
+      kinds.add(way(out.x) ? 'over or under, at a slant' : 'over or under')
+    }
+  }
+  expect(kinds.size).toBe(4)
+})
 
 test('round table: notebooks go round clockwise, starting to the left of whoever is looking', () => {
   const layout = roundTable({ width: 1100, height: 700, count: 4, meIndex: 1 })
@@ -325,9 +402,13 @@ test('the table with two sides: stories go round clockwise from whoever is looki
       expect(seat.paper.rot).toBeCloseTo(left ? 90 : -90, 5)
       expect(Math.abs(seat.paper.x - seat.x) - layout.paper.h / 2 - layout.avatar / 2).toBeCloseTo(1, 5)
       expect(seat.paper.x > table.x && seat.paper.x < table.x + table.w).toBe(true)
-      // Names outside, away from the table
+      // Names outside, away from the table, level with their avatars and 4px
+      // past their outline (2px)
       expect(seat.label.align).toBe(left ? 'right' : 'left')
       expect(seat.label.max).toBeGreaterThanOrEqual(150)
+      const name = labelBox(seat.label)
+      expect((name.top + name.bottom) / 2).toBe(seat.y)
+      expect(left ? seat.x - name.right : name.left - seat.x).toBe(layout.avatar / 2 + 6)
     }
     // The table fills the width, in the middle
     expect(table.x + table.w / 2).toBeCloseTo(layout.width / 2, 5)
@@ -382,7 +463,8 @@ test('long table: everyone down its left edge in turn order, notebooks on it fac
     // The name ends left of the avatar, and has room.
     expect(seat.label.align).toBe('right')
     expect(seat.label.shift).toEqual({ x: -100, y: -50 })
-    expect(seat.label.x).toBeLessThan(seat.x - layout.avatar / 2)
+    expect(seat.label.x).toBe(seat.x - layout.avatar / 2 - 6)
+    expect(seat.label.y).toBe(seat.y)
     expect(seat.label.x).toBeGreaterThanOrEqual(130)
   }
   expect(table.y).toBeLessThan(seats[0].y - layout.avatar / 2)
