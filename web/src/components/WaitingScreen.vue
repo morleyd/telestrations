@@ -3,6 +3,7 @@
   <div class="waiting-screen">
     <div ref="room" class="waiting-room">
       <div class="waiting-head">
+        <div v-if="gameSoFar" class="waiting-progress text-medium-emphasis">{{ gameSoFar.label }}</div>
         <h1 class="waiting-title hand">Waiting for a notebook to come your way</h1>
         <div class="waiting-view" role="group" aria-label="Show the game as">
           <v-btn v-for="v in VIEWS" :key="v.value" size="small" :prepend-icon="v.icon"
@@ -23,6 +24,7 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
 import { seatPlayers, notStarted, roundTable, sidesTable, longTable } from '@/services/table'
+import { gameProgress } from '@/services/progress'
 
 // Above the table: the app bar and the title
 const ABOVE = 48 + 96
@@ -65,6 +67,10 @@ export default {
   },
   computed: {
     ...mapStores(useUserStore),
+    // How far the whole game is: "Game 63% done"
+    gameSoFar() {
+      return gameProgress(this.rows)
+    },
     userMap() {
       return Object.fromEntries(this.players.map((p) => [p.id, p]))
     },
@@ -174,6 +180,14 @@ export default {
   justify-self: end;
   display: flex;
   gap: 8px;
+}
+
+/* How far the game is, at the left */
+.waiting-progress {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  font-size: 1.1rem;
 }
 
 /* No room beside the title: the switch goes above it, still at the right */
