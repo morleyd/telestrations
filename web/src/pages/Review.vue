@@ -602,9 +602,11 @@ export default {
 }
 
 /* An inked card on a sheet of colored paper. The sheet and the card's paper
-   are drawn behind the content, the sheet askew. */
+   are drawn behind the content, the sheet askew. The prompt's pin (--pin) is
+   the previous slide's sheet: the paper the prompt came from. */
 .slide {
   --sheet: rgb(var(--v-theme-grass));
+  --pin: rgb(var(--v-theme-secondary));
   position: relative;
   isolation: isolate;
   display: flex;
@@ -647,18 +649,22 @@ export default {
 
 .slide--1 {
   --sheet: rgb(var(--v-theme-primary));
+  --pin: rgb(var(--v-theme-grass));
 }
 
 .slide--2 {
   --sheet: rgb(var(--v-theme-tertiary));
+  --pin: rgb(var(--v-theme-primary));
 }
 
 .slide--3 {
   --sheet: rgb(var(--v-theme-plum));
+  --pin: rgb(var(--v-theme-tertiary));
 }
 
 .slide--4 {
   --sheet: rgb(var(--v-theme-secondary));
+  --pin: rgb(var(--v-theme-plum));
 }
 
 @media (max-width: 600px) {
@@ -743,7 +749,7 @@ export default {
   height: 20px;
   margin-left: -10px;
   background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.6) 0 3px, transparent 3.5px),
-    rgb(var(--v-theme-tertiary));
+    var(--pin);
   border-radius: 50%;
   box-shadow: 0 2px 0 rgba(43, 33, 24, 0.25);
 }
