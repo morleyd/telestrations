@@ -87,6 +87,8 @@ const NAME_H = 52
 const LABEL_H = 64
 // How far a name keeps from the table's edge, its ink and shadow included
 const CLEAR = 12
+// How far a name and its status keep from their avatar's ink outline (2px)
+const GAP = 4
 // How wide a name and status get at the round table before they're cut short
 const LABEL_W = 150
 // The avatar sizes a round table tries, roomiest first. The first where
@@ -128,32 +130,13 @@ function roundAt({ width, height, count, meIndex, avatar }) {
   const seats = Array.from({ length: count }, (_, i) => {
     const t = ((90 + ((i - meIndex) * 360) / Math.max(count, 1)) * Math.PI) / 180
     const out = unit(rx * Math.cos(t), ry * Math.sin(t))
-    const seat = seatAt(cx + rx * Math.cos(t), cy + ry * Math.sin(t), out, avatar, paper)
-    return { ...seat, label: { ...clearOf({ cx, cy, rx, ry }, seat.label), max: LABEL_W } }
+    const offTable = (b) => reach(b, cx, cy, rx + CLEAR, ry + CLEAR) >= 1
+    return seatAt(cx + rx * Math.cos(t), cy + ry * Math.sin(t), out, avatar, paper, offTable)
   })
   return {
     kind: "round", width, height: h, avatar, paper, seats,
     table: { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 },
   }
-}
-
-// A name placed beside or above an avatar on the slope of the oval can reach
-// back over the table's edge: move it out until it's clear. A name to the side
-// spans NAME_H, one above or below its widest, LABEL_W.
-function clearOf({ cx, cy, rx, ry }, label) {
-  // Half the oval's width at height y, or its height at x
-  const across = (d, r, s) => s * Math.sqrt(Math.max(0, 1 - (d / r) ** 2))
-  const nearest = (c, from, to) => Math.min(Math.max(c, from), to)
-  if (label.align !== "center") {
-    const y = nearest(cy, label.y - NAME_H / 2, label.y + NAME_H / 2)
-    const edge = across(y - cy, ry, rx) + CLEAR
-    const x = label.align === "left" ? Math.max(label.x, cx + edge) : Math.min(label.x, cx - edge)
-    return { ...label, x }
-  }
-  const x = nearest(cx, label.x - LABEL_W / 2, label.x + LABEL_W / 2)
-  const edge = across(x - cx, rx, ry) + CLEAR
-  const y = label.shift.y < 0 ? Math.min(label.y, cy - edge) : Math.max(label.y, cy + edge)
-  return { ...label, y }
 }
 
 // Whether anything at the table runs into anything else, or a name off the
@@ -203,7 +186,7 @@ export function sidesTable({ width, count, meIndex = 0 }) {
   const right = count - left
   const rowH = Math.min(100, Math.max(80, 118 - left * 3))
   const pad = 36
-  const tableW = Math.min(560, Math.max(300, width - 2 * (avatar / 2 + 10 + labelW + 8)))
+  const tableW = Math.min(560, Math.max(300, width - 2 * (avatar / 2 + 2 + GAP + labelW + 8)))
   const x0 = (width - tableW) / 2
   const h = pad * 2 + left * rowH
   // A shorter side sits in the middle of the table's length
@@ -247,21 +230,51 @@ export function longTable({ width, count }) {
 
 // A seat at (x, y) facing away from out, the way out from the table: the
 // notebook goes in front, its bottom edge just touching the avatar, and the
-// name behind: beside the avatar for a seat at the side of the table, above or
-// below it at the top or bottom.
-function seatAt(x, y, out, avatar, paper) {
+// name behind (see labelAt).
+function seatAt(x, y, out, avatar, paper, offTable) {
   const near = avatar / 2 + paper.h / 2 + 1
-  const side = Math.abs(out.x) >= 0.6
-  const way = Math.sign(side ? out.x : out.y) || 1
   return {
     x, y,
     paper: { x: x - out.x * near, y: y - out.y * near, rot: (Math.atan2(out.y, out.x) * 180) / Math.PI - 90 },
-    // The point the name starts from, and how far to move the name by its own
-    // size (percentages) so it runs away from the avatar from there
-    label: side
-      ? { x: x + way * (avatar / 2 + 10), y, shift: { x: way < 0 ? -100 : 0, y: -50 }, align: way < 0 ? "right" : "left" }
-      : { x, y: y + way * (avatar / 2 + 6), shift: { x: -50, y: way < 0 ? -100 : 0 }, align: "center" },
+    label: labelAt(x, y, out, avatar, offTable),
   }
+}
+
+// The name and status behind the avatar at (x, y), out along out from it, as
+// near as they go without touching it. Which point of the name goes nearest
+// the avatar follows out round the name's edge: the middle of its left side
+// for a seat facing right, its bottom left corner for one facing up and
+// right, the middle of its bottom for one facing up. Placed by that point, a
+// shorter name sits inside where the longest would (see labelBox), so if the
+// longest is clear of the avatar, so is every name. offTable: whether a name
+// there is clear of the table too; if not, it moves on out until it is.
+function labelAt(x, y, out, avatar, offTable = () => true) {
+  // out, stretched to the edge of a square
+  const most = Math.max(Math.abs(out.x), Math.abs(out.y)) || 1
+  // The point the name starts from, and how far to move the name by its own
+  // size (percentages) so it runs away from the avatar from there
+  const shift = { x: -50 + (50 * out.x) / most, y: -50 + (50 * out.y) / most }
+  const align = shift.x > -25 ? "left" : shift.x < -75 ? "right" : "center"
+  const at = (d) => ({ x: x + out.x * d, y: y + out.y * d, shift, align, max: LABEL_W })
+  // The least whole distance out at which the longest name clears the
+  // avatar. From the middle of the avatar, it's on top of it; past near on a
+  // slope (√2 near, at most), clear.
+  const near = avatar / 2 + 2 + GAP
+  const clear = (d) => reach(labelBox(at(d)), x, y, near, near) >= 1
+  let [lo, hi] = [0, Math.ceil(near * 1.5)]
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2)
+    if (clear(mid)) hi = mid
+    else lo = mid
+  }
+  while (!offTable(labelBox(at(hi)))) hi++
+  return at(hi)
+}
+
+// How near a box comes to (cx, cy): its nearest point, as a share of rx across
+// and ry down, so under 1 is inside the oval round (cx, cy) with those radii
+function reach(b, cx, cy, rx, ry) {
+  return Math.hypot(Math.max(b.left - cx, 0, cx - b.right) / rx, Math.max(b.top - cy, 0, cy - b.bottom) / ry)
 }
 
 function unit(x, y) {
