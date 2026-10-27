@@ -210,10 +210,12 @@ export const pbService = {
   progress: {
     // Every story in the game, as the progress view has it. A refresh: a newer
     // one cancels it (aborted). Its own key, as the default one is per
-    // collection, and this mustn't cancel getNextPerUser.
-    getFullProgress: (gameCode) => call(() => pb.collection('progress').getFullList({
+    // collection, and this mustn't cancel getNextPerUser. A page that also
+    // shows the waiting screen passes a key of its own, or each would cancel
+    // the other's.
+    getFullProgress: (gameCode, requestKey = "fullProgress") => call(() => pb.collection('progress').getFullList({
       filter: pb.filter("game_id.game_code = {:gameCode}", { gameCode }),
-      requestKey: "fullProgress",
+      requestKey,
     })),
     // The stories waiting on userId. Never cancelled: TakeTurn serializes these
     // itself, and losing one costs a whole poll cycle.

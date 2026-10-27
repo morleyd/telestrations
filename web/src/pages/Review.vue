@@ -11,6 +11,16 @@
       </v-toolbar>
       <v-container id="chat-scroll" class="overflow-y-auto" height="calc(100vh - 96px)">
         <div v-if="gameSoFar" class="text-subtitle-1 text-medium-emphasis mb-2">{{ gameSoFar.label }}</div>
+        <!-- A player who has finished can watch the rest of the game, the
+             table or list they waited at, where a story would be. -->
+        <div v-if="canWatch" class="review-switch mb-2" role="group" aria-label="Show">
+          <v-btn v-for="v in MAIN_VIEWS" :key="v.value" size="small" :prepend-icon="v.icon"
+            :variant="mainView === v.value ? 'flat' : 'outlined'"
+            :color="mainView === v.value ? 'secondary' : undefined" :aria-pressed="String(mainView === v.value)"
+            @click="pickView(v.value)">
+            {{ v.label }}
+          </v-btn>
+        </div>
         <!-- On a phone the list leaves the story a sliver of the screen, too
              narrow for what's going on; say it up here instead. -->
         <v-alert v-if="showIntro && introInSidebar" class="review-intro mb-2" color="secondary" variant="tonal"
@@ -48,7 +58,11 @@
     </v-card>
   </v-slide-x-transition>
   <div style="display: grid;">
-    <v-carousel v-if="story" class="review-carousel" height="calc(100vh - 48px)" progress="primary"
+    <!-- Refreshed with the list (see refresh). -->
+    <WaitingScreen v-if="watching" ref="table" class="review-table"
+      :class="{ 'review-table--beside-list': sidebarVisible }" :game-id="gameId" :title="TABLE_TITLE"
+      :style="getWindowWidth" />
+    <v-carousel v-else-if="story" class="review-carousel" height="calc(100vh - 48px)" progress="primary"
       hide-delimiter-background style="justify-self: right;" :style="getWindowWidth">
       <v-carousel-item v-for="(turn, idx) in story" :key="idx">
         <!-- One column, top to bottom: banner, what the turn was made from, the
@@ -153,7 +167,17 @@ import { settingsOf, gameFields } from '@/services/settings'
 
 // How often the review re-checks the game (see created).
 const POLL_MS = 5000
+// What the main area shows a player who has finished while the others play:
+// the game going on (the waiting screen's table or list), or the stories.
+const MAIN_VIEWS = [
+  { value: "table", label: "Live game", icon: "mdi-table-furniture" },
+  { value: "stories", label: "Stories", icon: "mdi-book-open-variant" },
+]
+const TABLE_TITLE = "You're done! Here's how the others are getting on"
 export default {
+  setup() {
+    return { MAIN_VIEWS, TABLE_TITLE }
+  },
   data() {
     return {
       userMap: null,
@@ -200,6 +224,9 @@ export default {
       progressLoaded: false,
       // The download being made: "story", "all", or "".
       downloading: "",
+      // What this player picked for the main area (see MAIN_VIEWS), or "" for
+      // the default (see mainView).
+      pickedView: "",
     }
   },
   computed: {
@@ -240,6 +267,19 @@ export default {
     gameSoFar() {
       return gameProgress(this.users)
     },
+    // A player who has finished, while the game goes on, can watch it. The
+    // progress says whether it has, so not before that's read.
+    canWatch() {
+      return Boolean(this.me?.finished && !this.me.dropped && this.progressLoaded && !this.allDone)
+    },
+    // The host keeps an eye on the game, so it's theirs to begin with; the
+    // others came to see the stories.
+    mainView() {
+      return this.pickedView || (this.me?.is_host ? "table" : "stories")
+    },
+    watching() {
+      return this.canWatch && this.mainView === "table"
+    },
     // What the page says before a story is opened.
     intro() {
       if (this.allDone) {
@@ -253,8 +293,8 @@ export default {
         return {
           icon: "mdi-check-circle",
           title: "You've finished all your turns!",
-          text: "The others are still playing. While you wait, pick a story from the list to see how it's going. " +
-            "Each one says who it's waiting on.",
+          text: "The others are still playing. While you wait, watch the live game, or pick a story from the list " +
+            "to see how it's going. Each one says who it's waiting on.",
         }
       }
       return {
@@ -266,10 +306,19 @@ export default {
     // Once we know which intro it is (a player's own status comes separately
     // from the stories), and while no story is open or on its way.
     showIntro() {
-      return !this.story && !this.storyLoading && this.progressLoaded && (!this.inThisGame || this.players.length > 0)
+      return !this.watching && !this.story && !this.storyLoading && this.progressLoaded && (!this.inThisGame || this.players.length > 0)
     },
     introInSidebar() {
       return this.$vuetify.display.xs && this.sidebarVisible
+    },
+  },
+  watch: {
+    watching(now, was) {
+      // On a phone the list leaves the table a sliver of the screen, as it
+      // does a story (see onUserClick).
+      if (now && this.$vuetify.display.xs) this.sidebarVisible = false
+      // The game is over: back to the intro, not a story opened before.
+      if (was && this.allDone) this.story = null
     },
   },
   created() {
@@ -413,6 +462,7 @@ export default {
     refresh() {
       if (this.userMap) this.getProgress()
       else this.getNames()
+      this.$refs.table?.getProgress()
     },
     async getNames() {
       if (this.readingNames) return // it can take longer than the poll
@@ -428,7 +478,8 @@ export default {
     },
     async getProgress() {
       this.progressReads++
-      let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode)
+      // Its own key: the table's read mustn't cancel this one.
+      let resp = await pbService.progress.getFullProgress(this.$route.params.gameCode, "reviewProgress")
       this.progressReads--
       if (resp.aborted) return // a newer refresh is on its way
       if (resp.errMsg) {
@@ -438,7 +489,13 @@ export default {
       this.users = resp.data
       this.progressLoaded = true
     },
+    pickView(view) {
+      this.pickedView = view
+      // As picking a story does (see onUserClick).
+      if (view === "table" && this.$vuetify.display.xs) this.sidebarVisible = false
+    },
     async onUserClick(userId) {
+      this.pickedView = "stories"
       this.story = null // Reset the story while waiting so index resets
       this.brokenDrawings = {} // and give any drawing that wouldn't load another go
       this.starterId = userId
@@ -551,6 +608,26 @@ export default {
   flex-direction: column;
   align-items: center;
   line-height: 1.25;
+}
+
+.review-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-table {
+  justify-self: right;
+}
+
+/* How far the game is: in the list beside it already, or with the list
+   closed, clear of the button that opens it. */
+.review-table--beside-list :deep(.waiting-progress) {
+  display: none;
+}
+
+.review-table :deep(.waiting-progress) {
+  margin-left: 56px;
 }
 
 /* Where a story would be, before one is open. */
