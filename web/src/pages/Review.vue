@@ -10,6 +10,7 @@
         <v-btn icon="mdi-close" v-tooltip:bottom="'close'" @click="sidebarVisible = false" />
       </v-toolbar>
       <v-container id="chat-scroll" class="overflow-y-auto" height="calc(100vh - 96px)">
+        <div v-if="gameSoFar" class="text-subtitle-1 text-medium-emphasis mb-2">{{ gameSoFar.label }}</div>
         <!-- On a phone the list leaves the story a sliver of the screen, too
              narrow for what's going on; say it up here instead. -->
         <v-alert v-if="showIntro && introInSidebar" class="review-intro mb-2" color="secondary" variant="tonal"
@@ -145,7 +146,7 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService } from '@/services/pocketbase'
 import { log } from '@/services/log'
-import { storyProgress, waitingOn } from '@/services/progress'
+import { gameProgress, storyProgress, waitingOn } from '@/services/progress'
 import { reviewTurns, ranOutOfTime, turnBanner } from '@/services/story'
 import { storyImage, zipFiles, fileSafe, saveFile } from '@/services/storyImage'
 import { settingsOf, gameFields } from '@/services/settings'
@@ -237,6 +238,10 @@ export default {
     // game is over.
     allDone() {
       return this.users.length > 0 && this.users.every(row => !row.next_user_id)
+    },
+    // How far the whole game is: "Game 63% done"
+    gameSoFar() {
+      return gameProgress(this.users)
     },
     // What the page says before a story is opened.
     intro() {
