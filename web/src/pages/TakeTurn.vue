@@ -1,8 +1,13 @@
 // firstTurn finished waiting playing browsing
 <template>
   <AppBar>
-    <NotebookMenu v-if="showNotebooks" :notebooks="notebooks" :browse="userState == 'playing'"
-      :disabled="writing.has(turnKey)" @pick="pickTurn" @browse="browse" />
+    <NotebookMenu v-if="userState == 'playing' && !leaving" :notebooks="notebooks" :disabled="writing.has(turnKey)"
+      @pick="pickTurn" @browse="browse" />
+    <v-btn v-else-if="userState == 'browsing' && !leaving" class="me-2" prepend-icon="mdi-arrow-left" variant="flat"
+      color="secondary" @click="backToTurn">
+      <span class="d-none d-sm-inline">Back to my turn</span>
+      <span class="d-sm-none">My turn</span>
+    </v-btn>
   </AppBar>
   <v-alert v-if="endsAt && (onTurn || userState == 'browsing')" class="end-banner" type="warning" density="compact"
     elevation="6">
@@ -157,11 +162,6 @@ export default {
     // rest (see paneFor).
     openPanes() {
       return this.openTurns.map((p) => paneName(keyOf(p)))
-    },
-    // The notebook menu, on a turn or at the table, once the opening word is
-    // in: that comes before anything else.
-    showNotebooks() {
-      return (this.userState === "playing" || this.userState === "browsing") && !this.leaving
     },
     // The notebooks waiting on us, for the menu: the open ones, last on screen
     // first, then the rest in the order we'd get them. While the host ends the
@@ -680,6 +680,16 @@ export default {
       log.info("table.open", { from: this.turnKey })
       this.setScreen(null, "browsing")
       this.getTurns()
+    },
+    // Back from the table to the turn set aside there, as it was left. If
+    // that's gone meanwhile (timed out, or skipped), the next one, as after a
+    // submit. (With nothing at all left, the table has become the waiting
+    // screen: see queryMorePrompts.)
+    backToTurn() {
+      const turn = this.openTurns.at(-1) || (!this.endsAt && this.nextPrompts.at(-1))
+      if (!turn) return
+      log.info("table.back", { story: keyOf(turn) })
+      this.showTurn(turn)
     },
     // The turn on screen is over (written, skipped, or out of date): on to the
     // next. The open ones first, the one last on screen first (their timers

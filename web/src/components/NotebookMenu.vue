@@ -1,6 +1,6 @@
 <template>
-  <!-- The notebooks waiting on the player, from the app bar of the turn and
-       table screens: pick one to do it now, or go and look at the table. -->
+  <!-- The notebooks waiting on the player, from the app bar of the turn
+       screen: pick one to do it now, or go and look at the table. -->
   <v-menu location="bottom end">
     <template #activator="{ props }">
       <v-btn v-bind="props" class="notebook-menu" prepend-icon="mdi-notebook-multiple" append-icon="mdi-menu-down"
@@ -14,21 +14,18 @@
       <v-list-item v-for="n in notebooks" :key="n.key" :data-notebook="n.name" :active="n.current"
         :prepend-icon="n.isDraw ? 'mdi-pencil' : 'mdi-fountain-pen-tip'" :title="n.name" :subtitle="subtitle(n)"
         @click="n.current || $emit('pick', n.key)" />
-      <template v-if="browse">
-        <v-divider class="my-1" />
-        <v-list-item prepend-icon="mdi-table-furniture" title="Look at the table" @click="$emit('browse')" />
-      </template>
+      <v-divider class="my-1" />
+      <v-list-item prepend-icon="mdi-table-furniture" title="Look at the table" @click="$emit('browse')" />
     </v-list>
   </v-menu>
 </template>
 <script>
 // notebooks: { key, name ("Sam's notebook"), isDraw, started, current }, in
-// the order to offer them; browse: offer the table too.
+// the order to offer them.
 export default {
   name: "NotebookMenu",
   props: {
     notebooks: { type: Array, required: true },
-    browse: { type: Boolean, default: false },
     disabled: { type: Boolean, default: false },
   },
   emits: ["pick", "browse"],

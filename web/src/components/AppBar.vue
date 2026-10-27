@@ -3,7 +3,7 @@
 // The AppBar provides a simple toolbar the the top of a given page
 <template>
   <v-app-bar app clipped-left color="primary" flat density="compact" class="app-bar">
-    <div class="d-flex align-center cursor-pointer" style="width: 200px;" @click="$router.push({ name: 'Home' })">
+    <div class="app-bar-brand d-flex align-center cursor-pointer" @click="$router.push({ name: 'Home' })">
       <span class="app-bar-logo mx-2">
         <v-img width="26" height="34" src="@/assets/logo.svg" />
       </span>
@@ -29,6 +29,21 @@ export default {
 };
 </script>
 <style scoped>
+.app-bar-brand {
+  width: 200px;
+}
+
+/* On a phone, the logo alone, to leave room for a page's own controls */
+@media (max-width: 599px) {
+  .app-bar-brand {
+    width: auto;
+  }
+
+  .app-bar-title {
+    display: none;
+  }
+}
+
 /* The ink rule under the bar: a shadow, so the bar stays 48px tall */
 .app-bar {
   box-shadow: 0 3px 0 var(--ink);

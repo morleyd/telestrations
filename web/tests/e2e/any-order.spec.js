@@ -6,8 +6,8 @@ import {
 
 // A player with several notebooks waiting can do them in any order: the
 // Notebooks menu in the app bar switches between them, or goes to look at the
-// table. Each one opened keeps its work (and its round timer) until it's
-// written.
+// table, which has a button back. Each one opened keeps its work (and its
+// round timer) until it's written.
 
 const turnCreated = (page) => page.waitForResponse(
   (r) => /\/api\/collections\/turns\/records/.test(r.url()) && r.request().method() === 'POST' && r.status() === 200,
@@ -86,9 +86,15 @@ test('any order: pick a notebook out of turn, switch back to find the work kept,
     await expect(drawPrompt(s2.page)).toHaveText('banana')
     await expect(s2.page.getByRole('button', { name: 'Undo' })).toBeEnabled()
 
-    // And to the guess: still typed. It goes in...
+    // And to the guess: still typed. A look at the table, and back to it
+    // again: still typed.
     await pick(s2.page, s0.name)
     await expect(s2.page.locator('textarea')).toHaveValue('an apple?')
+    await lookAtTable(s2.page)
+    await expect(menu(s2.page)).toHaveCount(0)
+    await s2.page.getByRole('button', { name: 'Back to my turn' }).click()
+    await expect(s2.page.locator('textarea')).toHaveValue('an apple?')
+    // It goes in...
     await submitWord(s2.page, 'an apple?')
 
     // ...and without picking, s2 is back on the drawing they'd started, which
@@ -151,11 +157,9 @@ test('any order: End Game while at the table sends the turn set aside', async ({
     alpha.once('dialog', (d) => d.accept())
     await alpha.getByRole('button', { name: 'End Game' }).click()
     await expect(bravo.getByText('The host is ending the game!')).toBeVisible()
-    // Still at the table, with only the open notebook to go back to
+    // Still at the table, with the way back to the turn set aside
     await expect(bravo.getByText('Around the table')).toBeVisible()
-    await menu(bravo).click()
-    await expect(bravo.locator('.v-list-item[data-notebook]')).toHaveCount(1)
-    await bravo.keyboard.press('Escape')
+    await expect(bravo.getByRole('button', { name: 'Back to my turn' })).toBeVisible()
 
     await submitDrawing(alpha)
     await bravo.waitForURL(/\/review$/, { timeout: 20_000 })
