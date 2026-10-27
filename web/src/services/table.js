@@ -73,10 +73,11 @@ function nextFrom(player, all, stories) {
   return best?.player || null
 }
 
-// The players still to start their own story. The players and the progress
-// are two reads, so a story can show in the progress before the players say
-// it exists: it counts as started.
-function notStarted(all, stories) {
+// The players still to start their own story, by id. The players and the
+// progress are two reads, so a story can show in the progress before the
+// players say it exists: it counts as started. (The waiting list gives each a
+// row too.)
+export function notStarted(all, stories) {
   const started = new Set(stories.map((r) => r.starter_user_id))
   return new Set(all.filter((p) => !p.dropped && !p.finished && !p.has_story && !started.has(p.id)).map((p) => p.id))
 }

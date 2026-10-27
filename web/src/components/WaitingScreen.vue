@@ -12,7 +12,8 @@
           </v-btn>
         </div>
       </div>
-      <WaitingList v-if="view === 'list'" :progress="rows" :user-map="userMap" :me-id="userStore.userId" />
+      <WaitingList v-if="view === 'list'" :progress="rows" :not-started="unstarted" :user-map="userMap"
+        :me-id="userStore.userId" />
       <WaitingTable v-else-if="layout" :seats="seats" :layout="layout" />
     </div>
   </div>
@@ -21,7 +22,7 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
-import { seatPlayers, roundTable, sidesTable, longTable } from '@/services/table'
+import { seatPlayers, notStarted, roundTable, sidesTable, longTable } from '@/services/table'
 
 // Above the table: the app bar and the title
 const ABOVE = 48 + 96
@@ -66,6 +67,12 @@ export default {
     ...mapStores(useUserStore),
     userMap() {
       return Object.fromEntries(this.players.map((p) => [p.id, p]))
+    },
+    // The players who haven't opened the game, in seat order: the table gives
+    // each a blank page, and the list a row
+    unstarted() {
+      const ids = notStarted(this.players, this.rows)
+      return this.players.filter((p) => ids.has(p.id))
     },
     // On a wide screen the round table, or for more players than fit round
     // it, the one with players down both sides. On a phone, the long one.

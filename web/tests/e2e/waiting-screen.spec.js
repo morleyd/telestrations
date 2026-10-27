@@ -26,10 +26,14 @@ async function watchSlides(page) {
 const slidesOf = (page) => page.evaluate(() => window.slides)
 
 // After a resize: let the waiting screen see its new width and redraw (two
-// frames), and the avatars finish changing size. The pencils don't count:
+// frames)
+const redrawn = (page) =>
+  page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+
+// And at the table, the avatars finish changing size. The pencils don't count:
 // they're SVG animations.
 async function settle(page) {
-  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await redrawn(page)
   await page.waitForFunction(() => document.getAnimations().length === 0)
 }
 
@@ -277,6 +281,124 @@ test('a player can switch to the list of stories instead, and it stays that way'
     await expect(page.locator('.story-row')).toHaveCount(0)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// Each list row's avatar, name, bar and who it's waiting on, and the name's
+// line height: read in one go, so nothing moves between measurements
+const listRows = (page) => page.locator('.story-row').evaluateAll((rows) => rows.map((row) => {
+  const box = (sel) => row.querySelector(sel).getBoundingClientRect().toJSON()
+  const name = row.querySelector('.story-name')
+  return {
+    name: name.textContent.trim(),
+    lineHeight: parseFloat(getComputedStyle(name).lineHeight),
+    avatar: box('.avatar-cut'), label: box('.story-name'), bar: box('.v-progress-linear'), waiting: box('.story-waiting'),
+  }
+}))
+
+// The rows in a line each, level, 32px apart, with the bars starting together,
+// wide enough to read and on the screen
+function expectOneLineRows(rows, width) {
+  const middle = (r) => r.top + r.height / 2
+  rows.forEach((row, i) => {
+    const at = `${row.name} at ${width}px`
+    for (const part of ['avatar', 'label', 'waiting']) {
+      expect(Math.abs(middle(row[part]) - middle(row.bar)), `${part} level with the bar: ${at}`).toBeLessThanOrEqual(2)
+    }
+    expect(row.label.height, `name on one line: ${at}`).toBeLessThan(row.lineHeight * 1.5)
+    expect(row.waiting.height, `waiting on fits the row: ${at}`).toBeLessThanOrEqual(32)
+    expect(row.bar.left, `bars start together: ${at}`).toBeCloseTo(rows[0].bar.left, 0)
+    expect(row.bar.width, `bar wide enough: ${at}`).toBeGreaterThanOrEqual(64)
+    expect(row.bar.right, `bar on screen: ${at}`).toBeLessThanOrEqual(width)
+    expect(row.waiting.right, `waiting on, on screen: ${at}`).toBeLessThanOrEqual(width)
+    if (i) expect(middle(row.bar) - middle(rows[i - 1].bar), `a row's height: ${at}`).toBeCloseTo(32, 0)
+  })
+}
+
+// The list lines up its rows at every width: avatar, name, bar and who it's
+// waiting on in a line about 32px high, a long name cut short rather than
+// wrapped.
+test('the waiting screen\'s list puts each story on one line at every width', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  const [host, long, short] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(long, code, 'Bartholomew Fizzlewick')
+    await joinGame(short, code, 'Jo')
+    await startGame(host, 3)
+    await Promise.all([long.waitForURL(/\/draw$/), short.waitForURL(/\/draw$/)])
+    // Let every turn page open its story before the host's goes on
+    await host.waitForTimeout(2000)
+    await submitWord(host, 'a teapot')
+    await host.getByRole('button', { name: 'List' }).click()
+    for (const name of ['hosty', 'Bartholomew Fizzlewick', 'Jo']) {
+      await expect(host.locator('.story-name').filter({ hasText: new RegExp(`^${name}$`) })).toHaveCount(1)
+    }
+
+    for (const width of [360, 390, 600, 800, 1000, 1440]) {
+      await host.setViewportSize({ width, height: 700 })
+      await redrawn(host)
+      expectOneLineRows(await listRows(host), width)
+      expect(await sidewaysScroll(host), `no sideways scroll at ${width}px`).toBeLessThanOrEqual(1)
+    }
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// The waiting screen scrolls itself: how far its content reaches past it
+const downwardScroll = (page) => page.evaluate(() => {
+  const screen = document.querySelector('.waiting-screen')
+  return screen.scrollHeight - screen.clientHeight
+})
+
+// From the CoW playtest: 13 players, and the list showed 9. Every player gets
+// a row, those who haven't opened the game too, as many as at the table; on a
+// laptop they all fit without scrolling. A bigger game still scrolls.
+test('the list has a row for every player at the table, and 13 fit on a laptop', async ({ browser, request }) => {
+  test.setTimeout(120_000)
+  const { page, meId, show, close } = await fakeGame(browser, request)
+  try {
+    // Dani and nine others have started; three haven't opened the game
+    const ids = [meId, ...Array.from({ length: 12 }, (_, i) => `p${i + 1}`)]
+    const names = ['Dani', ...Array.from({ length: 12 }, (_, i) => (i % 4 === 1 ? `Player With A Long Name ${i + 1}` : `P${i + 1}`))]
+    const unstarted = new Set(['p4', 'p8', 'p12'])
+    const players = ids.map((id, i) => fakePlayer(id, names[i], { has_story: !unstarted.has(id) }))
+    const rows = ids.filter((id) => !unstarted.has(id))
+      .map((id, i) => fakeStory(`s${i}`, id, ids[(ids.indexOf(id) + 1 + (i % 3)) % 13], 1 + (i % 3), 13))
+    show({ players, rows })
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await expect(page.locator('.seat')).toHaveCount(13)
+    await expect(page.locator('.story-paper[data-story^="first:"]')).toHaveCount(3)
+
+    await page.getByRole('button', { name: 'List' }).click()
+    await expect(page.locator('.story-row')).toHaveCount(13)
+    const waiting = page.locator('.story-row--unstarted')
+    await expect(waiting.locator('.story-name')).toHaveText(['P4', 'P8', 'P12'])
+    await expect(waiting.locator('.story-waiting')).toHaveText(['Not started yet', 'Not started yet', 'Not started yet'])
+    await redrawn(page)
+    expectOneLineRows(await listRows(page), 1366)
+    expect(await downwardScroll(page), '13 rows without scrolling at 1366x768').toBeLessThanOrEqual(1)
+    await expect(page.locator('.story-row .story-waiting').last()).toBeInViewport({ ratio: 1 })
+
+    // On a phone: still a line each, nothing off the side
+    await page.setViewportSize({ width: 390, height: 844 })
+    await redrawn(page)
+    expectOneLineRows(await listRows(page), 390)
+    expect(await sidewaysScroll(page), 'no sideways scroll on a phone').toBeLessThanOrEqual(1)
+
+    // 25 players is more than fit: the waiting screen scrolls to the last
+    show(bigGame(25, [3, 14], 50, meId))
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await expect(page.locator('.story-row')).toHaveCount(25, { timeout: 15_000 })
+    expect(await downwardScroll(page), '25 rows scroll').toBeGreaterThan(0)
+    const last = page.locator('.story-row .story-waiting').last()
+    await expect(last).not.toBeInViewport({ ratio: 1 })
+    await page.locator('.waiting-screen').evaluate((el) => el.scrollTo(0, el.scrollHeight))
+    await expect(last).toBeInViewport({ ratio: 1 })
+  } finally {
+    await close()
   }
 })
 
