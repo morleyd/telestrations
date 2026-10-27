@@ -12,9 +12,11 @@ import (
 // with a bare "Failed to create record.". The web app now shrinks big photos
 // before sending them (prepareUpload in web/src/services/uploadImage.js), so
 // this cap is the backstop, for a GIF (sent as is) or a page too old to
-// shrink. Down puts back the default.
+// shrink. It's kept to 10 MB rather than more because anyone can create a
+// turn (createRule ""), and this is how much disk each one may take. Down
+// puts back the default.
 
-const drawingMaxSize = 20 << 20
+const drawingMaxSize = 10 << 20
 
 func init() {
 	m.Register(func(app core.App) error {

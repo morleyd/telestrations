@@ -156,10 +156,11 @@ test('a big photo is shrunk to a smaller JPEG, the right way up', async ({ page 
   expect(saved.bytes.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]))
 })
 
-// A 1x1 GIF, and then padding to make it big, which a browser ignores.
+// A 1x1 GIF, and then padding to make it big (over the 4 MB that's shrunk),
+// which a browser ignores.
 const BIG_GIF = Buffer.concat([
   Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64'),
-  Buffer.alloc(3 << 20),
+  Buffer.alloc(5 << 20),
 ])
 
 test('a big GIF goes up byte for byte, so it still moves', async ({ page }) => {
@@ -170,6 +171,33 @@ test('a big GIF goes up byte for byte, so it still moves', async ({ page }) => {
   const saved = await submitAndFetch(page)
   expect(saved.name).toMatch(/^party_\w+\.gif$/)
   expect(saved.bytes.equals(BIG_GIF)).toBe(true)
+})
+
+// A noisy PNG, 1200 by 1200, so over 4 MB but within the 1600 a photo is
+// shrunk to: it goes up byte for byte, keeping its sharp edges.
+test('a big PNG already small enough to show goes up as it is', async ({ page }) => {
+  await toDrawing(page)
+  const size = await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(1200, 1200)
+    const ctx = canvas.getContext('2d')
+    const pixels = ctx.createImageData(1200, 1200)
+    for (let i = 0; i < pixels.data.length; i += 65536) crypto.getRandomValues(pixels.data.subarray(i, i + 65536))
+    for (let i = 3; i < pixels.data.length; i += 4) pixels.data[i] = 255 // opaque, so the colors survive
+    ctx.putImageData(pixels, 0, 0)
+    const png = new File([await canvas.convertToBlob({ type: 'image/png' })], 'lineart.png', { type: 'image/png' })
+    const input = document.querySelector('#fileInput')
+    const picked = new DataTransfer()
+    picked.items.add(png)
+    input.files = picked.files
+    input.dispatchEvent(new Event('change'))
+    return png.size
+  })
+  expect(size).toBeGreaterThan(4 << 20)
+  await expect(preview(page)).toHaveJSProperty('naturalWidth', 1200, { timeout: 20_000 })
+
+  const saved = await submitAndFetch(page)
+  expect(saved.name).toMatch(/^lineart_\w+\.png$/)
+  expect(saved.bytes.length).toBe(size)
 })
 
 test('a picture too big for the server says so and stays on screen', async ({ page }) => {
@@ -185,8 +213,8 @@ test('a picture too big for the server says so and stays on screen', async ({ pa
         data: {
           drawing: {
             code: 'validation_file_size_limit',
-            message: 'Failed to upload d.png - the maximum allowed file size is 20971520 bytes.',
-            params: { file: 'd.png', maxSize: 20971520 },
+            message: 'Failed to upload d.png - the maximum allowed file size is 10485760 bytes.',
+            params: { file: 'd.png', maxSize: 10485760 },
           },
         },
       }),

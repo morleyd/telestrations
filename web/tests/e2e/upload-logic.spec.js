@@ -15,18 +15,28 @@ const ftyp = (major, ...compatible) => {
   return String.fromCharCode(size >> 24, (size >> 16) & 255, (size >> 8) & 255, size & 255) + body
 }
 
-// A picture of head and then zeros, size bytes in all.
-const big = (head, name = 'pic', size = 3 << 20) => new File([bytes(head), new Uint8Array(size - head.length)], name)
+// A picture of head and then zeros, size bytes in all: over the 4 MB that
+// prepareUpload shrinks, by default.
+const big = (head, name = 'pic', size = 5 << 20) => new File([bytes(head), new Uint8Array(size - head.length)], name)
+
+// A PNG chunk: its length, type and data, and a CRC (not checked here).
+const chunk = (type, data = '') => {
+  const n = data.length
+  return String.fromCharCode(n >> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255) + type + data + '\0\0\0\0'
+}
+const PNG = '\x89PNG\r\n\x1a\n' + chunk('IHDR', '\0'.repeat(13))
 
 const STUB_JPEG = new Blob([bytes('\xff\xd8\xff\xe0 converted')])
 const stub = () => {
   const calls = []
   return { calls, convert: async (f) => { calls.push(f); return STUB_JPEG } }
 }
-// A stand-in for the redraw, giving a JPEG of `size` bytes.
+// A stand-in for the redraw, giving a JPEG of `size` bytes, or null (a
+// picture within 1600px, left as it is).
 const shrinker = (size = 1000) => {
   const calls = []
-  const shrunk = new Blob([bytes('\xff\xd8\xff\xe0 shrunk'), new Uint8Array(size)])
+  const head = bytes('\xff\xd8\xff\xe0 shrunk')
+  const shrunk = size === null ? null : new Blob([head, new Uint8Array(size - head.length)])
   return { calls, shrunk, shrink: async (f) => { calls.push(f); return shrunk } }
 }
 
@@ -54,7 +64,9 @@ for (const [kind, head] of Object.entries(kept)) {
 
 const shrunk = {
   'a big JPEG': ['\xff\xd8\xff\xe1\0\x22Exif', 'IMG_0620.JPG'],
-  'a big PNG': ['\x89PNG\r\n\x1a\n\0\0\0\rIHDR', 'screenshot.png'],
+  'a big PNG': [PNG + chunk('IDAT'), 'screenshot.png'],
+  // A color profile can be big: the chunks after it are still read.
+  'a big PNG with a profile': [PNG + chunk('iCCP', 'x'.repeat(70000)) + chunk('IDAT'), 'profile.png'],
   'a big still WebP': ['RIFF\x24\0\0\0WEBPVP8X\x0a\0\0\0\x10\0\0\0', 'pic.webp'],
   'a big BMP': ['BM\x3a\0\0\0\0\0\0\0\x36\0\0\0', 'scan.bmp'],
   'a big AVIF': [ftyp('avif', 'avif', 'mif1', 'miaf'), 'pic.avif'],
@@ -77,6 +89,8 @@ const animated = {
   'a big old GIF': 'GIF87a\x01\0\x01\0',
   // VP8X, then its flags: 0x02 is "animated".
   'a big animated WebP': 'RIFF\x24\0\0\0WEBPVP8X\x0a\0\0\0\x12\0\0\0',
+  'a big APNG': PNG + chunk('acTL', '\0\0\0\x02\0\0\0\0') + chunk('IDAT'),
+  'a big APNG with a profile': PNG + chunk('iCCP', 'x'.repeat(70000)) + chunk('acTL', '\0\0\0\x02\0\0\0\0'),
   'a big AVIF sequence': ftyp('avis', 'avis', 'msf1'),
 }
 for (const [kind, head] of Object.entries(animated)) {
@@ -88,27 +102,38 @@ for (const [kind, head] of Object.entries(animated)) {
   })
 }
 
-test('a picture of a MB or less is not redrawn', async () => {
+test('a picture of 4 MB or less is not redrawn', async () => {
   const { calls, shrink } = shrinker()
-  const f = big('\xff\xd8\xff\xe0\0\x10JFIF', 'small.jpg', 1 << 20)
+  const f = big('\xff\xd8\xff\xe0\0\x10JFIF', 'small.jpg', 4 << 20)
   expect(await prepareUpload(f, stub().convert, shrink)).toBe(f)
   expect(calls).toHaveLength(0)
 })
 
 test('a redraw that comes out no smaller is dropped', async () => {
-  const f = big('\x89PNG\r\n\x1a\n\0\0\0\rIHDR', 'noise.png', 2 << 20)
-  expect(await prepareUpload(f, stub().convert, shrinker(2 << 20).shrink)).toBe(f)
+  const f = big(PNG + chunk('IDAT'), 'noise.png')
+  const { calls, shrink } = shrinker(f.size)
+  expect(await prepareUpload(f, stub().convert, shrink)).toBe(f)
+  expect(calls).toEqual([f])
+})
+
+test('a big picture already within 1600px goes up as it is', async () => {
+  const f = big(PNG + chunk('IDAT'), 'lineart.png')
+  const { calls, shrink } = shrinker(null)
+  expect(await prepareUpload(f, stub().convert, shrink)).toBe(f)
+  expect(calls).toEqual([f])
 })
 
 test('a picture the browser cannot redraw goes up as it is', async () => {
   const f = big('BM\x3a\0\0\0\0\0\0\0\x36\0\0\0', 'odd.bmp')
-  const out = await prepareUpload(f, stub().convert, async () => { throw new Error('decode failed') })
+  const calls = []
+  const out = await prepareUpload(f, stub().convert, async (p) => { calls.push(p); throw new Error('decode failed') })
   expect(out).toBe(f)
+  expect(calls).toEqual([f])
 })
 
 test('a big HEIC is converted, then shrunk', async () => {
   const { shrink, calls } = shrinker()
-  const convert = async () => new Blob([bytes('\xff\xd8\xff\xe0'), new Uint8Array(3 << 20)])
+  const convert = async () => new Blob([bytes('\xff\xd8\xff\xe0'), new Uint8Array(5 << 20)])
   const out = await prepareUpload(file(ftyp('heic', 'mif1', 'heic'), 'IMG_0619.HEIC'), convert, shrink)
   expect(calls).toHaveLength(1)
   expect(calls[0].name).toBe('IMG_0619.jpg')

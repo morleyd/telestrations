@@ -113,17 +113,13 @@ function refusalCode(err) {
 // a 413.
 const MSG_PICTURE_TOO_BIG = "That picture is too big. Try a smaller one."
 
-// Why PocketBase refused a write, by field, or "" if it didn't say. It
+// Why PocketBase refused a write, if it's one a player can act on, or "". It
 // answers a record it won't save with a bare "Failed to create record." and
-// puts the reason on the field (response.data.drawing and the like); a
-// refusal code (refusalCode) isn't one.
+// puts the reason on the field (response.data.drawing); only a picture too
+// big is told here, as other fields' messages are for developers.
 function fieldReason(err) {
   if (err?.status === 413) return MSG_PICTURE_TOO_BIG
-  for (const [field, f] of Object.entries(err?.response?.data || {})) {
-    if (field === 'code' || !f?.message) continue
-    if (f.code === 'validation_file_size_limit') return MSG_PICTURE_TOO_BIG
-    return `${field}: ${f.message}`
-  }
+  if (err?.response?.data?.drawing?.code === 'validation_file_size_limit') return MSG_PICTURE_TOO_BIG
   return ""
 }
 
