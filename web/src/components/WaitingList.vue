@@ -188,9 +188,17 @@ export default {
 }
 
 .story-state {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   padding: 0 8px 1px;
   font-size: 0.7rem;
+}
+
+/* On a phone, its icon and look alone */
+@media (max-width: 599px) {
+  .story-state :deep(.status-pill-text) {
+    display: none;
+  }
 }
 
 .story-held {

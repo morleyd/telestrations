@@ -6,7 +6,7 @@
   <span class="status-pill" :class="[`status-pill--${look}`, { 'status-pill--working': state === 'working' }]"
     :data-state="state || status">
     <v-icon class="status-pill-icon" :icon="icon" size="14" />
-    <slot>{{ label }}</slot>
+    <slot><span class="status-pill-text">{{ label }}</span></slot>
   </span>
 </template>
 <script>
@@ -69,6 +69,14 @@ export default {
 
 .status-pill > * {
   flex: none;
+}
+
+/* Cut short rather than overflow, keeping the icon */
+.status-pill > .status-pill-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-pill--drawing {
