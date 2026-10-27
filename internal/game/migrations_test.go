@@ -283,7 +283,8 @@ func TestHostControlMigrationsApplyOntoAnExistingDatabase(t *testing.T) {
 	if _, err := all.Down(len(core.AppMigrations.Items())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := core.NewMigrationsRunner(app, migrationsExcept("1759200000", "1759300000", "1784300000")).Up(); err != nil {
+	// The held-time migration builds on the rounds view, so it comes with it.
+	if _, err := core.NewMigrationsRunner(app, migrationsExcept("1759200000", "1759300000", "1784300000", "1784700000")).Up(); err != nil {
 		t.Fatal(err)
 	}
 	if hasField(t, app, "turns", "skipped") || hasField(t, app, "users", "dropped") {
@@ -296,7 +297,8 @@ func TestHostControlMigrationsApplyOntoAnExistingDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"1759200000_host_controls.go", "1759300000_timeouts.go", "1784300000_rounds.go"}; !slices.Equal(applied, want) {
+	if want := []string{"1759200000_host_controls.go", "1759300000_timeouts.go", "1784300000_rounds.go",
+		"1784700000_held_and_presence.go"}; !slices.Equal(applied, want) {
 		t.Fatalf("the upgrade applied %v, want %v", applied, want)
 	}
 	var rows []struct {
