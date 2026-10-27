@@ -131,6 +131,11 @@ export default {
       if (this.$el?.isConnected) this.measure()
     })
   },
+  // Back on screen after being set aside (TakeTurn keeps a turn alive while the
+  // player looks at another): the window may have changed size meanwhile
+  activated() {
+    this.measure()
+  },
   beforeUnmount() {
     window.removeEventListener("keydown", this.onKeyDown)
     window.removeEventListener("keyup", this.onKeyUp)

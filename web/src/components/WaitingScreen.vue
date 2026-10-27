@@ -4,7 +4,7 @@
     <div ref="room" class="waiting-room">
       <div class="waiting-head">
         <div v-if="gameSoFar" class="waiting-progress text-medium-emphasis">{{ gameSoFar.label }}</div>
-        <h1 class="waiting-title hand">Waiting for a notebook to come your way</h1>
+        <h1 class="waiting-title hand">{{ title }}</h1>
         <div class="waiting-view" role="group" aria-label="Show the game as">
           <v-btn v-for="v in VIEWS" :key="v.value" size="small" :prepend-icon="v.icon"
             :variant="view === v.value ? 'flat' : 'outlined'" :color="view === v.value ? 'secondary' : undefined"
@@ -46,11 +46,14 @@ function savedView() {
 }
 
 // Who's doing what. TakeTurn calls getProgress whenever it finds the player
-// still waiting.
+// still waiting, or looking at the table between turns. current: the notebook
+// the player last had on screen, kept on top of their pile.
 export default {
   name: "WaitingScreen",
   props: {
     gameId: { type: String, required: true },
+    title: { type: String, default: "Waiting for a notebook to come your way" },
+    current: { type: String, default: "" },
   },
   setup() {
     return { VIEWS }
@@ -138,6 +141,7 @@ export default {
       this.shown = mine
       this.rows = rows.data
       this.players = players.data
+      if (this.current) this.onTop.set(this.userStore.userId, this.current)
       this.seats = seatPlayers(players.data, rows.data, this.userStore.userId, this.onTop)
       this.onTop = new Map(this.seats.filter((s) => s.papers.length).map((s) => [s.player.id, s.papers[0].id]))
     },
