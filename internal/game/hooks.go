@@ -1,8 +1,14 @@
 package game
 
 import (
+	"errors"
+	"fmt"
+	"strings"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // BindHooks binds the record hooks the game relies on: the guards on
@@ -57,6 +63,69 @@ func BindHooks(app core.App) {
 	})
 	bindTurnGuards(app)
 	bindDrawingTypes(app)
+	bindTurnWriteLog(app)
+}
+
+// bindTurnWriteLog logs a player's turn write that validation or a hook
+// fails, with its cause. To the player a full disk, a picture over the size
+// cap and most other failures all read "Failed to create record.";
+// PocketBase keeps the real reason out of the response, so this puts it in
+// the dashboard's Logs. It binds ahead of every other request hook, so it sees
+// their failures too, but leaves out a refusal with a code (refuse): the
+// player is told why, and the guard logs it itself where that's worth it.
+// A request PocketBase answers before the request hooks run isn't logged
+// here: a body over its limit (a 413), a malformed form, a failing rule.
+func bindTurnWriteLog(app core.App) {
+	logFailure := func(e *core.RecordRequestEvent) error {
+		err := e.Next()
+		if err == nil || isRefusal(err) {
+			return err
+		}
+		attrs := []any{
+			"source", "server",
+			"game_id", e.Record.GetString("game_id"), "story", e.Record.GetString("story_id"),
+			"user_id", e.Record.GetString("user_id"), "is_drawing", e.Record.GetBool("is_drawing"),
+		}
+		cause := err.Error()
+		var apiErr *router.ApiError
+		if errors.As(err, &apiErr) {
+			attrs = append(attrs, "status", apiErr.Status)
+			if raw := apiErr.RawData(); raw != nil {
+				cause = fmt.Sprint(raw)
+			}
+		}
+		// Both may carry the file's name, which is the player's to choose.
+		attrs = append(attrs, "cause", clip(cause, 500))
+		for _, f := range e.Record.GetUnsavedFiles("drawing") {
+			attrs = append(attrs, "file", clip(f.OriginalName, 150), "file_size", f.Size)
+		}
+		e.App.Logger().Warn("turn: write failed", attrs...)
+		return err
+	}
+	for _, h := range []*hook.TaggedHook[*core.RecordRequestEvent]{
+		app.OnRecordCreateRequest("turns"), app.OnRecordUpdateRequest("turns"),
+	} {
+		h.Bind(&hook.Handler[*core.RecordRequestEvent]{Priority: -100, Func: logFailure})
+	}
+}
+
+// isRefusal reports whether err is one of the game's own refusals (refuse).
+func isRefusal(err error) bool {
+	var apiErr *router.ApiError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	data, _ := apiErr.RawData().(map[string]error)
+	_, ok := data["code"].(refusalCode)
+	return ok
+}
+
+// clip is s cut to at most n bytes, marked as cut.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "") + "…"
 }
 
 // auditTurn logs a just-created turn with its place in the story (s, read after

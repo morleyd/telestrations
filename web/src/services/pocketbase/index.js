@@ -108,6 +108,21 @@ function refusalCode(err) {
   return err?.response?.data?.code?.code || ""
 }
 
+// What a player is told when PocketBase won't save a picture that big:
+// turns.drawing's maxSize (migration 1784600000), or the request body cap,
+// a 413.
+const MSG_PICTURE_TOO_BIG = "That picture is too big. Try a smaller one."
+
+// Why PocketBase refused a write, if it's one a player can act on, or "". It
+// answers a record it won't save with a bare "Failed to create record." and
+// puts the reason on the field (response.data.drawing); only a picture too
+// big is told here, as other fields' messages are for developers.
+function fieldReason(err) {
+  if (err?.status === 413) return MSG_PICTURE_TOO_BIG
+  if (err?.response?.data?.drawing?.code === 'validation_file_size_limit') return MSG_PICTURE_TOO_BIG
+  return ""
+}
+
 export const pbService = {
   games: {
     async getGameId(gameCode) {
@@ -431,7 +446,10 @@ export const pbService = {
         console.log("createTurn resp", resp)
         return resp
       }).catch(function (err) {
-        return { errMsg: "createTurn:" + JSON.stringify(err?.response?.message || err), errCode: refusalCode(err) }
+        return {
+          errMsg: fieldReason(err) || "createTurn:" + JSON.stringify(err?.response?.message || err),
+          errCode: refusalCode(err),
+        }
       });
     },
     // The round timer ran out with nothing entered: the server skips the turn.
