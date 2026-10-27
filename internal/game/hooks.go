@@ -1,8 +1,13 @@
 package game
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // BindHooks binds the record hooks the game relies on: the guards on
@@ -57,6 +62,44 @@ func BindHooks(app core.App) {
 	})
 	bindTurnGuards(app)
 	bindDrawingTypes(app)
+	bindTurnWriteLog(app)
+}
+
+// bindTurnWriteLog logs every player's turn write that fails, with its cause.
+// To the player a full disk, a picture over the size cap and most other
+// failures all read "Failed to create record."; PocketBase keeps the real
+// reason out of the response, so this puts it in the dashboard's Logs. It
+// binds ahead of every other request hook, so it sees their refusals too.
+func bindTurnWriteLog(app core.App) {
+	logFailure := func(e *core.RecordRequestEvent) error {
+		err := e.Next()
+		if err == nil {
+			return nil
+		}
+		attrs := []any{
+			"source", "server",
+			"game_id", e.Record.GetString("game_id"), "story", e.Record.GetString("story_id"),
+			"user_id", e.Record.GetString("user_id"), "is_drawing", e.Record.GetBool("is_drawing"),
+			"error", err.Error(),
+		}
+		var apiErr *router.ApiError
+		if errors.As(err, &apiErr) {
+			attrs = append(attrs, "status", apiErr.Status, "data", apiErr.Data)
+			if raw := apiErr.RawData(); raw != nil {
+				attrs = append(attrs, "cause", fmt.Sprint(raw))
+			}
+		}
+		for _, f := range e.Record.GetUnsavedFiles("drawing") {
+			attrs = append(attrs, "file", f.OriginalName, "file_size", f.Size)
+		}
+		e.App.Logger().Warn("turn: write failed", attrs...)
+		return err
+	}
+	for _, h := range []*hook.TaggedHook[*core.RecordRequestEvent]{
+		app.OnRecordCreateRequest("turns"), app.OnRecordUpdateRequest("turns"),
+	} {
+		h.Bind(&hook.Handler[*core.RecordRequestEvent]{Priority: -100, Func: logFailure})
+	}
 }
 
 // auditTurn logs a just-created turn with its place in the story (s, read after

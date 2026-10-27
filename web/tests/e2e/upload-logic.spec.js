@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test'
 import { prepareUpload, UnsupportedPicture, brandsOf } from '../../src/services/uploadImage.js'
 
 // Which uploads go up as they are, which are converted (HEIC, with the
-// converter stubbed: the real one runs in upload.spec.js), and which are
-// refused before they're sent. No page is opened.
+// converter stubbed: the real one runs in upload.spec.js), which are shrunk
+// (stubbed too, as only a page can redraw a picture), and which are refused
+// before they're sent. No page is opened.
 
 const bytes = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0))
 const file = (s, name = 'pic') => new File([bytes(s)], name)
@@ -14,10 +15,19 @@ const ftyp = (major, ...compatible) => {
   return String.fromCharCode(size >> 24, (size >> 16) & 255, (size >> 8) & 255, size & 255) + body
 }
 
+// A picture of head and then zeros, size bytes in all.
+const big = (head, name = 'pic', size = 3 << 20) => new File([bytes(head), new Uint8Array(size - head.length)], name)
+
 const STUB_JPEG = new Blob([bytes('\xff\xd8\xff\xe0 converted')])
 const stub = () => {
   const calls = []
   return { calls, convert: async (f) => { calls.push(f); return STUB_JPEG } }
+}
+// A stand-in for the redraw, giving a JPEG of `size` bytes.
+const shrinker = (size = 1000) => {
+  const calls = []
+  const shrunk = new Blob([bytes('\xff\xd8\xff\xe0 shrunk'), new Uint8Array(size)])
+  return { calls, shrunk, shrink: async (f) => { calls.push(f); return shrunk } }
 }
 
 const kept = {
@@ -34,11 +44,77 @@ const kept = {
 for (const [kind, head] of Object.entries(kept)) {
   test(`${kind} goes up as it is`, async () => {
     const { calls, convert } = stub()
+    const { calls: shrunk, shrink } = shrinker()
     const f = file(head)
-    expect(await prepareUpload(f, convert)).toBe(f)
+    expect(await prepareUpload(f, convert, shrink)).toBe(f)
+    expect(calls).toHaveLength(0)
+    expect(shrunk).toHaveLength(0)
+  })
+}
+
+const shrunk = {
+  'a big JPEG': ['\xff\xd8\xff\xe1\0\x22Exif', 'IMG_0620.JPG'],
+  'a big PNG': ['\x89PNG\r\n\x1a\n\0\0\0\rIHDR', 'screenshot.png'],
+  'a big still WebP': ['RIFF\x24\0\0\0WEBPVP8X\x0a\0\0\0\x10\0\0\0', 'pic.webp'],
+  'a big BMP': ['BM\x3a\0\0\0\0\0\0\0\x36\0\0\0', 'scan.bmp'],
+  'a big AVIF': [ftyp('avif', 'avif', 'mif1', 'miaf'), 'pic.avif'],
+}
+for (const [kind, [head, name]] of Object.entries(shrunk)) {
+  test(`${kind} comes out a smaller JPEG named to match`, async () => {
+    const { calls, shrunk, shrink } = shrinker()
+    const f = big(head, name)
+    const out = await prepareUpload(f, stub().convert, shrink)
+    expect(calls).toEqual([f])
+    expect(out.size).toBe(shrunk.size)
+    expect(out.size).toBeLessThan(f.size)
+    expect(out.name).toBe(name.replace(/\.\w+$/, '.jpg'))
+    expect(out.type).toBe('image/jpeg')
+  })
+}
+
+const animated = {
+  'a big GIF': 'GIF89a\x01\0\x01\0',
+  'a big old GIF': 'GIF87a\x01\0\x01\0',
+  // VP8X, then its flags: 0x02 is "animated".
+  'a big animated WebP': 'RIFF\x24\0\0\0WEBPVP8X\x0a\0\0\0\x12\0\0\0',
+  'a big AVIF sequence': ftyp('avis', 'avis', 'msf1'),
+}
+for (const [kind, head] of Object.entries(animated)) {
+  test(`${kind} goes up unchanged, so it still moves`, async () => {
+    const { calls, shrink } = shrinker()
+    const f = big(head, 'party.gif')
+    expect(await prepareUpload(f, stub().convert, shrink)).toBe(f)
     expect(calls).toHaveLength(0)
   })
 }
+
+test('a picture of a MB or less is not redrawn', async () => {
+  const { calls, shrink } = shrinker()
+  const f = big('\xff\xd8\xff\xe0\0\x10JFIF', 'small.jpg', 1 << 20)
+  expect(await prepareUpload(f, stub().convert, shrink)).toBe(f)
+  expect(calls).toHaveLength(0)
+})
+
+test('a redraw that comes out no smaller is dropped', async () => {
+  const f = big('\x89PNG\r\n\x1a\n\0\0\0\rIHDR', 'noise.png', 2 << 20)
+  expect(await prepareUpload(f, stub().convert, shrinker(2 << 20).shrink)).toBe(f)
+})
+
+test('a picture the browser cannot redraw goes up as it is', async () => {
+  const f = big('BM\x3a\0\0\0\0\0\0\0\x36\0\0\0', 'odd.bmp')
+  const out = await prepareUpload(f, stub().convert, async () => { throw new Error('decode failed') })
+  expect(out).toBe(f)
+})
+
+test('a big HEIC is converted, then shrunk', async () => {
+  const { shrink, calls } = shrinker()
+  const convert = async () => new Blob([bytes('\xff\xd8\xff\xe0'), new Uint8Array(3 << 20)])
+  const out = await prepareUpload(file(ftyp('heic', 'mif1', 'heic'), 'IMG_0619.HEIC'), convert, shrink)
+  expect(calls).toHaveLength(1)
+  expect(calls[0].name).toBe('IMG_0619.jpg')
+  expect(out.name).toBe('IMG_0619.jpg')
+  expect(out.size).toBeLessThan(1 << 20)
+})
 
 const heics = {
   'a HEIC': ftyp('heic', 'mif1', 'heic'),
