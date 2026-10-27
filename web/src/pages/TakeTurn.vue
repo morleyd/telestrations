@@ -61,6 +61,7 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService, endsAt, endCountdown } from '@/services/pocketbase'
 import { log } from '@/services/log'
+import { heartbeatSeconds } from '@/services/presence'
 import TurnPane from '@/components/TurnPane.vue'
 import { oneAtATime } from '@/services/oneAtATime'
 
@@ -180,6 +181,8 @@ export default {
     this.paneTypes = new Map()
     // The queue last logged (see queryMorePrompts)
     this.loggedQueue = null
+    // The last presence report, which the next waits for (see reportPresence)
+    this.presenceSent = Promise.resolve()
   },
   async mounted() {
     // Check if game code is valid and game is active
@@ -273,9 +276,15 @@ export default {
       //
       // Every END_CHECK_TICKS it also checks whether the host is ending the
       // game, in case the realtime update didn't arrive.
+      //
+      // And every heartbeatSeconds it tells the server this device is still
+      // here (see reportPresence): a phone that's asleep stops, and shows as
+      // away.
       let ticks = 0
+      const beat = Math.max(1, Math.round((heartbeatSeconds() * 1000) / POLL_MS))
       this.pollTimer = setInterval(async function () {
         ticks++
+        if (ticks % beat == 0) that.reportPresence()
         if (!that.endsAt && ticks % END_CHECK_TICKS == 0) {
           const { data: game } = await pbService.games.checkGameStatus(that.$route.params.gameCode)
           if (game?.endsAt) that.startEnding(game.endsAt, game.endCountdown)
@@ -287,6 +296,7 @@ export default {
           if ((await pbService.users.getUserById(that.userStore.userId)).data?.dropped) that.setRemoved()
         }
       }, POLL_MS)
+      this.reportPresence()
     },
     // The host skipped a turn we owed (at index in storyId), maybe the one on
     // screen or one set aside. Never write that turn, and move on if it's the
@@ -315,11 +325,24 @@ export default {
     },
     // The one place the turn on screen changes: to prompt, an open turn (state
     // "playing" or "firstTurn", see showTurn), or off the turn screens (prompt
-    // null) to the table, the waiting screen or the like. Whatever wants to
-    // know what the player has in front of them hooks in here.
+    // null) to the table, the waiting screen or the like. Everyone's waiting
+    // screen hears of it (reportPresence).
     setScreen(prompt, state) {
       this.curPrompt = prompt
       this.userState = state
+      this.reportPresence()
+    },
+    // Tells the server which turn is on screen (its turnKey, or "" for none)
+    // and that this device is here, for the waiting screen's Working, Not
+    // started and Away. Only once we're playing (startTurnSync), and one
+    // report at a time, so they land in order. Best effort: it's never
+    // awaited, and a failed report changes nothing here.
+    reportPresence() {
+      if (!this.pollTimer || this.tornDown) return
+      const workingOn = this.onTurn && this.curPrompt ? keyOf(this.curPrompt) : ""
+      this.presenceSent = this.presenceSent
+        .then(() => pbService.games.reportPresence(this.gameId, this.userStore.userId, workingOn))
+        .catch(() => {})
     },
     // Whose notebook a turn is in, for the menu and messages (start: to start
     // a sentence with)

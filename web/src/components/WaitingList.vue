@@ -19,9 +19,17 @@
           <strong class="story-count">{{ storyProgress(story).label }}</strong>
         </template>
       </v-progress-linear>
-      <!-- Written out rather than in a tooltip: nobody thought to hover. -->
-      <span class="story-waiting text-caption text-medium-emphasis" :title="waitingOn(story, userMap, meId)">
-        {{ waitingOn(story, userMap, meId) }}
+      <!-- Written out rather than in a tooltip: nobody thought to hover. Then
+           what they're up to, and for the host, how long it's been with them. -->
+      <span class="story-holder">
+        <span class="story-waiting text-caption text-medium-emphasis" :title="waitingOn(story, userMap, meId)">
+          {{ waitingOn(story, userMap, meId) }}
+        </span>
+        <StatusPill v-if="story.next_user_id && states[story.next_user_id]" class="story-state"
+          :status="story.prev_prompt ? 'drawing' : 'writing'" :state="states[story.next_user_id]" />
+        <span v-if="story.next_user_id && heldOffset != null && story.held_seconds != null" class="story-held">
+          {{ heldText(story.held_seconds + heldOffset) }}
+        </span>
       </span>
     </div>
     <!-- A player who hasn't opened the game has no story yet. The table gives
@@ -57,7 +65,7 @@
   </div>
 </template>
 <script>
-import { storyProgress, waitingOn, playerTurns } from '@/services/progress'
+import { heldText, playerTurns, storyProgress, waitingOn } from '@/services/progress'
 
 // Two ways to list the game: by story, or by player. Each player's pick is
 // remembered on their device, like the Table/List switch.
@@ -80,7 +88,10 @@ function savedMode() {
 // theirs. By player: a line for each, with the turns they've had as a bar.
 // progress: the progress view's rows; players: the game's players, in seat
 // order; notStarted: the players who haven't opened the game; userMap: the
-// players by id; meId: whoever is looking.
+// players by id; meId: whoever is looking; states: what each player holding
+// notebooks is up to, by id (see seatPlayers); heldOffset: seconds since the
+// rows' held times were read, ticking, to show them (the host's), or null not
+// to.
 export default {
   props: {
     progress: { type: Array, required: true },
@@ -88,6 +99,8 @@ export default {
     notStarted: { type: Array, default: () => [] },
     userMap: { type: Object, required: true },
     meId: { type: String, default: "" },
+    states: { type: Object, default: () => ({}) },
+    heldOffset: { type: Number, default: null },
   },
   setup() {
     return { MODES }
@@ -114,6 +127,7 @@ export default {
     },
   },
   methods: {
+    heldText,
     storyProgress,
     waitingOn,
     avatarOf(user) {
@@ -164,7 +178,31 @@ export default {
   line-height: 1;
 }
 
+/* Who it's waiting on, what they're up to and how long: the name gives way
+   first */
+.story-holder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.story-state {
+  flex: none;
+  padding: 0 8px 1px;
+  font-size: 0.7rem;
+}
+
+.story-held {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(0, 0, 0, 0.6);
+}
+
 .story-waiting {
+  min-width: 0;
   line-height: 14px;
   display: -webkit-box;
   -webkit-box-orient: vertical;

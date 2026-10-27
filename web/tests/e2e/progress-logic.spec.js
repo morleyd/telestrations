@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { gameProgress, playerTurns, waitingOn } from '../../src/services/progress.js'
+import { gameProgress, heldText, playerTurns, waitingOn } from '../../src/services/progress.js'
 
 // How the waiting screen and the review's list put a row of the progress view
 // into words. No page is opened.
@@ -124,4 +124,10 @@ test('in an endless game a player has a count of turns, the bars against the mos
     .toEqual({ label: '6 turns', doneShare: 50, skippedShare: 25, status: '', skippedNote: '2 skipped', unstarted: false })
   expect(playerTurns(player(1, 0, null), 8)).toMatchObject({ label: '1 turn', doneShare: 12.5 })
   expect(playerTurns(player(0, 0, null), 0)).toMatchObject({ label: '0 turns', doneShare: 0, skippedShare: 0 })
+})
+
+test('a time held reads as minutes and seconds, with hours once it gets that long', () => {
+  expect([0, 7, 42.9, 65, 725, 3599, 3600, 3723].map(heldText))
+    .toEqual(['0:00', '0:07', '0:42', '1:05', '12:05', '59:59', '1:00:00', '1:02:03'])
+  expect(heldText(-3)).toBe('0:00')
 })

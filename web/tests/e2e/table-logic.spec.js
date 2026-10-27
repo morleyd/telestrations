@@ -138,6 +138,51 @@ test('a waiting player is waiting on whoever has the next notebook coming their 
   expect(late[0].waitingOn?.id).toBe('b')
 })
 
+test('the notebook a player has on their screen goes on top of their pile, over any guess', () => {
+  const rows = [story('s1', 'b', 3), story('s2', 'b', 1), story('sb', 'b', 0)]
+  const at = (workingOn) => seatPlayers([player('a'), player('b', { working_on: workingOn, idle_seconds: 1 })],
+    rows, 'a', new Map([['b', 's2']]))[1]
+  // Their own opening word usually comes first; what they say they're on wins.
+  expect(at('s1:3').papers.map((p) => p.id)).toEqual(['s1', 'sb', 's2'])
+  expect(at('s1:3').status).toBe('drawing')
+  // A turn at an earlier place in the story is one they've already left, and
+  // nothing on screen leaves the guesses as they were.
+  expect(at('s1:1').papers.map((p) => p.id)).toEqual(['sb', 's2', 's1'])
+  expect(at('').papers.map((p) => p.id)).toEqual(['sb', 's2', 's1'])
+})
+
+test('a player holding notebooks is working, not started or away, by what their device says', () => {
+  const rows = [story('s1', 'b', 1), story('s2', 'c', 2), story('s3', 'd', 1), story('s4', 'e', 1)]
+  const seats = seatPlayers([
+    player('a', { working_on: '', idle_seconds: 0 }),
+    player('b', { working_on: 's1:1', idle_seconds: 5 }), // on it
+    player('c', { working_on: '', idle_seconds: 5 }), // at the table
+    player('d', { working_on: 's3:1', idle_seconds: 61 }), // phone asleep on it
+    player('e', { working_on: '', idle_seconds: -1 }), // never opened the game
+    player('f', { has_story: false, idle_seconds: -1 }), // nor this one, with no story yet
+  ], rows, 'a')
+  expect(seats.map((s) => s.state)).toEqual([null, 'working', 'notStarted', 'away', 'notStarted', 'notStarted'])
+  // The status still says what's in front of them, whatever they're doing
+  expect(seats.map((s) => s.status)).toEqual(['waiting', 'drawing', 'writing', 'drawing', 'drawing', 'writing'])
+
+  // Away sooner when asked to (the tests do)
+  const soon = seatPlayers([player('a'), player('b', { working_on: 's1:1', idle_seconds: 5 })],
+    [story('s1', 'b', 1)], 'a', new Map(), { awaySeconds: 4 })
+  expect(soon[1].state).toBe('away')
+
+  // Without presence (an older server), working, as before there was any
+  expect(seatPlayers([player('a'), player('b')], [story('s1', 'b', 1)], 'a')[1].state).toBe('working')
+})
+
+test('a seat is held as long as the oldest notebook in its pile', () => {
+  const held = (id, next, seconds) => ({ ...story(id, next, 1), held_seconds: seconds })
+  const seats = seatPlayers([player('a'), player('b'), player('c', { has_story: false })],
+    [held('s1', 'b', 40), held('s2', 'b', 300), held('s3', 'b', 7)], 'a')
+  expect(seats.map((s) => s.heldSeconds)).toEqual([null, 300, null])
+  // Nor from rows that don't say
+  expect(seatPlayers([player('a'), player('b')], [story('s1', 'b', 1)], 'a')[1].heldSeconds).toBeNull()
+})
+
 // Whether (x, y) is inside the oval table
 const onTable = ({ table }, x, y) => {
   const rx = table.w / 2
