@@ -42,3 +42,30 @@ export function gameProgress(rows) {
   const percent = total ? Math.min(99, Math.floor((taken / total) * 100)) : 0
   return { label: `Game ${percent}% done`, percent }
 }
+
+// How far a player has got, from their row of the game's players: "5 / 8"
+// turns, the bar's share of them they took (done) and the share written for
+// them (skipped: the host skipped them, they were dropped, or their timer ran
+// out with nothing entered), and a note for beside it. In an endless game (no
+// total) it's the turns so far, with the bars against the most turns anyone
+// has (most).
+export function playerTurns(player, most = 0) {
+  const turns = player?.turns || 0
+  const skipped = Math.min(player?.skipped || 0, turns)
+  const total = player?.total_turns
+  const label = total == null ? `${turns} ${turns == 1 ? "turn" : "turns"}` : `${turns} / ${total}`
+  const of = total ?? most
+  const share = (n) => (of ? Math.min(100, (n / of) * 100) : 0)
+  const done = share(turns - skipped)
+  let status = ""
+  if (player?.dropped) status = "Dropped"
+  else if (player?.finished) status = "Done"
+  else if (!turns && !player?.has_story) status = "Not started yet"
+  return {
+    label,
+    done,
+    skipped: Math.min(100 - done, share(skipped)),
+    status,
+    skippedNote: skipped ? `${skipped} skipped` : "",
+  }
+}
