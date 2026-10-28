@@ -554,9 +554,10 @@ func bindHostRoutes(se *core.ServeEvent) {
 		if err != nil {
 			return e.NotFoundError("Story not found.", nil)
 		}
-		// Untimed games show no timer (CountdownTimer needs duration >= 0), so
-		// a timeout there can only be someone skipping another player's turn.
-		if game, err := e.App.FindRecordById("games", story.GetString("game_id")); err != nil || game.GetInt("roundDuration") < 0 {
+		// Untimed games show no timer (CountdownTimer runs only for a positive
+		// duration), so a timeout there can only be someone skipping another
+		// player's turn.
+		if game, err := e.App.FindRecordById("games", story.GetString("game_id")); err != nil || game.GetFloat("roundDuration") <= 0 {
 			return e.BadRequestError("This game has no round timer.", nil)
 		}
 		if isDropped(e.App, body.UserID) {
@@ -626,13 +627,10 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 	if err != nil {
 		return nil, err
 	}
-	if roundDuration <= 0 {
-		roundDuration = -1
-	}
 	next := core.NewRecord(games)
 	next.Set("game_code", code)
 	next.Set("roundDuration", roundDuration)
-	next.Set("rounds", max(rounds, 1))
+	next.Set("rounds", rounds)
 	next.Set("endless", endless)
 	next.Set("isStarted", true)
 	if err := tx.Save(next); err != nil {
@@ -669,7 +667,7 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 	}
 	tx.Logger().Info("game: rematch", "from_game", game.GetString("game_code"), "game", code,
 		"game_id", next.Id, "seating", seating, "rounds", next.GetInt("rounds"), "endless", endless,
-		"round_duration", roundDuration)
+		"round_duration", next.GetInt("roundDuration"))
 	return next, nil
 }
 

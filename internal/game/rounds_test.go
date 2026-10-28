@@ -36,10 +36,13 @@ func TestNewGameSettings(t *testing.T) {
 		{"three rounds", map[string]any{"rounds": 3}, 3, false, false},
 		{"endless", map[string]any{"rounds": 1, "endless": true}, 1, true, false},
 		{"started and ending", map[string]any{"rounds": 2, "isStarted": true, "ends_at": time.Now()}, 2, false, true},
+		{"no time on the timer", map[string]any{"roundDuration": 0}, 1, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			c.body["game_code"] = security.RandomString(8)
-			c.body["roundDuration"] = -1
+			if _, ok := c.body["roundDuration"]; !ok {
+				c.body["roundDuration"] = -1
+			}
 			rec := call(api, http.MethodPost, gamesPath, c.body)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("create: %d %s", rec.Code, rec.Body)
@@ -61,6 +64,9 @@ func TestNewGameSettings(t *testing.T) {
 			if game.GetBool("isStarted") || !game.GetDateTime("ends_at").IsZero() {
 				t.Errorf("a client created a game started %v, ending at %q",
 					game.GetBool("isStarted"), game.GetString("ends_at"))
+			}
+			if d := game.GetInt("roundDuration"); d != -1 {
+				t.Errorf("roundDuration %d, want -1: untimed", d)
 			}
 			if code := game.GetString("game_code"); code == c.body["game_code"] || len(code) != 5 {
 				t.Errorf("the game's code is %q, want one of the server's", code)

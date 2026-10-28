@@ -40,9 +40,14 @@ func BindHooks(app core.App) {
 		})
 	})
 
-	// Every story goes round the table at least once.
+	// Every story goes round the table at least once, and a round timer of no
+	// time at all is no timer: -1, how the pages and /timeout tell an untimed
+	// game. A client's create and Play again's alike.
 	app.OnRecordCreate("games").BindFunc(func(e *core.RecordEvent) error {
 		e.Record.Set("rounds", max(e.Record.GetInt("rounds"), 1))
+		if e.Record.GetFloat("roundDuration") <= 0 {
+			e.Record.Set("roundDuration", -1)
+		}
 		return e.Next()
 	})
 
