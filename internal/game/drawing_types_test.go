@@ -66,14 +66,26 @@ func TestDrawingRefusesTypesNotEveryBrowserDraws(t *testing.T) {
 	}
 }
 
-func TestDrawingTakesAPng(t *testing.T) {
-	app := newTestApp(t)
-	api := serveAPI(t, app)
-	g := newGame(t, app, "ann", "ben")
-	g.play(t, "ann", "ann")
-	rec := upload(api, http.MethodPost, turnsRoute, g.nextTurn(t, "ann", "ben"), "d.png", pngPixel)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PNG drawing: %d %s", rec.Code, rec.Body)
+// The web app sends these as they are, so the check must take them too: an
+// animated PNG, and an AVIF that names itself only among its compatible
+// brands, behind mif1.
+func TestDrawingTakesPngsAndAvifs(t *testing.T) {
+	apng := append(bytes.Clone(pngPixel[:33]), "\x00\x00\x00\x08acTL\x00\x00\x00\x02\x00\x00\x00\x00"...)
+	for name, data := range map[string][]byte{
+		"d.png":      pngPixel,
+		"wave.png":   apng,
+		"photo.avif": []byte("\x00\x00\x00\x1cftypmif1\x00\x00\x00\x00mif1miafavif"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := newTestApp(t)
+			api := serveAPI(t, app)
+			g := newGame(t, app, "ann", "ben")
+			g.play(t, "ann", "ann")
+			rec := upload(api, http.MethodPost, turnsRoute, g.nextTurn(t, "ann", "ben"), name, data)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s: %d %s", name, rec.Code, rec.Body)
+			}
+		})
 	}
 }
 
