@@ -868,6 +868,10 @@ func bindTurnGuards(app core.App) {
 		if gameStarted(e.App, e.Record.GetString("game_id")) {
 			return e.BadRequestError(msgGameStarted, nil)
 		}
+		// Nor does the game lose its host: nobody else could start it.
+		if e.Record.GetBool("is_host") {
+			return e.BadRequestError("The host can't leave the game.", nil)
+		}
 		return e.Next()
 	}))
 

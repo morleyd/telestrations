@@ -27,10 +27,10 @@
             <span v-if="userStore.is_host" class="drag-handle">⋮⋮</span>
             <AvatarIcon :user="item" />
             <span class="item-content wrap hand">{{ item.username }}</span>
-            <v-btn v-if="item.username == userStore.username" icon="mdi-pencil" size="small" variant="text"
+            <v-btn v-if="item.id === userStore.userId" icon="mdi-pencil" size="small" variant="text"
               @click="onEditUserClick()" />
-            <v-btn v-if="userStore.is_host" icon="mdi-trash-can-outline" size="small" variant="text"
-              @click="deleteItem(item.id)" />
+            <v-btn v-else-if="userStore.is_host" icon="mdi-trash-can-outline" size="small" variant="text"
+              @click="removePlayer(item.id)" />
           </div>
         </div>
       </draggable>
@@ -45,10 +45,10 @@
     </v-card-actions>
   </v-card>
 
-  <!-- Persistent while joining: dismissing it would leave the player in the
-       waiting room without a seat and no way to get one. -->
   <ConfirmRejoin ref="rejoin" />
 
+  <!-- Persistent while joining: dismissing it would leave the player in the
+       waiting room without a seat and no way to get one. -->
   <v-dialog v-model="showEditUsernameDialog" max-width="500" :persistent="!userStore.userId">
     <v-card class="pa-4 bg-white" width="500" max-width="100%">
       <v-card-title class="text-center text-h4">
@@ -77,6 +77,7 @@ export default {
   data() {
     return {
       gameId: "",
+      // The roster, in the host's seating order (see refreshRoster)
       users: [],
       showEditUsernameDialog: false,
       // One Enter in the join form runs onUsernameSubmit several times
@@ -92,64 +93,46 @@ export default {
   },
   computed: {
     ...mapStores(useUserStore),
+    gameCode() {
+      return this.$route.params.gameCode
+    },
     // The code as the tag shows it, in capitals.
     shownCode() {
-      return String(this.$route.params.gameCode).toUpperCase()
+      return String(this.gameCode).toUpperCase()
     },
   },
   async created() {
-    // Get gameCode from path
-    let gameCode = this.$route.params.gameCode
-
-    // Check game status
-    const { data: validGame, errMsg, notFound } = await pbService.games.checkGameStatus(gameCode)
+    const { data: game, errMsg, notFound } = await pbService.games.checkGameStatus(this.gameCode)
     if (errMsg) {
       this.$emit("snack", notFound ? "Invalid Game Code. Try again or create a new game." : errMsg, "error")
       this.$router.push({ name: "Home" });
       return
-    } else if (validGame.isStarted) {
-      this.$router.push({ name: "TakeTurn", params: { gameCode: gameCode } });
+    }
+    if (game.isStarted) {
+      this.toGame()
       return
     }
+    this.gameId = game.gameId
+    log.setContext({ game: this.gameCode, gameId: this.gameId })
 
-    this.gameId = validGame.gameId
-    log.setContext({ game: gameCode, gameId: this.gameId })
-    await this.resolveUser()
-
-    let resp = await pbService.users.getUsers(gameCode)
-    if (resp.errMsg) {
-      this.$emit("snack", resp.errMsg, "error")
-      return;
-    }
-    // resp.aborted means a newer roster fetch (a subscription event that fired
-    // during mount) superseded this one — its handler will set the roster.
-    if (resp.data) {
-      this.users = resp.data
-    }
-
-    let that = this
-    // Subscribe to users
-    resp = pb.collection('users').subscribe('*', async function (e) {
-      console.log("users subscription event", e)
-      let resp = await pbService.users.getUsers(gameCode)
-      if (resp.data) {
-        that.users = resp.data
-      }
-      if (resp.errMsg) {
-        console.error("users subscription err", resp.errMsg)
-      }
-    }, { filter: `game_id.game_code="${gameCode}"` })
-
-    // Subscribe to the game to know when to redirect
-    resp = pb.collection('games').subscribe(this.gameId, async function (e) {
-      console.log("games subscription event", e)
-      pb.collection('users').unsubscribe();
-      that.$router.push({ name: "TakeTurn", params: { gameCode: gameCode } });
+    // Listening first, so nothing lands unheard while the page reads. The host
+    // starting the game moves everyone to it.
+    pb.collection('games').subscribe(this.gameId, (e) => {
+      if (e.record.isStarted) this.toGame()
     })
+    pb.collection('users').subscribe('*', (e) => this.onRosterEvent(e),
+      { filter: pb.filter("game_id = {:gameId}", { gameId: this.gameId }) })
+    // Realtime doesn't replay what it missed while the connection was down (a
+    // phone asleep in the lobby): catch up each time it's back.
+    pb.realtime.subscribe('PB_CONNECT', () => this.catchUp())
+
+    await this.resolveUser()
+    await this.refreshRoster()
   },
   unmounted() {
     pb.collection('users').unsubscribe();
     pb.collection('games').unsubscribe();
+    pb.realtime.unsubscribe('PB_CONNECT');
   },
   methods: {
     // Work out who this tab is in *this* game. The stored user outlives a game
@@ -186,6 +169,38 @@ export default {
         })
       }
     },
+    toGame() {
+      this.$router.push({ name: "TakeTurn", params: { gameCode: this.gameCode } });
+    },
+    // After a reconnect: on to the game if it started meanwhile, else the
+    // roster as it is now.
+    async catchUp() {
+      const { data: game } = await pbService.games.checkGameStatus(this.gameCode)
+      if (game?.isStarted) this.toGame()
+      else this.refreshRoster()
+    },
+    // Someone joined, left, or changed their name or look. If it's this player
+    // gone (the host removed them), they're a visitor again: the join dialog.
+    onRosterEvent(e) {
+      if (e.action === "delete" && e.record.id === this.userStore.userId) {
+        this.userStore.user = null
+        this.showEditUsernameDialog = true
+      }
+      this.refreshRoster()
+    },
+    // Reads the roster. The host's seating stays as they dragged it, which is
+    // the order /begin seats: whoever was listed keeps their place, and
+    // newcomers go at the end, in the order they joined.
+    async refreshRoster() {
+      const { data: players, errMsg } = await pbService.users.getUsers(this.gameCode)
+      if (errMsg) {
+        this.$emit("snack", errMsg, "error")
+        return
+      }
+      if (!players) return // cancelled by a newer refresh, which has it
+      const seated = this.users.map((u) => players.find((p) => p.id === u.id)).filter(Boolean)
+      this.users = [...seated, ...players.filter((p) => !seated.includes(p))]
+    },
     async copyCode() {
       const code = this.shownCode
       if (await copyText(code)) this.$emit("snack", `Copied the game code ${code}`, "success")
@@ -197,13 +212,15 @@ export default {
         this.$refs.username.set(this.userStore.username, this.userStore.avatar)
       })
     },
-    async deleteItem(id) {
-      if (confirm("Are you sure you want to remove this user?")) {
-        let resp = await pbService.users.deleteUser(id)
-        if (resp.errMsg) {
-          this.$emit("snack", resp.errMsg, "error")
-        }
+    // True once the player is out of the game.
+    async removePlayer(id) {
+      if (!confirm("Are you sure you want to remove this user?")) return false
+      const { errMsg } = await pbService.users.deleteUser(id)
+      if (errMsg) {
+        this.$emit("snack", errMsg, "error")
+        return false
       }
+      return true
     },
     async onBeginClicked() {
       // Assign positions and start the game in one server-side transaction over
@@ -211,14 +228,18 @@ export default {
       // drag order) as a preference; the server seats those players first and
       // appends anyone our local snapshot missed, so a late joiner can no longer
       // corrupt the 0..N-1 ordering.
-      let resp = await pbService.games.beginGame(this.gameId, this.users.map(u => u.id))
-      if (resp.errMsg) {
-        this.$emit("snack", resp.errMsg, "error")
+      const { errMsg } = await pbService.games.beginGame(this.gameId, this.users.map(u => u.id))
+      if (errMsg) {
+        this.$emit("snack", errMsg, "error")
         return
       }
+      this.toGame()
     },
-    leaveParty() {
-      this.deleteItem(this.userStore.userId)
+    async leaveParty() {
+      if (await this.removePlayer(this.userStore.userId)) {
+        this.userStore.user = null
+        this.$router.push({ name: "Home" })
+      }
     },
     async onUsernameSubmit() {
       // Latch synchronously before the first await so a duplicate call (see

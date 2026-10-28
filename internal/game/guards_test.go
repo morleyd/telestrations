@@ -203,8 +203,9 @@ func TestFinishedStoryTakesNoMoreTurns(t *testing.T) {
 }
 
 // Host powers (Skip, Drop) go to whoever has is_host, so only the player who
-// created the game may have it: a later join can't claim it, and nobody can
-// promote themselves (or reseat themselves, or move games) afterwards.
+// created the game may have it: a later join can't claim it, the host can't
+// leave it, and nobody can promote themselves (or reseat themselves, or move
+// games) afterwards.
 func TestOnlyTheCreatorHosts(t *testing.T) {
 	app := newTestApp(t)
 	api := serveAPI(t, app)
@@ -220,6 +221,9 @@ func TestOnlyTheCreatorHosts(t *testing.T) {
 	}
 	if joined.IsHost {
 		t.Error("a player joining as host became a second host")
+	}
+	if rec := call(api, http.MethodDelete, "/api/collections/users/records/"+lobby.players["ann"].Id, nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("removing the host: %d %s, want 400", rec.Code, rec.Body)
 	}
 
 	g := newGame(t, app, "ann", "ben", "cat")

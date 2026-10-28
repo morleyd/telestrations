@@ -99,6 +99,8 @@ test('a player who leaves the party is removed from the host roster', async ({ b
   guestPage.once('dialog', (d) => d.accept())
   await guestPage.getByRole('button', { name: 'Leave Party' }).click()
   await expect(hostPage.getByText('quitter')).toHaveCount(0, { timeout: 15_000 })
+  // And the guest is out of the lobby, not left in it as a player who's gone.
+  await guestPage.waitForURL((url) => url.pathname === '/')
 
   await hostCtx.close()
   await guestCtx.close()
