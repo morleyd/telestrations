@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -203,8 +204,9 @@ func TestFinishedStoryTakesNoMoreTurns(t *testing.T) {
 }
 
 // Host powers (Skip, Drop) go to whoever has is_host, so only the player who
-// created the game may have it: a later join can't claim it, and nobody can
-// promote themselves (or reseat themselves, or move games) afterwards.
+// created the game may have it: a later join can't claim it, the host can't
+// leave it, and nobody can promote themselves (or reseat themselves, or move
+// games) afterwards.
 func TestOnlyTheCreatorHosts(t *testing.T) {
 	app := newTestApp(t)
 	api := serveAPI(t, app)
@@ -220,6 +222,9 @@ func TestOnlyTheCreatorHosts(t *testing.T) {
 	}
 	if joined.IsHost {
 		t.Error("a player joining as host became a second host")
+	}
+	if rec := call(api, http.MethodDelete, "/api/collections/users/records/"+lobby.players["ann"].Id, nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("removing the host: %d %s, want 400", rec.Code, rec.Body)
 	}
 
 	g := newGame(t, app, "ann", "ben", "cat")
@@ -241,6 +246,37 @@ func TestOnlyTheCreatorHosts(t *testing.T) {
 	}
 	if rec := g.hostAct(api, "skip", ben, cat); rec.Code != http.StatusForbidden {
 		t.Errorf("ben skipping cat as host: %d, want 403", rec.Code)
+	}
+}
+
+// The web app puts a face in the page as HTML, so a player's avatar is a
+// face's name or none: anything else, markup above all, is refused, on a join
+// and on an update.
+func TestAvatarIsAFaceOrNone(t *testing.T) {
+	app := newTestApp(t)
+	api := serveAPI(t, app)
+	lobby := newLobby(t, app, "ann")
+	for i, c := range []struct {
+		avatar string
+		want   int
+	}{
+		{"glee", http.StatusOK},
+		{"", http.StatusOK},
+		{"nope", http.StatusBadRequest},
+		{`<svg onload="alert(1)"></svg>`, http.StatusBadRequest},
+	} {
+		rec := call(api, http.MethodPost, "/api/collections/users/records",
+			map[string]any{"username": fmt.Sprintf("p%d", i), "game_id": lobby.game.Id, "avatar": c.avatar})
+		if rec.Code != c.want {
+			t.Errorf("joining with avatar %q: %d %s, want %d", c.avatar, rec.Code, rec.Body, c.want)
+		}
+	}
+	ann := "/api/collections/users/records/" + lobby.players["ann"].Id
+	if rec := call(api, http.MethodPatch, ann, map[string]any{"avatar": `<img src=x onerror="alert(1)">`}); rec.Code != http.StatusBadRequest {
+		t.Errorf("changing ann's avatar to markup: %d %s, want 400", rec.Code, rec.Body)
+	}
+	if rec := call(api, http.MethodPatch, ann, map[string]any{"avatar": "joy"}); rec.Code != http.StatusOK {
+		t.Errorf("changing ann's avatar to a face: %d %s", rec.Code, rec.Body)
 	}
 }
 

@@ -60,7 +60,6 @@ function loadRecents() {
 }
 
 export default {
-  name: "PaintPalette",
   props: {
     color: { type: String, required: true },
     bgColor: { type: String, required: true },

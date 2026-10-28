@@ -9,7 +9,6 @@
 </template>
 <script>
 export default {
-  name: 'App',
   methods: {
     /**
      * Helper function to send a message to the InfoSnackbar.

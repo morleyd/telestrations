@@ -1,11 +1,10 @@
 <template>
-  <div v-if="duration >= 0" class="timer">
+  <div v-if="duration > 0" class="timer">
     <!-- Time left in blue, time gone in red -->
     <v-progress-circular :size="100" :width="15" :model-value="percentage" color="primary" bg-color="tertiary">
-
-      <span v-if="timeLeft > 15" :style="dramaticStyling">{{ timeLeft }}</span>
+      <span v-if="secondsLeft > 15" :style="dramaticStyling">{{ timeLeft }}</span>
       <div v-else>
-        <transition name="scale" mode="out-in">
+        <transition name="fade" mode="out-in">
           <span :key="timeLeft" :style="dramaticStyling">{{ timeLeft }}</span>
         </transition>
       </div>
@@ -14,25 +13,31 @@
 </template>
 
 <script>
+// A round's timer: counts `duration` seconds down and emits `finished` once.
+// No timer for a duration of 0 or less (an untimed game).
 export default {
-  name: "CountdownTimer",
   props: ["duration"],
+  emits: ["finished"],
   data() {
     return {
-      interval: {},
-      value: 0,
-      percentage: 100,
+      elapsed: 0,
     }
   },
   computed: {
+    secondsLeft() {
+      return Math.max(0, this.duration - this.elapsed)
+    },
+    percentage() {
+      return (this.secondsLeft / this.duration) * 100
+    },
     dramaticStyling() {
-      if (this.totalSecondsLeft < 10) {
+      if (this.secondsLeft < 10) {
         return {
-          'font-size': `${2.2 + (10 - this.totalSecondsLeft) / 10}em`,
-          'font-weight': `${600 + (10 - this.totalSecondsLeft) * 30}`,
+          'font-size': `${2.2 + (10 - this.secondsLeft) / 10}em`,
+          'font-weight': `${600 + (10 - this.secondsLeft) * 30}`,
           'color': 'red',
         }
-      } else if (this.totalSecondsLeft < 30) {
+      } else if (this.secondsLeft < 30) {
         return {
           'font-size': '2em',
           'font-weight': '600',
@@ -42,33 +47,22 @@ export default {
         return { 'font-size': '1.6em', }
       }
     },
-    totalSecondsLeft() {
-      return this.duration - this.value
-    },
+    // "1:02:03", "2:03" or "3"
     timeLeft() {
-      let hoursLeft = Math.floor((this.totalSecondsLeft) / 3600)
-      let minustesLeft = Math.floor((this.totalSecondsLeft - (hoursLeft * 3600)) / 60)
-      let secondsLeft = Math.floor((this.totalSecondsLeft - (minustesLeft * 60 + hoursLeft * 3600)))
-      if (hoursLeft > 0) {
-        return `${hoursLeft}:${String(minustesLeft).padStart(2, '0')}:${String(secondsLeft).padStart(2, '0')}`
-      } else if (minustesLeft > 0) {
-        return `${minustesLeft}:${String(secondsLeft).padStart(2, '0')}`
-      } else {
-        return secondsLeft
-      }
+      const s = this.secondsLeft
+      const [hours, minutes, seconds] = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60]
+      const pad = (n) => String(n).padStart(2, '0')
+      if (hours) return `${hours}:${pad(minutes)}:${pad(seconds)}`
+      if (minutes) return `${minutes}:${pad(seconds)}`
+      return seconds
     },
   },
-  async mounted() {
+  mounted() {
+    if (!(this.duration > 0)) return
     this.interval = setInterval(() => {
-      if (this.percentage <= 0) {
-        clearInterval(this.interval)
-        this.$emit("finished")
-        this.percentage = 0
-        this.value = this.duration
-      } else {
-        this.value += 1
-        this.percentage = 100 - Math.ceil((this.value / this.duration) * 100)
-      }
+      if (++this.elapsed < this.duration) return
+      clearInterval(this.interval)
+      this.$emit("finished")
     }, 1000)
   },
   unmounted() {
@@ -89,24 +83,11 @@ export default {
   box-shadow: 0 0 0 2.5px var(--ink), 4px 4px 0 2.5px var(--ink);
 }
 
-.scale-enter-active,
-.scale-leave-active {
+.fade-leave-active {
   transition: opacity 0.2s ease;
 }
 
-.scale-enter-from {
-  opacity: 1;
-}
-
-.scale-enter-to {
-  opacity: 1;
-}
-
-.scale-leave-from {
-  opacity: 1;
-}
-
-.scale-leave-to {
+.fade-leave-to {
   opacity: 0;
 }
 </style>

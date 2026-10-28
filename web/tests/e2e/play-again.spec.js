@@ -1,14 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, driveGameToReview, submitWord, turnState, PB_URL } from './helpers.js'
+import { createGame, joinGame, startGame, driveGameToReview, submitWord, turnState, gameByCode } from './helpers.js'
 
 // Play again: when a game is over, the host starts a new one from the review
 // with the same players (changing the settings if they like), and everybody
 // goes straight to their first turn, without leaving and rejoining.
 
-const gameByCode = async (request, code) => {
-  const filter = encodeURIComponent(`game_code="${code.toLowerCase()}"`)
-  return (await (await request.get(`${PB_URL}/api/collections/games/records?filter=${filter}`)).json()).items[0]
-}
 const codeOf = (page) => new URL(page.url()).pathname.split('/')[1]
 
 test('the host starts a new game with the same players, straight from the review', async ({ browser, request }) => {

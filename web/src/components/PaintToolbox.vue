@@ -47,7 +47,6 @@ import { SIZES } from "@/services/paint/engine";
 import { FILLABLE_TOOLS, OPTION_HINTS, TOOLS } from "@/services/paint/tools";
 
 export default {
-  name: "PaintToolbox",
   props: {
     tool: { type: String, required: true },
     size: { type: Number, required: true },

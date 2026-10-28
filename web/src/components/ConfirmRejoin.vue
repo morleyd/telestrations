@@ -33,7 +33,6 @@
 import { log } from '@/services/log'
 
 export default {
-  name: "ConfirmRejoin",
   data() {
     return {
       visible: false,
@@ -60,9 +59,3 @@ export default {
   },
 }
 </script>
-<style scoped>
-.wrap {
-  white-space: break-spaces;
-  word-break: break-word;
-}
-</style>

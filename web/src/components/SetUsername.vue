@@ -16,9 +16,9 @@
 </template>
 <script>
 import { avatarColor } from '@/services/player'
+import { FACES } from '@/services/faces'
 
 export default {
-  name: "SetUsername",
   props: {
     // Off where the name signs in to a seat that already has its avatar.
     pickAvatar: { type: Boolean, default: true },
@@ -39,12 +39,13 @@ export default {
       this.username = username
       this.avatar = avatar
     },
+    // The name as typed, less any spaces around it (a phone keyboard's
+    // suggestion leaves one at the end), and the face picked, or "" for none:
+    // an avatar from an older page (its markup) isn't one the server takes.
     async validate() {
-      let validation = await this.$refs.form.validate()
-      validation["username"] = this.username
-      validation["color"] = this.color
-      validation["avatar"] = this.avatar
-      return validation
+      const validation = await this.$refs.form.validate()
+      const avatar = FACES.has(this.avatar) ? this.avatar : ""
+      return { ...validation, username: this.username.trim(), color: this.color, avatar }
     },
     onAvatarSelect(avatar) {
       this.avatar = avatar
@@ -52,8 +53,8 @@ export default {
     // One Enter in the field lands here twice: the form's implicit submit on
     // keydown, then @keyup.enter on keyup. That submit also bubbles to a parent
     // page's own @submit form. So a page handler on @username runs twice per
-    // Enter, more if it also handles its form's @submit, and each page latches
-    // it on the first in-flight call.
+    // Enter, more if it also handles its form's @submit: each page's handler is
+    // oneAtATime.
     onSubmit() {
       this.$emit("username")
     },

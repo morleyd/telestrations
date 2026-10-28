@@ -1,8 +1,9 @@
 # End-to-end tests (Playwright)
 
-Smoke tests that drive a real browser against the real frontend **and** a real
-PocketBase backend, covering the flows that break a game night: creating a game
-(timed and untimed), round-duration validation, and a second player joining.
+Tests that drive a real browser against the real frontend **and** a real
+PocketBase backend: whole games from the lobby to the review, host controls,
+timers, drawing and uploads. The `*-logic.spec.js` files test the app's modules
+on their own, without playing a game.
 
 ## Running
 

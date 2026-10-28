@@ -7,17 +7,15 @@ export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://
 // (see fetchWhole).
 pb.beforeSend = (url, options) => ({ url, options: { ...options, fetch: fetchWhole } })
 // A note on the SDK's auto-cancellation: it aborts an in-flight request whenever
-// a second one with the same resource key starts. That is exactly right for the
-// recurring state refreshes (e.g. WaitingRoom's roster refetch on every realtime
-// event — latest response wins, stale ones can never land out of order and stick),
-// so we keep it globally ON and callers treat an aborted refresh as "superseded".
-// It is exactly wrong for one-shot lookups fired during navigation (when the host
-// starts the game, every player's WaitingRoom -> TakeTurn transition runs
-// checkGameStatus at once and the aborts stranded players on the "Error..."
-// screen), so those lookups opt out per-request with `requestKey: null` below
-// instead of disabling cancellation for the whole client.
+// a second one with the same key starts. That is right for the recurring
+// refreshes (getUsers and getFullProgress below): the latest response wins, and
+// a stale one can never land out of order and stick. It is wrong for everything
+// else, a one-shot lookup or a write: when the host starts the game, every
+// player's WaitingRoom -> TakeTurn transition looks the game up at once, and
+// the aborts stranded players on the "Error..." screen. So those opt out with
+// `requestKey: null`.
 
-// One retry loop for every helper below, so the policy can't drift between them.
+// One retry loop for the helpers below, so the policy can't drift between them.
 // isRetryable decides which failures are worth re-issuing; everything else
 // propagates immediately. Gives up (throws the last error) after `tries`.
 async function retry(fn, isRetryable, { tries = 3, delayMs = 150 } = {}) {
@@ -41,8 +39,6 @@ async function retry(fn, isRetryable, { tries = 3, delayMs = 150 } = {}) {
 // defense in depth: a transient blip can still make one lookup for a record we
 // know exists come back empty, and a couple of quick retries ride over it. A
 // genuinely missing code still throws after the last attempt (~0.5s later).
-// `requestKey: null` opts out of auto-cancellation: these are one-shot lookups
-// that legitimately overlap during navigation (see the note on the client above).
 function getFirstListItemRetry(collection, filter, options = {}) {
   return retry(
     () => pb.collection(collection).getFirstListItem(filter, { ...options, requestKey: null }),
@@ -63,14 +59,22 @@ function isTransientRelationError(err) {
 
 // create(), retried past the transient relation race. A 400 means nothing was
 // written, so re-issuing can't duplicate; other errors propagate immediately.
-// Defense in depth on top of the backend fix (see main.go), plus the schema's
-// unique indexes now make duplicate stories/turns impossible server-side.
-// `requestKey: null`: creates must never cancel each other.
 function createWithRetry(collection, data) {
   return retry(
     () => pb.collection(collection).create(data, { requestKey: null }),
     isTransientRelationError,
   )
+}
+
+// POST to one of the game's own routes (routes.go, host.go)
+function post(path, body) {
+  return pb.send(path, { method: "POST", body, requestKey: null })
+}
+
+// The address of a turn's drawing. It needs only the turn's id, so it's built
+// here rather than read.
+export function drawingURL(turnId, filename) {
+  return pb.files.getURL({ collectionName: "turns", id: turnId }, filename)
 }
 
 // A PocketBase date as a Date, or null. PocketBase writes them as
@@ -97,6 +101,19 @@ export function endCountdown(game) {
   return at && from ? Math.max(0, Math.round((at - from) / 1000)) : null
 }
 
+// Every request below answers { data } if it works. If it fails: { errMsg }
+// to show the player, with errCode (a refusal's code) and notFound (a 404) to
+// act on. A refresh cancelled by a newer one of its kind answers just
+// { aborted }: the newer one has it covered.
+async function call(request) {
+  try {
+    return { data: await request() }
+  } catch (err) {
+    if (err?.isAbort) return { aborted: true }
+    return { errMsg: errorMessage(err), errCode: refusalCode(err), notFound: err?.status === 404 }
+  }
+}
+
 // The stable code a refused write carries (refuse() in host.go), so callers
 // branch on it rather than on the message. Anything else, a unique-index error
 // included, gets no code: the server's guard is what says a turn was really
@@ -108,387 +125,126 @@ function refusalCode(err) {
   return err?.response?.data?.code?.code || ""
 }
 
-// What a player is told when PocketBase won't save a picture that big:
-// turns.drawing's maxSize (migration 1784600000), or the request body cap,
-// a 413.
-const MSG_PICTURE_TOO_BIG = "That picture is too big. Try a smaller one."
+// What the player is told. PocketBase answers a record it won't save with a
+// bare "Failed to create record." and puts the reason on the field; of those,
+// only a picture over turns.drawing's maxSize (migration 1784600000) is one a
+// player can act on, as is the request body cap's 413.
+function errorMessage(err) {
+  if (err?.status === 413 || err?.response?.data?.drawing?.code === 'validation_file_size_limit') {
+    return "That picture is too big. Try a smaller one."
+  }
+  return err?.message || String(err)
+}
 
-// Why PocketBase refused a write, if it's one a player can act on, or "". It
-// answers a record it won't save with a bare "Failed to create record." and
-// puts the reason on the field (response.data.drawing); only a picture too
-// big is told here, as other fields' messages are for developers.
-function fieldReason(err) {
-  if (err?.status === 413) return MSG_PICTURE_TOO_BIG
-  if (err?.response?.data?.drawing?.code === 'validation_file_size_limit') return MSG_PICTURE_TOO_BIG
-  return ""
+// A game as the pages use it, from its record
+function gameStatus(game) {
+  return {
+    gameId: game.id,
+    duration: game.roundDuration,
+    rounds: game.rounds,
+    endless: game.endless,
+    isStarted: game.isStarted,
+    endsAt: endsAt(game),
+    endCountdown: endCountdown(game),
+    // The game the host started after this one (Play again), if any
+    nextGame: game.next_game || "",
+  }
 }
 
 export const pbService = {
   games: {
-    async getGameId(gameCode) {
-      return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
-        console.log("getGameId resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { data: resp.id }
-        } else {
-          throw new Error("Failed to find game ID.")
-        }
-      }).catch(function (err) {
-        return { errMsg: "getGameId:" + JSON.stringify(err.response.message || err) }
-      })
-    },
-    async createGame(data) {
-      console.log("createGame request", data)
-      // requestKey: null for the same reason as createUser/createWithRetry: a
-      // create must never auto-cancel another, which would strand a game that
-      // the server actually committed. Games point at no relations, so the
-      // relation-race retry isn't needed here.
-      return await pb.collection('games').create(data, { requestKey: null }).then(function (resp) {
-        console.log("createGame resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { data: resp }
-        } else {
-          throw new Error("Failed to create game.")
-        }
-      }).catch(function (err) {
-        return { errMsg: "createGame:" + JSON.stringify(err.response.message || err) }
-      })
-    },
-    async updateGame(gameId, data) {
-      console.log("updateGame request", data)
-      return await pb.collection('games').update(gameId, data).then(function (resp) {
-        console.log("updateGame resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { data: resp }
-        } else {
-          throw new Error("Failed to create game.")
-        }
-      }).catch(function (err) {
-        return { errMsg: "updateGame:" + JSON.stringify(err.response.message || err) }
-      })
-    },
-    async beginGame(gameId, order) {
-      console.log("beginGame request", { gameId, order })
-      return await pb.send(`/api/games/${gameId}/begin`, {
-        method: "POST",
-        body: { order },
-      }).then(function (resp) {
-        console.log("beginGame resp", resp)
-        return { data: resp }
-      }).catch(function (err) {
-        return { errMsg: "beginGame:" + JSON.stringify(err?.response?.message || err) }
-      })
-    },
+    // The server picks the game's code (see the games create guard in host.go).
+    createGame: (data) => call(() => pb.collection('games').create(data, { requestKey: null })),
+    // Seats the players in `order` (the host's drag order; the server seats
+    // anyone it leaves out after them) and starts the game.
+    beginGame: (gameId, order) => call(() => post(`/api/games/${gameId}/begin`, { order })),
     // Where every player stands mid-game (see gamePlayers in host.go): turns
     // taken, stories waiting on them, dropped, and whether they're finished.
-    async getPlayers(gameId) {
-      // requestKey: null: polled from more than one place; overlapping calls
-      // must not cancel each other.
-      return await pb.send(`/api/games/${gameId}/players`, { requestKey: null }).then(function (resp) {
-        return { data: resp.players }
-      }).catch(function (err) {
-        return { errMsg: "getPlayers:" + JSON.stringify(err?.response?.message || err) }
-      })
-    },
+    getPlayers: (gameId) => call(async () =>
+      (await pb.send(`/api/games/${gameId}/players`, { requestKey: null })).players),
     // Host-only: action is "skip" (their pending turns) or "drop" (from the game).
-    async hostAction(gameId, userId, action, hostId) {
-      return await pb.send(`/api/games/${gameId}/players/${userId}/${action}`, {
-        method: "POST",
-        body: { host_id: hostId },
-        requestKey: null,
-      }).then(function (resp) {
-        return { data: resp }
-      }).catch(function (err) {
-        return { errMsg: JSON.stringify(err?.response?.message || err) }
-      })
-    },
+    hostAction: (gameId, userId, action, hostId) =>
+      call(() => post(`/api/games/${gameId}/players/${userId}/${action}`, { host_id: hostId })),
     // Host-only End Game: everyone gets a few seconds to finish the turn
-    // they're on, then the game is over. Returns when it ends (endsAt below).
-    async endGame(gameId, hostId) {
-      return await pb.send(`/api/games/${gameId}/end`, {
-        method: "POST",
-        body: { host_id: hostId },
-        requestKey: null,
-      }).then(function (resp) {
-        return { data: endsAt(resp) }
-      }).catch(function (err) {
-        return { errMsg: JSON.stringify(err?.response?.message || err) }
-      })
-    },
+    // they're on, then the game is over. Answers when it ends (see endsAt).
+    endGame: (gameId, hostId) => call(async () => endsAt(await post(`/api/games/${gameId}/end`, { host_id: hostId }))),
     // Host-only Play again: a new game with the same players, straight into
-    // play. fields: roundDuration (seconds, -1 untimed), rounds, endless.
-    // Returns { game_id, game_code }.
-    async rematch(gameId, hostId, { roundDuration, rounds, endless }) {
-      return await pb.send(`/api/games/${gameId}/rematch`, {
-        method: "POST",
-        body: { host_id: hostId, round_duration: roundDuration, rounds, endless },
-        requestKey: null,
-      }).then(function (resp) {
-        return { data: resp }
-      }).catch(function (err) {
-        return { errMsg: JSON.stringify(err?.response?.message || err) }
-      })
-    },
+    // play. roundDuration is in seconds (-1 untimed). Answers { game_id, game_code }.
+    rematch: (gameId, hostId, { roundDuration, rounds, endless }) => call(() =>
+      post(`/api/games/${gameId}/rematch`, { host_id: hostId, round_duration: roundDuration, rounds, endless })),
+    // The game with this code (see gameStatus). notFound: there's none, and
+    // errMsg says so.
     async checkGameStatus(gameCode) {
-      return await getFirstListItemRetry('games', `game_code="${gameCode}"`).then(function (resp) {
-        console.log("checkGameStatus resp", resp)
-        return {
-          duration: resp.roundDuration,
-          rounds: resp.rounds,
-          endless: resp.endless,
-          gameId: resp.id,
-          isStarted: resp.isStarted,
-          endsAt: endsAt(resp),
-          endCountdown: endCountdown(resp),
-          // The game the host started after this one (Play again), if any.
-          nextGame: resp.next_game || "",
-        }
-      }).catch(function (err) {
-        return { errMsg: JSON.stringify(err.response.message || err) }
-      })
-
+      const resp = await call(async () =>
+        gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }))))
+      return resp.notFound ? { ...resp, errMsg: "Invalid Game Code. Try again or create a new game." } : resp
     },
   },
   users: {
-    async deleteUser(userId) {
-      return await pb.collection('users').delete(userId).then(function (resp) {
-        console.log("deleteUser resp", resp)
-        return { data: resp }
-      }).catch(function (err) {
-        return { errMsg: "deleteUser:" + JSON.stringify(err.response.message || err) }
-      })
-    },
-    async createUser(data) {
-      console.log("createUser request", data)
-      // createWithRetry (not the raw client) so a user create can never
-      // auto-cancel a concurrent one: the SDK aborts the first same-keyed POST
-      // when the second starts, but the server still commits it, leaving the
-      // record created while the client sees an abort and the second POST hits
-      // the unique index with "Failed to create record." See the note at the top.
-      return await createWithRetry('users', data).then(function (resp) {
-        console.log("createUser resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { data: resp }
-        } else {
-          throw new Error("Failed to create user.")
-        }
-      }).catch(function (err) {
-        return { errMsg: "createUser:" + JSON.stringify(err.response.message || err) }
-      })
-    },
-    async updateUser(userId, data) {
-      console.log("updateUser request", data)
-      return await pb.collection('users').update(userId, data).then(function (resp) {
-        console.log("updateUser resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { data: resp }
-        } else {
-          throw new Error("Failed to update user.")
-        }
-      }).catch(function (err) {
-        return { errMsg: "updateUser:" + JSON.stringify(err.response.message || err) }
-      })
-    },
-    async isUserInGame(username, gameId) {
-      let query = `game_id="${gameId}"&&username="${username}"`
-      return await pb.collection('users').getFirstListItem(query).then(function (resp) {
-        console.log("isUserInGame resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { exists: true, data: resp }
-        } else {
-          throw new Error("Failed to find user ID.")
-        }
-      }).catch(function (err) {
-        console.log("isUserInGame err", err)
-        return { exists: false }
-      })
-    },
-    // The game's player with this name, whatever its capitals (see sameName).
-    // Matched here, not in the filter: SQLite's LOWER only folds A-Z, so a
-    // stored "Émile" would never match "émile".
-    async getUser(username, gameId) {
-      return await pb.collection('users').getFullList({
-        filter: pb.filter("game_id={:gameId}", { gameId }),
+    deleteUser: (userId) => call(() => pb.collection('users').delete(userId, { requestKey: null })),
+    createUser: (data) => call(() => createWithRetry('users', data)),
+    updateUser: (userId, data) => call(() => pb.collection('users').update(userId, data, { requestKey: null })),
+    // The game's player with this name, whatever its capitals (see sameName),
+    // or null if there's none. Matched here, not in the filter: SQLite's LOWER
+    // only folds A-Z, so a stored "Émile" would never match "émile".
+    getUser: (username, gameId) => call(async () => {
+      const players = await pb.collection('users').getFullList({
+        filter: pb.filter("game_id = {:gameId}", { gameId }),
         requestKey: null,
-      }).then(function (players) {
-        const resp = players.find((p) => sameName(p.username, username))
-        console.log("getUser resp", resp)
-        if (resp) {
-          return resp
-        } else {
-          throw new Error(`Failed to find user "${username} for game "${gameId}"`)
-        }
-      }).catch(function (err) {
-        return { errMsg: "getUser:" + JSON.stringify(err?.response?.message || err) }
       })
-    },
+      return players.find((p) => sameName(p.username, username)) || null
+    }),
     // userId's seat in the game the host started after theirs (Play again),
-    // with that game expanded: { seat }, or { notFound } if they don't have one
-    // (they were dropped), or { errMsg } if it couldn't be read.
-    async getNextSeat(userId) {
-      return await getFirstListItemRetry('users', `from_user="${userId}"`, { expand: "game_id" })
-        .then((seat) => ({ seat }))
-        .catch((err) => ({ errMsg: JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }))
-    },
-    async getUserById(userId) {
-      return await pb.collection('users').getOne(userId, { requestKey: null }).catch(function (err) {
-        // notFound: the player really is gone, not just a failed read.
-        return { errMsg: "getUserById:" + JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }
-      })
-    },
-    async getUsername(userId) {
-      let query = `id="${userId}"`
-      return await pb.collection('users').getFirstListItem(query).then(function (resp) {
-        console.log("getUser resp", resp)
-        if (Object.prototype.hasOwnProperty.call(resp, "id")) {
-          return { data: resp.username }
-        } else {
-          throw new Error(`Failed to find user "${userId}"`)
-        }
-      }).catch(function (err) {
-        return { errMsg: "getUsername:" + JSON.stringify(err?.response?.message || err) }
-      })
-    },
-    // The game's players by id (whole records, for names and avatars):
-    // { userMap }, or { errMsg }, or { aborted } (see getUsers).
-    async getUserMap(gameCode) {
-      const resp = await pbService.users.getUsers(gameCode)
-      if (!resp.data) return resp
-      return { userMap: Object.fromEntries(resp.data.map((user) => [user.id, user])) }
-    },
-    async getUsers(gameCode) {
-      return await pb.collection('users').getFullList({
-        filter: `game_id.game_code="${gameCode}"`
-      }).then(function (resp) {
-        console.log("getUsers resp", resp)
-        return { data: resp }
-      }).catch(function (err) {
-        // Auto-cancellation aborted this fetch because a newer identical one
-        // started (e.g. back-to-back roster events). The newer request's
-        // response supersedes this one — not an error, just skip.
-        if (err?.isAbort) return { aborted: true }
-        return { errMsg: "getUsers:" + JSON.stringify(err?.response?.message || err) }
-      })
-    },
+    // with that game expanded. notFound: they don't have one (they were dropped).
+    getNextSeat: (userId) => call(() =>
+      getFirstListItemRetry('users', pb.filter("from_user = {:userId}", { userId }), { expand: "game_id" })),
+    // notFound: the player really is gone, not just a failed read.
+    getUserById: (userId) => call(() => pb.collection('users').getOne(userId, { requestKey: null })),
+    // The game's players, in the order they joined. A refresh: a newer one
+    // cancels it (aborted).
+    getUsers: (gameCode) => call(() => pb.collection('users').getFullList({
+      filter: pb.filter("game_id.game_code = {:gameCode}", { gameCode }),
+      sort: "created",
+    })),
   },
   progress: {
-    async getFullProgress(gameCode) {
-      // Own cancellation key: the default one is per collection, so this
-      // display refresh would cancel getNextPerUser (and vice versa).
-      let data = {
-        filter: `game_id.game_code="${gameCode}"`,
-        requestKey: "fullProgress",
-      }
-      console.log("getFullProgress request", data)
-      return await pb.collection('progress').getFullList(data).then(function (resp) {
-        console.log("getFullProgress resp", resp)
-        return { data: resp }
-      }).catch(function (err) {
-        // Superseded by a newer refresh (latest wins), not an error.
-        if (err?.isAbort) return { aborted: true }
-        return { errMsg: "getFullProgress:" + JSON.stringify(err?.response?.message || err) }
-      });
-    },
-    async getNextPerUser(userId) {
-      // requestKey: null: TakeTurn serializes these itself, and losing one to a
-      // concurrent progress read costs a whole poll cycle.
-      let data = {
-        filter: `next_user_id="${userId}"`,
-        requestKey: null,
-      }
-      return await pb.collection('progress').getFullList(data).then(function (resp) {
-        console.log("getNextPerUser resp", resp)
-        return resp
-      }).catch(function (err) {
-        return { errMsg: "getNextPerUser:" + JSON.stringify(err?.response?.message || err) }
-      });
-    },
-    async createStory(userId, gameId) {
-      let data = {
-        "starter_id": userId,
-        "game_id": gameId
-      }
-      console.log("createStory request", data)
-      return await createWithRetry('stories', data).then(function (resp) {
-        console.log("createStory resp", resp)
-        return resp
-      }).catch(function (err) {
-        return { errMsg: "createStory:" + JSON.stringify(err?.response?.message || err), errCode: refusalCode(err) }
-      });
-    },
-    async getStory(userId, gameId) {
-      let filter = `starter_id="${userId}"&&game_id="${gameId}"`
-      console.log("getStory filter", filter)
-      return await getFirstListItemRetry('stories', filter).then(function (resp) {
-        console.log("getStory resp", resp)
-        return resp
-      }).catch(function (err) {
-        // notFound lets callers tell "record really doesn't exist" (safe to
-        // create one) apart from a transient failure (retry later — creating
-        // now would mint a duplicate story).
-        return { errMsg: "getStory:" + JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }
-      });
-    },
-    async getTurn(userId, storyId) {
-      let filters = `user_id="${userId}"&&story_id="${storyId}"`
-      console.log("getTurn filter", filters)
-      return await getFirstListItemRetry('turns', filters).then(function (resp) {
-        console.log("getTurn resp", resp)
-        return resp
-      }).catch(function (err) {
-        // Same contract as getStory: only notFound means "no such turn".
-        return { errMsg: "getTurn:" + JSON.stringify(err?.response?.message || err), notFound: err?.status === 404 }
-      });;
-    },
-    async createTurn(data) {
-      // console.log("creatTurn data", data.getAll())
-      return await createWithRetry('turns', data).then(function (resp) {
-        console.log("createTurn resp", resp)
-        return resp
-      }).catch(function (err) {
-        return {
-          errMsg: fieldReason(err) || "createTurn:" + JSON.stringify(err?.response?.message || err),
-          errCode: refusalCode(err),
-        }
-      });
-    },
+    // Every story in the game, as the progress view has it. A refresh: a newer
+    // one cancels it (aborted). Its own key, as the default one is per
+    // collection, and this mustn't cancel getNextPerUser.
+    getFullProgress: (gameCode) => call(() => pb.collection('progress').getFullList({
+      filter: pb.filter("game_id.game_code = {:gameCode}", { gameCode }),
+      requestKey: "fullProgress",
+    })),
+    // The stories waiting on userId. Never cancelled: TakeTurn serializes these
+    // itself, and losing one costs a whole poll cycle.
+    getNextPerUser: (userId) => call(() => pb.collection('progress').getFullList({
+      filter: pb.filter("next_user_id = {:userId}", { userId }),
+      requestKey: null,
+    })),
+    createStory: (userId, gameId) => call(() => createWithRetry('stories', { starter_id: userId, game_id: gameId })),
+    // notFound: there's no such story yet (safe to create one), where any other
+    // failure may be a blip (creating one then would mint a duplicate).
+    getStory: (userId, gameId) => call(() =>
+      getFirstListItemRetry('stories', pb.filter("starter_id = {:userId} && game_id = {:gameId}", { userId, gameId }))),
+    // The same contract as getStory: only notFound means "no such turn".
+    getTurn: (userId, storyId) => call(() =>
+      getFirstListItemRetry('turns', pb.filter("user_id = {:userId} && story_id = {:storyId}", { userId, storyId }))),
+    createTurn: (data) => call(() => createWithRetry('turns', data)),
     // The round timer ran out with nothing entered: the server skips the turn.
     // turnIndex is the turn's place in the story, so the server can tell a
     // timer left over from an earlier round apart from this one.
-    async timeoutTurn(storyId, userId, turnIndex) {
-      return await pb.send(`/api/stories/${storyId}/timeout`, {
-        method: "POST",
-        body: { user_id: userId, turn_index: turnIndex },
-        requestKey: null,
-      }).then(function (resp) {
-        return { data: resp }
-      }).catch(function (err) {
-        return { errMsg: "timeoutTurn:" + JSON.stringify(err?.response?.message || err), errCode: refusalCode(err) }
-      })
-    },
-    async getUserStoryWithTurns(userId) {
-      let data = {
+    timeoutTurn: (storyId, userId, turnIndex) =>
+      call(() => post(`/api/stories/${storyId}/timeout`, { user_id: userId, turn_index: turnIndex })),
+    // A story's turns in order, each drawing as its address. No turns is a
+    // story opened but not started yet. Never cancelled: opening a story while
+    // Download all reads them all mustn't cancel either.
+    getUserStoryWithTurns: (userId) => call(async () => {
+      const turns = await pb.collection('results').getFullList({
         sort: "turn_number",
-        filter: `starter_id="${userId}"`,
-      }
-      console.log("getUserStoryWithTurns request", data)
-      // requestKey: null: opening a story while Download all reads them all
-      // mustn't cancel either. (Review drops a late answer for a story it has
-      // moved on from.)
-      return await pb.collection('results').getFullList({ ...data, requestKey: null }).then(async function (resp) {
-        console.log("getUserStoryWithTurns resp", resp)
-        // No turns is an empty story (opened, not started yet), not an error.
-        for (let record of resp) {
-          if (record.drawing) {
-            const turn = await pb.collection('turns').getOne(record.turn_id);
-            let drawing_url = await pb.files.getUrl(turn, record.drawing)
-            record.drawing = drawing_url
-          }
-        }
-        return { data: resp }
-      }).catch(function (err) {
-        return { data: 0, errMsg: "getUserStoryWithTurns:" + JSON.stringify(err?.response?.message || err) }
-      });
-    },
+        filter: pb.filter("starter_id = {:userId}", { userId }),
+        requestKey: null,
+      })
+      return turns.map((turn) => ({ ...turn, drawing: drawingURL(turn.turn_id, turn.drawing) }))
+    }),
   },
 }

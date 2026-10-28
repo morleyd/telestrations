@@ -40,7 +40,6 @@ import { DRAWN, pencilWork } from '@/services/pencil'
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
 
 export default {
-  name: "StoryPaper",
   props: {
     // The story, so each page keeps its own pace
     id: { type: String, required: true },

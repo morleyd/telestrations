@@ -1,18 +1,13 @@
 import { test, expect } from '@playwright/test'
 import {
   createGame, joinGame, startGame, startThreePlayerGame, submitWord, submitDrawing, stroke, driveGameToReview,
-  expectStoriesAlternate, hostAct, PB_URL, PNG_PIXEL,
+  expectStoriesAlternate, hostAct, records, turnCreated, PNG_PIXEL,
 } from './helpers.js'
 
 // A player with several notebooks waiting can do them in any order: the
 // Notebooks menu in the app bar switches between them, or goes to look at the
 // table, which has a button back. Each one opened keeps its work (and its
 // round timer) until it's written.
-
-const turnCreated = (page) => page.waitForResponse(
-  (r) => /\/api\/collections\/turns\/records/.test(r.url()) && r.request().method() === 'POST' && r.status() === 200,
-  { timeout: 20_000 },
-)
 
 const menu = (page) => page.getByRole('button', { name: 'Your notebooks' })
 const notebook = (page, name) => page.locator(`.v-list-item[data-notebook="${name}'s notebook"]`)
@@ -31,9 +26,8 @@ async function lookAtTable(page) {
 
 // The turns saved in a game, by player name
 async function turnsBy(request, code) {
-  const q = (f) => `?perPage=500&sort=created&filter=${encodeURIComponent(f)}`
-  const users = (await (await request.get(`${PB_URL}/api/collections/users/records${q(`game_id.game_code="${code}"`)}`)).json()).items
-  const turns = (await (await request.get(`${PB_URL}/api/collections/turns/records${q(`game_id.game_code="${code}"`)}`)).json()).items
+  const users = await records(request, 'users', `game_id.game_code="${code}"`, 'created')
+  const turns = await records(request, 'turns', `game_id.game_code="${code}"`, 'created')
   return Object.fromEntries(users.map((u) => [u.username, turns.filter((t) => t.user_id === u.id)]))
 }
 

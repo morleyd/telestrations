@@ -2,7 +2,7 @@
 
 // DrawingUpload provides a simple interface to upload & submit pictures
 <template>
-  <div class="container  overflow-y-auto" style="height: calc(100vh - 124px);" @dragover="onDragover"
+  <div class="text-center overflow-y-auto" style="height: calc(100vh - 124px);" @dragover="onDragover"
     @dragleave="isDragging = false" @drop="onDrop">
     <div v-if="previewSrc" style="height: 70%; justify-items: center; ">
       <v-img :src="previewSrc" width="300" class="ma-4" />
@@ -36,7 +36,6 @@
 import { prepareUpload, UnsupportedPicture } from "@/services/uploadImage"
 
 export default {
-  name: "UploadPhoto",
   data() {
     return {
       isDragging: false,
@@ -64,14 +63,12 @@ export default {
       const picked = this.$refs.file?.files[0]
       if (!picked) return
       const pick = ++this.pick
-      this.file = null
-      this.previewSrc = ''
+      this.setFile(null)
       this.converting = true
       try {
         const file = await prepareUpload(picked)
         if (pick !== this.pick) return
-        this.file = file
-        this.previewSrc = URL.createObjectURL(file)
+        this.setFile(file)
       } catch (e) {
         if (pick !== this.pick) return
         if (e instanceof UnsupportedPicture) {
@@ -91,11 +88,17 @@ export default {
     onClearClicked() {
       this.pick++
       this.converting = false
-      this.file = null;
-      this.previewSrc = '';
+      this.setFile(null)
       // so picking the same file again still counts as a change (the input is
       // gone if the player has moved on from this tab)
       if (this.$refs.file) this.$refs.file.value = '';
+    },
+    // The picture to send, and its preview. Each preview pins its picture in
+    // memory until it's let go.
+    setFile(file) {
+      URL.revokeObjectURL(this.previewSrc)
+      this.file = file
+      this.previewSrc = file ? URL.createObjectURL(file) : ''
     },
     /**
      * onDragover handles the dragover event
@@ -116,25 +119,8 @@ export default {
       this.isDragging = false;
     },
   },
+  beforeUnmount() {
+    URL.revokeObjectURL(this.previewSrc)
+  },
 }
 </script>
-<style>
-.container {
-  align-items: center;
-  height: 400;
-  justify-content: center;
-  text-align: center;
-}
-
-.white-box {
-  background-color: #FFFFFF;
-  /* Sets the background to white */
-  border: 1px solid rgb(0, 0, 0);
-  width: 70vw;
-  height: 200px;
-  margin: 20px auto;
-  /* Centers the box horizontally with margin */
-  padding: 20px;
-  /* Adds space between content and box edges */
-}
-</style>

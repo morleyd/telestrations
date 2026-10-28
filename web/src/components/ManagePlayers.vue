@@ -56,7 +56,6 @@ import { log } from '@/services/log'
 const REFRESH_MS = 3000
 
 export default {
-  name: "ManagePlayers",
   data() {
     return {
       gameId: "",
@@ -86,9 +85,9 @@ export default {
   async mounted() {
     const code = this.$route.params.gameCode
     if (!code || !['TakeTurn', 'Review'].includes(this.$route.name)) return
-    const game = await pbService.games.checkGameStatus(code)
-    if (game.isStarted) this.gameId = game.gameId
-    this.endsAt = game.endsAt
+    const { data: game } = await pbService.games.checkGameStatus(code)
+    if (game?.isStarted) this.gameId = game.gameId
+    this.endsAt = game?.endsAt ?? null
   },
   unmounted() {
     clearInterval(this.timer)
@@ -164,9 +163,3 @@ export default {
   },
 }
 </script>
-<style scoped>
-.wrap {
-  white-space: break-spaces;
-  word-break: break-word;
-}
-</style>

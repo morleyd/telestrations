@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, storyItem, PB_URL } from './helpers.js'
+import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, storyItem, playerIds } from './helpers.js'
 
 // Timed rounds. When the timer runs out, partial work is submitted as the
 // player's turn; with nothing entered the server skips the turn (an opening
@@ -23,10 +23,13 @@ test('timeouts: partial work is kept, empty turns are skipped, and the review sa
     await bravo.locator('textarea').first().fill('pea')
     await expect(alpha.getByText("Time's up!")).toBeVisible({ timeout: 15_000 })
 
-    // Drawings: alpha draws a little and never submits; bravo leaves it blank.
-    // Bravo is drawing alpha's random word, shown like any word: no banner.
+    // Drawings: alpha draws a little, then goes to Upload Photo and never
+    // submits; bravo leaves it blank. Time's up sends alpha's drawing though
+    // the tab on screen is empty. Bravo is drawing alpha's random word, shown
+    // like any word: no banner.
     await expect(alpha.getByRole('tab', { name: /Upload Photo/ })).toBeVisible({ timeout: 15_000 })
     await stroke(alpha)
+    await alpha.getByRole('tab', { name: /Upload Photo/ }).click()
     await expect(bravo.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
     await expect(bravo.getByText(/ran out of time/i)).toHaveCount(0)
 
@@ -34,8 +37,7 @@ test('timeouts: partial work is kept, empty turns are skipped, and the review sa
 
     // What was saved.
     const stories = await expectStoriesAlternate(request, code, 2)
-    const users = await (await request.get(`${PB_URL}/api/collections/users/records?filter=${encodeURIComponent(`game_id.game_code="${code}"`)}`)).json()
-    const id = Object.fromEntries(users.items.map((u) => [u.username, u.id]))
+    const id = await playerIds(request, code)
     const [alphaWord, bravoDrawing] = stories[id.alpha]
     const [bravoWord, alphaDrawing] = stories[id.bravo]
     expect(alphaWord).toMatchObject({ skipped: true, timed_out: true })
@@ -55,4 +57,38 @@ test('timeouts: partial work is kept, empty turns are skipped, and the review sa
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
+})
+
+// A long round runs to its last second. The timer once stopped when its
+// rounded-up percent reached 0, which for a round over 200 s is a second or
+// more early (five minutes: one; ten: four). On a paused clock, a five-minute
+// round's turn is still open with one second left, and times out on the next.
+test('a five-minute round times out when its clock does, not before', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.clock.install()
+  await createGame(page, { username: 'solo', timed: true, seconds: 300 })
+  await startGame(page, 1)
+  await expect(page.getByText('Enter your starting prompt')).toBeVisible()
+  const timeouts = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().endsWith('/timeout')) timeouts.push(r)
+  })
+
+  // The seconds the timer shows ("4:58"), and a clock that only moves when
+  // told. Stepped to the timer's next tick, so its phase is known.
+  const timer = page.locator('.timer')
+  const secondsLeft = async () =>
+    (await timer.textContent()).trim().split(':').reduce((s, part) => s * 60 + Number(part), 0)
+  await page.clock.pauseAt(new Date(Date.now() + 1000))
+  const shown = await secondsLeft()
+  while (await secondsLeft() === shown) await page.clock.runFor(100)
+  const left = await secondsLeft()
+
+  // To the tick that leaves one second: the old timer had finished by then.
+  await page.clock.runFor((left - 1) * 1000 + 400)
+  await page.waitForTimeout(1000)
+  expect(timeouts).toHaveLength(0)
+
+  await page.clock.runFor(1000)
+  await expect.poll(() => timeouts.length).toBe(1)
 })

@@ -55,7 +55,6 @@ const ABOVE_AND_BELOW = 205
 const MIN_CANVAS = 360
 
 export default {
-  name: "Draw",
   emits: ["drawing"],
   data() {
     return {
@@ -242,13 +241,12 @@ export default {
       return await this.$refs.canvas.toBlob()
     },
     /**
-     * onSaveClicked converts the drawing to an image and emits it to DrawingTurn
+     * onSaveClicked emits the drawing to DrawingTurn. The canvas keeps it: a
+     * write that fails leaves the turn on screen to send again, and one that
+     * lands closes the turn and this box with it.
      */
     async onSaveClicked() {
-      let blob = await this.getDrawing()
-      this.$emit("drawing", blob)
-
-      this.$refs.canvas.reset()
+      this.$emit("drawing", await this.getDrawing())
     },
   },
 };

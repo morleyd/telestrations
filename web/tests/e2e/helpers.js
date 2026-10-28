@@ -74,7 +74,7 @@ export async function turnState(page) {
 // A turn is only "done" once the backend has persisted it. Wait for the
 // successful POST so we never re-submit the same turn while the UI is still
 // mid-advance (which would create duplicate turns).
-const turnCreated = (page) =>
+export const turnCreated = (page) =>
   page.waitForResponse(
     (r) => /\/api\/collections\/turns\/records/.test(r.url()) && r.request().method() === 'POST' && r.status() === 200,
     { timeout: 20_000 },
@@ -145,6 +145,21 @@ export function storyItem(page, name) {
 // Backend the suite runs against (see playwright.config.js).
 export const PB_URL = `http://127.0.0.1:${PB_PORT}`
 
+// What the backend has saved: a collection's records, read through its API.
+export async function records(request, collection, filter, sort = '') {
+  const query = new URLSearchParams({ perPage: 500, sort, filter })
+  return (await (await request.get(`${PB_URL}/api/collections/${collection}/records?${query}`)).json()).items
+}
+
+export const gameByCode = async (request, code) =>
+  (await records(request, 'games', `game_code="${code.toLowerCase()}"`))[0]
+
+// The game's players' ids, by name
+export async function playerIds(request, code) {
+  const users = await records(request, 'users', `game_id.game_code="${code}"`)
+  return Object.fromEntries(users.map((u) => [u.username, u.id]))
+}
+
 // Checks what was actually saved, not just what the screens showed: every story
 // has one turn per player, opens with a word and then alternates word/drawing.
 // A turn the host skipped instead repeats the one before it (it carries it
@@ -152,12 +167,11 @@ export const PB_URL = `http://127.0.0.1:${PB_PORT}`
 // shown, so a client that renders the wrong turn type still "finishes" the
 // game; this is what catches it. Returns the turns grouped by story starter.
 export async function expectStoriesAlternate(request, code, players, { stories = players } = {}) {
-  const q = (filter, sort) => `?perPage=500&sort=${sort}&filter=${encodeURIComponent(filter)}`
-  const games = await (await request.get(`${PB_URL}/api/collections/games/records${q(`game_code="${code}"`, 'created')}`)).json()
-  const gameId = games.items[0].id
-  const results = await (await request.get(`${PB_URL}/api/collections/results/records${q(`game_id="${gameId}"`, 'turn_number')}`)).json()
+  const { id: gameId } = await gameByCode(request, code)
   const byStory = {}
-  for (const t of results.items) (byStory[t.starter_id] ||= []).push(t)
+  for (const t of await records(request, 'results', `game_id="${gameId}"`, 'turn_number')) {
+    (byStory[t.starter_id] ||= []).push(t)
+  }
   expect(Object.keys(byStory)).toHaveLength(stories)
   for (const [starter, list] of Object.entries(byStory)) {
     const types = list.map((t) => Boolean(t.drawing))
@@ -184,10 +198,8 @@ export function notebooksOf(page, username) {
 // Seats in rotation order (stories pass seat 0 -> 1 -> ...), mapped back to the
 // test's pages by username. Seating is decided server-side at begin.
 export async function seatedPages(request, code, pagesByName) {
-  const users = await (await request.get(
-    `${PB_URL}/api/collections/users/records?sort=position,id&filter=${encodeURIComponent(`game_id.game_code="${code}"`)}`,
-  )).json()
-  return users.items.map((u) => ({ name: u.username, id: u.id, page: pagesByName[u.username] }))
+  const users = await records(request, 'users', `game_id.game_code="${code}"`, 'position,id')
+  return users.map((u) => ({ name: u.username, id: u.id, page: pagesByName[u.username] }))
 }
 
 // Three players (alpha hosts) in a started game, each on their first turn.

@@ -74,9 +74,5 @@ lint: ## gofmt, go vet and ESLint, as CI runs them
 fmt: ## Format the Go code
 	gofmt -w cmd internal web/embed.go
 
-# web/dist/index.html is committed so the server builds without a web build
-# (the Go tests check it's embedded); building overwrites it, so put it back.
 clean: ## Remove the binary and the web build
-	rm -rf bin
-	rm -rf web/dist/assets web/dist/version.json
-	git checkout -- web/dist
+	rm -rf bin web/dist/assets web/dist/index.html web/dist/version.json

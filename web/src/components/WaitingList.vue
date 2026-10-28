@@ -37,7 +37,6 @@ import { storyProgress, waitingOn } from '@/services/progress'
 // progress: the progress view's rows; notStarted: the players who haven't
 // opened the game; userMap: the players by id; meId: whoever is looking.
 export default {
-  name: "WaitingList",
   props: {
     progress: { type: Array, required: true },
     notStarted: { type: Array, default: () => [] },

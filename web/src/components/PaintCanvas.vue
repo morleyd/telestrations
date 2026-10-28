@@ -12,7 +12,6 @@ import PaintEngine, { HEIGHT, WIDTH } from "@/services/paint/engine";
 import { RING_TOOLS } from "@/services/paint/tools";
 
 export default {
-  name: "PaintCanvas",
   props: {
     tool: { type: String, required: true },
     color: { type: String, required: true },
@@ -107,9 +106,6 @@ export default {
     },
     clear() {
       this.engine.clear()
-    },
-    reset() {
-      this.engine.reset()
     },
     /**
      * finish completes a stroke or shape still being drawn. The pointer may

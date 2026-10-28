@@ -209,6 +209,67 @@ func TestSchemaIndexMigrationCleansUpDuplicates(t *testing.T) {
 	requireRoundsPlay(t, app, serveAPI(t, app))
 }
 
+// Games that came to share a code before codes were the server's: the oldest
+// keeps it, the others get fresh ones, and from then on no two games can.
+func TestUniqueGameCodesMigrationRecodesSharedCodes(t *testing.T) {
+	app := newTestApp(t)
+	revertThrough(t, app, "1784650000_unique_game_codes.go")
+	first := save(t, app, "games", map[string]any{"game_code": "abcde", "roundDuration": -1})
+	second := save(t, app, "games", map[string]any{"game_code": "abcde", "roundDuration": -1})
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Up(); err != nil {
+		t.Fatal(err)
+	}
+	codeOf := func(game *core.Record) string {
+		t.Helper()
+		game, err := app.FindRecordById("games", game.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return game.GetString("game_code")
+	}
+	if code := codeOf(first); code != "abcde" {
+		t.Errorf("the oldest game's code is %q, want it kept", code)
+	}
+	if code := codeOf(second); code == "abcde" || len(code) != 5 {
+		t.Errorf("the newer game's code is %q, want a fresh one", code)
+	}
+	col, err := app.FindCollectionByNameOrId("games")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := core.NewRecord(col)
+	again.Load(map[string]any{"game_code": "abcde", "roundDuration": -1})
+	if err := app.Save(again); err == nil {
+		t.Error("a third game was saved with the code abcde")
+	}
+}
+
+// Avatars an older page saved as markup, or anyone saved as anything but a
+// face's name, are cleared; faces and initials stay.
+func TestFaceAvatarsMigrationClearsTheRest(t *testing.T) {
+	app := newTestApp(t)
+	revertThrough(t, app, "1784660000_face_avatars.go")
+	lobby := newLobby(t, app, "ann", "ben", "cat")
+	for name, avatar := range map[string]string{"ann": "glee", "ben": `<svg onload="alert(1)"></svg>`, "cat": "nope"} {
+		lobby.players[name].Set("avatar", avatar)
+		if err := app.Save(lobby.players[name]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Up(); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"ann": "glee", "ben": "", "cat": ""} {
+		user, err := app.FindRecordById("users", lobby.players[name].Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := user.GetString("avatar"); got != want {
+			t.Errorf("%s's avatar after the migration: %q, want %q", name, got, want)
+		}
+	}
+}
+
 // A server that ran master before PR #5 already had the schema-index
 // migration (1784200000) but not the PR's own two, which are numbered earlier
 // and merged later. Upgrading applies them out of order (and the rounds

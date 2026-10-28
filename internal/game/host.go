@@ -7,8 +7,11 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"slices"
+	"sync"
 	"time"
 
+	"github.com/morleyd/telestrations/web"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
@@ -49,6 +52,8 @@ const (
 
 	// The web app checks a picture's type before sending it; an old page may not.
 	msgBadPicture = "That kind of picture can't be used here. Try a JPEG or PNG."
+
+	msgNotAnAvatar = "That isn't one of the avatars. Pick a face, or none."
 )
 
 // Refusal codes: a refused write carries one as data.code.code (see refuse), and
@@ -554,9 +559,10 @@ func bindHostRoutes(se *core.ServeEvent) {
 		if err != nil {
 			return e.NotFoundError("Story not found.", nil)
 		}
-		// Untimed games show no timer (CountdownTimer needs duration >= 0), so
-		// a timeout there can only be someone skipping another player's turn.
-		if game, err := e.App.FindRecordById("games", story.GetString("game_id")); err != nil || game.GetInt("roundDuration") < 0 {
+		// Untimed games show no timer (CountdownTimer runs only for a positive
+		// duration), so a timeout there can only be someone skipping another
+		// player's turn.
+		if game, err := e.App.FindRecordById("games", story.GetString("game_id")); err != nil || game.GetFloat("roundDuration") <= 0 {
 			return e.BadRequestError("This game has no round timer.", nil)
 		}
 		if isDropped(e.App, body.UserID) {
@@ -626,13 +632,10 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 	if err != nil {
 		return nil, err
 	}
-	if roundDuration <= 0 {
-		roundDuration = -1
-	}
 	next := core.NewRecord(games)
 	next.Set("game_code", code)
 	next.Set("roundDuration", roundDuration)
-	next.Set("rounds", max(rounds, 1))
+	next.Set("rounds", rounds)
 	next.Set("endless", endless)
 	next.Set("isStarted", true)
 	if err := tx.Save(next); err != nil {
@@ -669,12 +672,11 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 	}
 	tx.Logger().Info("game: rematch", "from_game", game.GetString("game_code"), "game", code,
 		"game_id", next.Id, "seating", seating, "rounds", next.GetInt("rounds"), "endless", endless,
-		"round_duration", roundDuration)
+		"round_duration", next.GetInt("roundDuration"))
 	return next, nil
 }
 
-// newGameCode is a game code nobody's using: five lowercase letters, as the
-// client makes them (see generateGameCode in stores/user.js).
+// newGameCode is a game code nobody's using: five lowercase letters.
 func newGameCode(app core.App) (string, error) {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
 	for range 20 {
@@ -758,6 +760,16 @@ func inWriteTx(guard func(e *core.RecordRequestEvent) error) func(e *core.Record
 	}
 }
 
+// faceNames are the avatars a player may pick (see isAvatar).
+var faceNames = sync.OnceValue(web.FaceNames)
+
+// isAvatar reports whether avatar is one a player may have: a face's name, or
+// "" for their initials. The web app puts a face in the page as HTML, so a
+// player's text must never get there by way of this field.
+func isAvatar(avatar string) bool {
+	return avatar == "" || slices.Contains(faceNames(), avatar)
+}
+
 // gameStarted reports whether gameID has begun. An unknown game hasn't;
 // relation validation reports that.
 func gameStarted(app core.App, gameID string) bool {
@@ -818,21 +830,27 @@ func bindTurnGuards(app core.App) {
 
 	// A game's settings are fixed once it's created, and starting and ending it
 	// are the server's (/begin, /end). A client can create a game, not change
-	// one.
+	// one. Its code is the server's too, so no two games share one.
 	app.OnRecordCreateRequest("games").BindFunc(func(e *core.RecordRequestEvent) error {
+		code, err := newGameCode(e.App)
+		if err != nil {
+			return err
+		}
+		e.Record.Set("game_code", code)
 		e.Record.Set("isStarted", false)
 		e.Record.Set("ends_at", "")
 		e.Record.Set("next_game", "")
 		return e.Next()
 	})
 	// Read inside the write, like a player's server fields below: writing back
-	// a copy loaded before an /end would undo it.
+	// a copy loaded before an /end would undo it. The code stays too: changed,
+	// it could be another game's.
 	app.OnRecordUpdateRequest("games").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
 		current, err := e.App.FindRecordById("games", e.Record.Id)
 		if err != nil {
 			return e.NotFoundError("", err)
 		}
-		for _, field := range []string{"isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game"} {
+		for _, field := range []string{"game_code", "isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game"} {
 			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()
@@ -849,6 +867,9 @@ func bindTurnGuards(app core.App) {
 		if gameStarted(e.App, e.Record.GetString("game_id")) {
 			return e.BadRequestError(msgGameStarted, nil)
 		}
+		if !isAvatar(e.Record.GetString("avatar")) {
+			return e.BadRequestError(msgNotAnAvatar, nil)
+		}
 		e.Record.Set("dropped", false)
 		e.Record.Set("from_user", "") // only a rematch carries a player over
 		if e.Record.GetBool("is_host") {
@@ -864,16 +885,23 @@ func bindTurnGuards(app core.App) {
 		if gameStarted(e.App, e.Record.GetString("game_id")) {
 			return e.BadRequestError(msgGameStarted, nil)
 		}
+		// Nor does the game lose its host: nobody else could start it.
+		if e.Record.GetBool("is_host") {
+			return e.BadRequestError("The host can't leave the game.", nil)
+		}
 		return e.Next()
 	}))
 
-	// Clients may rename themselves and change their look. Everything else
-	// about a player is the server's: `dropped` (the host endpoints), hosting
-	// (game creation), the seat (/begin) and the game. The update writes every
-	// field, so those are read again inside the write: the copy PocketBase
-	// loaded before it may predate a /begin or a drop, and writing that copy
-	// back would undo it.
+	// Clients may rename themselves and change their look (to another face).
+	// Everything else about a player is the server's: `dropped` (the host
+	// endpoints), hosting (game creation), the seat (/begin) and the game. The
+	// update writes every field, so those are read again inside the write: the
+	// copy PocketBase loaded before it may predate a /begin or a drop, and
+	// writing that copy back would undo it.
 	app.OnRecordUpdateRequest("users").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
+		if !isAvatar(e.Record.GetString("avatar")) {
+			return e.BadRequestError(msgNotAnAvatar, nil)
+		}
 		current, err := e.App.FindRecordById("users", e.Record.Id)
 		if err != nil {
 			return e.NotFoundError("", err)

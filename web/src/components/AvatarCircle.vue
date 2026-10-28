@@ -5,7 +5,7 @@
     <svg class="avatar-scrap" :style="scrapStyle" viewBox="-1 -1 2 2" aria-hidden="true">
       <path :d="paper.scrap.path" :fill="scrapFill" />
     </svg>
-    <div v-if="avatar" class="avatar-circle avatar-cut" v-html="avatar"
+    <div v-if="face" class="avatar-circle avatar-cut" v-html="face"
       :style="{ width: `${size}px`, height: `${size}px`, 'background-color': color, 'border-radius': paper.cut }">
     </div>
     <v-avatar v-else class="avatar-cut" :color="color" :size="size" :style="{ 'border-radius': paper.cut }">
@@ -17,10 +17,11 @@
 <script>
 import { initials } from '@/services/player'
 import { avatarPaper, scrapColor } from '@/services/avatarPaper'
+import { FACES } from '@/services/faces'
 
-// A player's avatar: the face they picked, or else their initials.
+// A player's avatar: the face they picked (its name, see services/faces), or
+// else their initials.
 export default {
-  name: 'AvatarCircle',
   props: {
     avatar: { type: String, default: "" },
     color: { type: String, default: "" },
@@ -28,6 +29,11 @@ export default {
     size: { type: Number, default: 36 },
   },
   computed: {
+    // The face's markup. Anything else in the field, such as the markup
+    // itself saved by an older page, gets the initials.
+    face() {
+      return FACES.get(this.avatar)
+    },
     letters() {
       return initials(this.name)
     },

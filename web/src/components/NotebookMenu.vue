@@ -23,7 +23,6 @@
 // notebooks: { key, name ("Sam's notebook"), isDraw, started, current }, in
 // the order to offer them.
 export default {
-  name: "NotebookMenu",
   props: {
     notebooks: { type: Array, required: true },
     disabled: { type: Boolean, default: false },

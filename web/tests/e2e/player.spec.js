@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { avatarColor, initials, sameName } from '../../src/services/player.js'
-import { createGame, joinGame, startGame, submitJoin } from './helpers.js'
+import { createGame, gameByCode, joinGame, PB_URL, startGame, submitJoin } from './helpers.js'
 
 // Players' names and avatars: a name keeps its capitals but matches in any
 // capitals, initials fit the circle, and the avatar picker can be found.
@@ -16,8 +16,9 @@ test('initials are the first letters of the first and last words', () => {
   expect(initials('🐮 cow')).toBe('🐮C')
 })
 
-test('names match whatever their capitals', () => {
+test('names match whatever their capitals, and spaces around them', () => {
   expect(sameName('Sam', 'sam')).toBe(true)
+  expect(sameName('Sam ', ' sam')).toBe(true)
   expect(sameName('BUDDY', 'Buddy')).toBe(true)
   expect(sameName('Émile', 'émile')).toBe(true)
   // The accent typed as its own mark after the letter is the same name.
@@ -188,4 +189,29 @@ test('the avatar picker is a labeled button from the start, and the face picked 
   await expect(page.getByText('Edit your Username!')).toBeHidden()
   await expect(page.locator('.drag-item .avatar-circle')).toHaveCount(0)
   await expect(page.locator('.drag-item .v-avatar')).toHaveText('H')
+})
+
+// The page puts a face in as HTML, so an avatar is only ever a face's name:
+// the server refuses markup, and whatever a roster read brings anyway (an
+// older page's markup, a name it doesn't know) shows as initials, and no
+// script in it runs.
+test('an avatar that isn\'t a face is refused, and never drawn', async ({ page, request }) => {
+  const code = await createGame(page, { username: 'Mallory West' })
+  const { id: gameId } = await gameByCode(request, code)
+  const join = await request.post(`${PB_URL}/api/collections/users/records`, {
+    data: { username: 'eve', game_id: gameId, avatar: '<svg onload="window.pwned = true"></svg>' },
+  })
+  expect(join.status()).toBe(400)
+
+  await page.route((url) => url.pathname.endsWith('/api/collections/users/records'), async (route) => {
+    const response = await route.fetch()
+    const roster = await response.json()
+    roster.items = roster.items.map((u) => ({ ...u, avatar: '<img src="x" onerror="window.pwned = true">' }))
+    roster.items.push({ ...roster.items[0], id: 'nobodyreal0001', username: 'Nope Face', avatar: 'nope' })
+    await route.fulfill({ response, json: roster })
+  })
+  await page.reload()
+  await expect(page.locator('.drag-item .v-avatar')).toHaveText(['MW', 'NF'])
+  await expect(page.locator('.drag-item .avatar-circle')).toHaveCount(0)
+  expect(await page.evaluate(() => window.pwned)).toBeUndefined()
 })
