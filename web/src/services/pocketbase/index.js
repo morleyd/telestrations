@@ -73,6 +73,12 @@ function createWithRetry(collection, data) {
   )
 }
 
+// The address of a turn's drawing. It needs only the turn's id, so it's built
+// here rather than read.
+export function drawingURL(turnId, filename) {
+  return pb.files.getURL({ collectionName: "turns", id: turnId }, filename)
+}
+
 // A PocketBase date as a Date, or null. PocketBase writes them as
 // "2026-10-01 12:00:00.000Z"; Safari only parses them with a "T" in place of
 // the space.
@@ -478,13 +484,7 @@ export const pbService = {
       return await pb.collection('results').getFullList({ ...data, requestKey: null }).then(async function (resp) {
         console.log("getUserStoryWithTurns resp", resp)
         // No turns is an empty story (opened, not started yet), not an error.
-        for (let record of resp) {
-          if (record.drawing) {
-            const turn = await pb.collection('turns').getOne(record.turn_id);
-            let drawing_url = await pb.files.getUrl(turn, record.drawing)
-            record.drawing = drawing_url
-          }
-        }
+        for (const record of resp) record.drawing = drawingURL(record.turn_id, record.drawing)
         return { data: resp }
       }).catch(function (err) {
         return { data: 0, errMsg: "getUserStoryWithTurns:" + JSON.stringify(err?.response?.message || err) }
