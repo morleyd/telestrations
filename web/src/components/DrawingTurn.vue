@@ -27,7 +27,6 @@
 
 <script>
 export default {
-  name: "TakeTurn",
   props: ["prompt"],
   data() {
     return {
@@ -36,24 +35,23 @@ export default {
   },
   methods: {
     /**
-     * saveDrawing accepts a drawing (uploaded or draw) and emits it to PromptTurn
+     * saveDrawing accepts a drawing (uploaded or drawn) and emits it to TurnPane
      * @param {Blob} blob - the drawing to save in the database
      */
     saveDrawing(blob) {
       if (!blob) {
-        console.log("here")
         this.$emit("snack", "No drawing to submit!", "error")
         return
       }
-
       this.$emit("drawing", blob)
     },
+    // The work so far, for the round timer or End Game to send: the open tab's,
+    // or else the other tab's, or null. The upload tab isn't there until it's
+    // first opened.
     async getDrawing() {
-      if (this.tab == 'draw') {
-        return await this.$refs.box.getDrawing()
-      } else {
-        return this.$refs.upload.file
-      }
+      const drawn = await this.$refs.box.getDrawing()
+      const uploaded = this.$refs.upload?.file
+      return (this.tab == 'upload' ? uploaded || drawn : drawn || uploaded) || null
     },
   },
 };

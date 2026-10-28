@@ -108,9 +108,6 @@ export default {
     clear() {
       this.engine.clear()
     },
-    reset() {
-      this.engine.reset()
-    },
     /**
      * finish completes a stroke or shape still being drawn. The pointer may
      * still be down: from here on its moves are only hovers, and letting go
