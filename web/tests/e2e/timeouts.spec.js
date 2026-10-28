@@ -60,8 +60,8 @@ test('timeouts: partial work is kept, empty turns are skipped, and the review sa
 })
 
 // A long round runs to its last second. The timer once stopped when its
-// rounded-up percent reached 0, which for a round over five minutes is a
-// second or more early (ten minutes: four). On a paused clock, a five-minute
+// rounded-up percent reached 0, which for a round over 200 s is a second or
+// more early (five minutes: one; ten: four). On a paused clock, a five-minute
 // round's turn is still open with one second left, and times out on the next.
 test('a five-minute round times out when its clock does, not before', async ({ page }) => {
   test.setTimeout(120_000)
