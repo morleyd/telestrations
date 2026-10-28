@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -29,7 +27,7 @@ func TestDrawingTakesAPhotoOverFiveMB(t *testing.T) {
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 	photo := bigPicture(8 << 20)
-	rec := upload(api, http.MethodPost, turnsRoute, g.nextTurn(t, "ann", "ben"), "IMG_0620.png", photo)
+	rec := upload(api, http.MethodPost, turnsPath, g.nextTurn(t, "ann", "ben"), "IMG_0620.png", photo)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("8 MB drawing: %d %s", rec.Code, rec.Body)
 	}
@@ -42,24 +40,8 @@ func TestDrawingTakesAPhotoOverFiveMB(t *testing.T) {
 	}
 }
 
-// loggedApp is a test app whose log a test can read back: writeFailures gives
-// the "turn: write failed" entries so far.
-func loggedApp(t *testing.T) (app appWithLogger, writeFailures func() []loggedEntry) {
-	var mu sync.Mutex
-	var entries []loggedEntry
-	app = appWithLogger{newTestApp(t), slog.New(capture{mu: &mu, entries: &entries})}
-	return app, func() []loggedEntry {
-		mu.Lock()
-		defer mu.Unlock()
-		var failed []loggedEntry
-		for _, e := range entries {
-			if e.Message == "turn: write failed" {
-				failed = append(failed, e)
-			}
-		}
-		return failed
-	}
-}
+// writeFailure keeps a loggedApp's "turn: write failed" entries.
+func writeFailure(msg string) bool { return msg == "turn: write failed" }
 
 // wantLogged checks there's exactly one write failure logged, by user, with
 // file and a cause containing cause.
@@ -75,12 +57,12 @@ func wantLogged(t *testing.T, failures []loggedEntry, user, file, cause string) 
 }
 
 func TestDrawingOverTheCapIsRefusedAndLogged(t *testing.T) {
-	app, writeFailures := loggedApp(t)
+	app, writeFailures := loggedApp(t, writeFailure)
 	api := serveAPI(t, app)
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 
-	rec := upload(api, http.MethodPost, turnsRoute, g.nextTurn(t, "ann", "ben"), "huge.png", bigPicture(11<<20))
+	rec := upload(api, http.MethodPost, turnsPath, g.nextTurn(t, "ann", "ben"), "huge.png", bigPicture(11<<20))
 	var body struct {
 		Data map[string]struct {
 			Code string `json:"code"`
@@ -98,13 +80,13 @@ func TestDrawingOverTheCapIsRefusedAndLogged(t *testing.T) {
 
 // The turns update rule is open, so an edit's failure is logged too.
 func TestDrawingEditOverTheCapIsLogged(t *testing.T) {
-	app, writeFailures := loggedApp(t)
+	app, writeFailures := loggedApp(t, writeFailure)
 	api := serveAPI(t, app)
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 	turn := g.drawWithFile(t, "ann", "ben")
 
-	rec := upload(api, http.MethodPatch, turnsRoute+"/"+turn.Id, nil, "huge.png", bigPicture(11<<20))
+	rec := upload(api, http.MethodPatch, turnsPath+"/"+turn.Id, nil, "huge.png", bigPicture(11<<20))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("editing in an 11 MB drawing: %d %s, want refused", rec.Code, rec.Body)
 	}
@@ -114,7 +96,7 @@ func TestDrawingEditOverTheCapIsLogged(t *testing.T) {
 // The log binds ahead of the other request hooks, so it sees a failure in
 // one of them, not just in the save at the end of the chain.
 func TestTurnWriteLogSeesAnotherHooksFailure(t *testing.T) {
-	app, writeFailures := loggedApp(t)
+	app, writeFailures := loggedApp(t, writeFailure)
 	// Ahead of the game's own hooks (priority 0), so it fails before them.
 	app.OnRecordCreateRequest("turns").Bind(&hook.Handler[*core.RecordRequestEvent]{
 		Priority: -50,
@@ -124,7 +106,7 @@ func TestTurnWriteLogSeesAnotherHooksFailure(t *testing.T) {
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 
-	rec := upload(api, http.MethodPost, turnsRoute, g.nextTurn(t, "ann", "ben"), "d.png", pngPixel)
+	rec := upload(api, http.MethodPost, turnsPath, g.nextTurn(t, "ann", "ben"), "d.png", pngPixel)
 	if rec.Code == http.StatusOK {
 		t.Fatal("the drawing saved, though a hook failed")
 	}
@@ -134,12 +116,12 @@ func TestTurnWriteLogSeesAnotherHooksFailure(t *testing.T) {
 // A refusal with a code is the player's to read, and bindDrawingTypes logs a
 // refused type itself: it isn't logged again as a write failure.
 func TestTurnWriteLogLeavesOutRefusals(t *testing.T) {
-	app, writeFailures := loggedApp(t)
+	app, writeFailures := loggedApp(t, writeFailure)
 	api := serveAPI(t, app)
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 
-	rec := upload(api, http.MethodPost, turnsRoute, g.nextTurn(t, "ann", "ben"), "scan.tiff", tiffHeader)
+	rec := upload(api, http.MethodPost, turnsPath, g.nextTurn(t, "ann", "ben"), "scan.tiff", tiffHeader)
 	if code, _ := refusal(rec); code != codeBadPicture {
 		t.Fatalf("TIFF drawing: %d %s, want refused as %s", rec.Code, rec.Body, codeBadPicture)
 	}

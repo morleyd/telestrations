@@ -65,24 +65,30 @@ func (c capture) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
-// serveLogged serves app's API logging into memory, and returns a function
-// that reads back the client entries logged so far, oldest first.
-func serveLogged(t *testing.T) (http.Handler, func() []loggedEntry) {
+// loggedApp is a test app logging into memory, and a function that reads back
+// the entries logged so far whose message keep takes, oldest first.
+func loggedApp(t *testing.T, keep func(msg string) bool) (appWithLogger, func() []loggedEntry) {
 	t.Helper()
 	var mu sync.Mutex
 	var entries []loggedEntry
 	app := appWithLogger{newTestApp(t), slog.New(capture{mu: &mu, entries: &entries})}
-	read := func() []loggedEntry {
+	return app, func() []loggedEntry {
 		mu.Lock()
 		defer mu.Unlock()
 		var out []loggedEntry
 		for _, e := range entries {
-			if strings.HasPrefix(e.Message, "client: ") {
+			if keep(e.Message) {
 				out = append(out, e)
 			}
 		}
 		return out
 	}
+}
+
+// serveLogged serves a loggedApp's API, and reads back its client entries.
+func serveLogged(t *testing.T) (http.Handler, func() []loggedEntry) {
+	t.Helper()
+	app, read := loggedApp(t, func(msg string) bool { return strings.HasPrefix(msg, "client: ") })
 	return serveAPI(t, app), read
 }
 
