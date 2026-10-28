@@ -276,6 +276,7 @@ test.describe('colors, the palette and the tools', () => {
   test('hex and RGB convert both ways, in upper case with leading zeros', () => {
     expect(hexToRgb('#E52B2B')).toEqual([229, 43, 43])
     expect(hexToRgb('#e52b2b')).toEqual([229, 43, 43])
+    expect(hexToRgb('#E52B2B80')).toEqual([229, 43, 43])
     expect(hexToRgb('#000000')).toEqual([0, 0, 0])
     expect(rgbToHex(0, 10, 255)).toBe('#000AFF')
     for (const { hex } of PALETTE) expect(rgbToHex(...hexToRgb(hex))).toBe(hex)

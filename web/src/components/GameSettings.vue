@@ -1,6 +1,7 @@
 <!-- A game's settings: rounds (or Infinite) and an optional turn timer. Used in
      a v-form by the New Game dialog and the host's Play Again; the value is
-     services/settings' shape, and Enter in any field emits `submit`. -->
+     services/settings' shape, and Enter in a text field emits `submit` (in the
+     Unit list it picks a unit). -->
 <template>
   <v-row class="pa-2" style="justify-content: center;">
     <v-switch v-model="timed" color="primary" label="Set Timed Rounds" hide-details />
@@ -9,7 +10,7 @@
     <v-text-field v-model="timeValue" type="number" label="Round Duration" @keyup.enter="$emit('submit')"
       :rules="[v => (v !== null && v !== undefined && String(v).trim() !== '' && Number(v) > 0) || 'Duration must be a positive number!']" />
     <v-select v-model="timeUnit" label="Unit" :items="['Seconds', 'Minutes', 'Hours']"
-      @keyup.enter="$emit('submit')" :rules="[v => !!v?.trim() || 'Time Unit cannot be empty!']" />
+      :rules="[v => !!v?.trim() || 'Time Unit cannot be empty!']" />
   </v-row>
   <!-- How many times each story goes round the group. Infinite goes on until
        the host ends the game. -->

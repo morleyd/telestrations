@@ -3,12 +3,13 @@
 // Conversions between "#RRGGBB" strings and [r, g, b] byte triples.
 
 /**
- * hexToRgb splits a "#RRGGBB" color into its channels
+ * hexToRgb splits a "#RRGGBB" color into its channels. Any alpha after them
+ * ("#RRGGBBAA", which the color picker's field takes) is left out.
  * @param {string} hex - the color, e.g. "#E52B2B"
  * @returns {number[]} [r, g, b], each 0-255
  */
 export function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16)
+  const n = parseInt(hex.slice(1, 7), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
