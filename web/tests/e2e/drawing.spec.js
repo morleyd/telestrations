@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
-import { createGame, expectStoriesAlternate, joinGame, PB_URL, startGame, submitWord, stroke } from './helpers.js'
+import { createGame, expectStoriesAlternate, joinGame, PB_URL, playerIds, startGame, submitWord, stroke } from './helpers.js'
 import { SIZES } from '../../src/services/paint/engine.js'
 import { TOOLS } from '../../src/services/paint/tools.js'
 
@@ -554,8 +554,7 @@ test('a stroke still being drawn when the turn\'s timer runs out is saved as the
     await alpha.mouse.up()
 
     const stories = await expectStoriesAlternate(request, code, 2)
-    const users = await (await request.get(`${PB_URL}/api/collections/users/records?filter=${encodeURIComponent(`game_id.game_code="${code}"`)}`)).json()
-    const id = Object.fromEntries(users.items.map((u) => [u.username, u.id]))
+    const id = await playerIds(request, code)
     const [, alphaDrawing] = stories[id.bravo]
     expect(alphaDrawing).toMatchObject({ skipped: false, timed_out: true })
     expect(alphaDrawing.drawing).not.toBe('')

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, storyItem, PB_URL } from './helpers.js'
+import { createGame, joinGame, startGame, expectStoriesAlternate, stroke, storyItem, playerIds } from './helpers.js'
 
 // Timed rounds. When the timer runs out, partial work is submitted as the
 // player's turn; with nothing entered the server skips the turn (an opening
@@ -34,8 +34,7 @@ test('timeouts: partial work is kept, empty turns are skipped, and the review sa
 
     // What was saved.
     const stories = await expectStoriesAlternate(request, code, 2)
-    const users = await (await request.get(`${PB_URL}/api/collections/users/records?filter=${encodeURIComponent(`game_id.game_code="${code}"`)}`)).json()
-    const id = Object.fromEntries(users.items.map((u) => [u.username, u.id]))
+    const id = await playerIds(request, code)
     const [alphaWord, bravoDrawing] = stories[id.alpha]
     const [bravoWord, alphaDrawing] = stories[id.bravo]
     expect(alphaWord).toMatchObject({ skipped: true, timed_out: true })

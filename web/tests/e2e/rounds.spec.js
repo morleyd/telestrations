@@ -1,17 +1,12 @@
 import { test, expect } from '@playwright/test'
 import {
   createGame, joinGame, startGame, driveGameToReview, expectStoriesAlternate,
-  turnState, submitWord, submitDrawing, stroke, PB_URL, PNG_PIXEL,
+  turnState, submitWord, submitDrawing, stroke, gameByCode, playerIds, records, PNG_PIXEL,
 } from './helpers.js'
 
 // Rounds: each story goes round the group once per round, or (Infinite) until
 // the host ends the game. End Game gives everyone mid-turn a countdown to
 // finish, then sends everybody to the review.
-
-const gameRecord = async (request, code) => {
-  const filter = encodeURIComponent(`game_code="${code}"`)
-  return (await (await request.get(`${PB_URL}/api/collections/games/records?filter=${filter}`)).json()).items[0]
-}
 
 test('the new-game dialog sets rounds, with arrows or typing, or Infinite', async ({ page, request }) => {
   await page.goto('/')
@@ -35,7 +30,7 @@ test('the new-game dialog sets rounds, with arrows or typing, or Infinite', asyn
   await page.getByLabel('Username').fill('hosty')
   await page.getByRole('button', { name: 'Begin!' }).click()
   await page.waitForURL(/\/[a-zA-Z]{5}$/)
-  const game = await gameRecord(request, page.url().split('/').pop())
+  const game = await gameByCode(request, page.url().split('/').pop())
   expect(game).toMatchObject({ rounds: 3, endless: false })
 })
 
@@ -107,12 +102,9 @@ test('Infinite: the host ends it, and everyone mid-turn gets the countdown', asy
     await guest.waitForURL(/\/review$/, { timeout: 20_000 })
 
     // Both turns were kept: the host's as played, buddy's as timed out.
-    const game = await gameRecord(request, code)
-    const filter = encodeURIComponent(`game_id="${game.id}"`)
-    const turnsByNewest = (await (await request.get(
-      `${PB_URL}/api/collections/turns/records?perPage=500&sort=-created&filter=${filter}`)).json()).items
-    const users = (await (await request.get(`${PB_URL}/api/collections/users/records?filter=${filter}`)).json()).items
-    const id = Object.fromEntries(users.map((u) => [u.username, u.id]))
+    const { id: gameId } = await gameByCode(request, code)
+    const turnsByNewest = await records(request, 'turns', `game_id="${gameId}"`, '-created')
+    const id = await playerIds(request, code)
     const last = (name) => turnsByNewest.find((t) => t.user_id === id[name])
     expect(last('hosty')).toMatchObject({ timed_out: false, skipped: false })
     expect(last('buddy')).toMatchObject({ timed_out: true, skipped: false })
@@ -122,8 +114,8 @@ test('Infinite: the host ends it, and everyone mid-turn gets the countdown', asy
     // And once the grace after the deadline is up, the game is over: no story
     // waits on anyone.
     await expect.poll(async () => {
-      const progress = await (await request.get(`${PB_URL}/api/collections/progress/records?filter=${filter}`)).json()
-      return progress.items.filter((row) => row.next_user_id).length
+      const progress = await records(request, 'progress', `game_id="${gameId}"`)
+      return progress.filter((row) => row.next_user_id).length
     }, { timeout: 15_000 }).toBe(0)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
@@ -155,10 +147,8 @@ test('one player, Infinite: the story keeps coming back to them until the host e
   await page.getByRole('button', { name: 'End Game' }).click()
   await page.waitForURL(/\/review$/, { timeout: 20_000 })
 
-  const game = await gameRecord(request, code)
-  const filter = encodeURIComponent(`game_id="${game.id}"`)
-  const turns = (await (await request.get(
-    `${PB_URL}/api/collections/results/records?sort=turn_number&filter=${filter}`)).json()).items
+  const { id: gameId } = await gameByCode(request, code)
+  const turns = await records(request, 'results', `game_id="${gameId}"`, 'turn_number')
   expect(turns.map((t) => Boolean(t.drawing))).toEqual([false, true, false, true])
 })
 
