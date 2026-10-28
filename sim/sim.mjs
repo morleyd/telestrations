@@ -1,9 +1,9 @@
 // Telestrations full-game simulation harness.
 //
-// Faithfully mirrors the client flow in web/src/pages/TakeTurn.vue and the
-// pbService calls in web/src/services/pocketbase/index.js, driving N players
-// through a complete game against the real PocketBase backend, then validates
-// rotation / routing correctness.
+// Drives N players through a complete game against the real PocketBase
+// backend, the way web/src/pages/TakeTurn.vue plays one in its simplest form
+// (one round, each turn as it comes), then validates rotation / routing
+// correctness.
 //
 // Scenarios (strict PASS/FAIL over the size list):
 //   orderly     players act one-at-a-time in a rotating order
@@ -90,8 +90,7 @@ async function count(collection, filter) {
 }
 
 function shuffle(arr, seed) {
-  // deterministic shuffle driven by a seed so runs are reproducible without
-  // Math.random (which the harness environment forbids).
+  // deterministic shuffle driven by a seed so runs are reproducible.
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
@@ -347,11 +346,9 @@ async function playGame(nCreate, scenario) {
   };
 }
 
-// Mid-game deletion probe. Once a game is underway, PocketBase refuses to
-// delete players: story starters are pinned by the required starter_id FK, and
-// EVERY player is also referenced by the progress/results views (as
-// next_user_id / prev_user_id / turn_user_id), which the delete cascade scans.
-// So we attempt to delete players at several rotation positions mid-game, expect
+// Mid-game deletion probe. Once a game is underway, the server refuses to
+// delete players (the users delete guard in internal/game/host.go). So we
+// attempt to delete players at several rotation positions mid-game, expect
 // each to be refused, and confirm the game still finishes perfectly intact.
 async function probeMidGameDeletion(n) {
   const { game, users } = await createGame(n);
@@ -424,10 +421,9 @@ async function main() {
     );
   }
   console.log(
-    "   takeaway: once a game is underway the backend refuses every player delete —\n" +
-    "   story starters are pinned by the required starter_id FK, and all players are\n" +
-    "   referenced by the progress/results views (next/prev/turn_user). In-progress\n" +
-    "   games therefore can't be corrupted by deletion, and the app offers no mid-game leave.\n"
+    "   takeaway: once a game is underway the backend refuses every player delete\n" +
+    "   (the users delete guard), so in-progress games can't be corrupted by deletion,\n" +
+    "   and the app offers no mid-game leave.\n"
   );
 
   const allOk = summary.every((r) => r.ok);

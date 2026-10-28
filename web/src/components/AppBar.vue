@@ -1,8 +1,8 @@
 // Copyright (2025- ) David C. Morley
 
-// The AppBar provides a simple toolbar the the top of a given page
+// The AppBar provides a simple toolbar at the top of a given page
 <template>
-  <v-app-bar app clipped-left color="primary" flat density="compact" class="app-bar">
+  <v-app-bar color="primary" flat density="compact" class="app-bar">
     <div class="app-bar-brand d-flex align-center cursor-pointer" @click="$router.push({ name: 'Home' })">
       <span class="app-bar-logo mx-2">
         <v-img width="26" height="34" src="@/assets/logo.svg" />
