@@ -14,8 +14,8 @@
         </div>
       </div>
       <WaitingList v-if="view === 'list'" :progress="rows" :players="players" :not-started="unstarted"
-        :user-map="userMap" :me-id="userStore.userId" />
-      <WaitingTable v-else-if="layout" :seats="seats" :layout="layout" />
+        :user-map="userMap" :me-id="userStore.userId" :states="states" :held-offset="heldOffset" />
+      <WaitingTable v-else-if="layout" :seats="seats" :layout="layout" :held-offset="heldOffset" />
     </div>
   </div>
 </template>
@@ -23,8 +23,9 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
-import { seatPlayers, notStarted, roundTable, sidesTable, longTable } from '@/services/table'
+import { seatPlayers, storyStates, notStarted, roundTable, sidesTable, longTable } from '@/services/table'
 import { gameProgress } from '@/services/progress'
+import { awaySeconds } from '@/services/presence'
 
 // Above the table: the app bar and the title
 const ABOVE = 48 + 96
@@ -45,10 +46,12 @@ function savedView() {
   }
 }
 
-// Who's doing what. TakeTurn calls getProgress whenever it finds the player
-// still waiting, or looking at the table between turns, and the review on each
-// of its refreshes while a finished player watches. current: the notebook the
-// player last had on screen, kept on top of their pile.
+// Who's doing what: each player's notebooks and whether they're working on
+// one, haven't started or are away, and for the host, how long each has been
+// held. TakeTurn calls getProgress whenever it finds the player still waiting,
+// or looking at the table between turns, and the review on each of its
+// refreshes while a finished player watches. current: the notebook the player
+// last had on screen, kept on top of their pile.
 export default {
   props: {
     gameId: { type: String, required: true },
@@ -66,6 +69,10 @@ export default {
       players: [],
       seats: [],
       width: 0,
+      // When the rows were read, and now, ticking each second while the
+      // host's timers show: the rows' held times plus the difference
+      readAt: 0,
+      now: 0,
     }
   },
   computed: {
@@ -76,6 +83,18 @@ export default {
     },
     userMap() {
       return Object.fromEntries(this.players.map((p) => [p.id, p]))
+    },
+    // Only the host sees how long notebooks have been held
+    isHost() {
+      return Boolean(this.userMap[this.userStore.userId]?.is_host)
+    },
+    // Seconds since the held times were read, for the timers; null hides them
+    heldOffset() {
+      return this.isHost && this.readAt ? Math.max(0, (this.now - this.readAt) / 1000) : null
+    },
+    // What each notebook's holder is up to with it, by story id, for the list
+    states() {
+      return storyStates(this.seats)
     },
     // The players who haven't opened the game, in seat order: the table gives
     // each a blank page, and the list a row
@@ -96,6 +115,13 @@ export default {
     },
   },
   watch: {
+    // The timers tick only while they show
+    isHost: {
+      handler(host) {
+        clearInterval(this.ticker)
+        this.ticker = host ? setInterval(() => { this.now = Date.now() }, 1000) : null
+      },
+    },
     view(view) {
       try {
         localStorage.setItem(VIEW_KEY, view)
@@ -121,6 +147,7 @@ export default {
   },
   unmounted() {
     this.resized.disconnect()
+    clearInterval(this.ticker)
   },
   methods: {
     // The players come with their names, so a refresh that lands has both. One
@@ -137,8 +164,10 @@ export default {
       this.shown = mine
       this.rows = rows.data
       this.players = players.data
+      this.readAt = this.now = Date.now()
       if (this.current) this.onTop.set(this.userStore.userId, this.current)
-      this.seats = seatPlayers(players.data, rows.data, this.userStore.userId, this.onTop)
+      this.seats = seatPlayers(players.data, rows.data, this.userStore.userId, this.onTop,
+        { awaySeconds: awaySeconds() })
       this.onTop = new Map(this.seats.filter((s) => s.papers.length).map((s) => [s.player.id, s.papers[0].id]))
     },
   },

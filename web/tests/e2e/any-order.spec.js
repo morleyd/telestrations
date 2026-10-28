@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   createGame, joinGame, startGame, startThreePlayerGame, submitWord, submitDrawing, stroke, driveGameToReview,
-  expectStoriesAlternate, hostAct, records, turnCreated, PNG_PIXEL,
+  expectStoriesAlternate, hostAct, lookAtTable, records, turnCreated, PNG_PIXEL,
 } from './helpers.js'
 
 // A player with several notebooks waiting can do them in any order: the
@@ -16,12 +16,6 @@ const drawPrompt = (page) => page.locator('.drawing-prompt-text')
 async function pick(page, name) {
   await menu(page).click()
   await notebook(page, name).click()
-}
-
-async function lookAtTable(page) {
-  await menu(page).click()
-  await page.getByText('Look at the table').click()
-  await expect(page.getByText('Around the table')).toBeVisible()
 }
 
 // The turns saved in a game, by player name

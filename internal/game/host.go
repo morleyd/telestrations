@@ -311,6 +311,10 @@ type playerStatus struct {
 	Owes int `json:"owes"`
 	// Nothing left for this player to do in the game.
 	Finished bool `json:"finished"`
+	// The turn on their screen ("storyId:index", or ""), and seconds since
+	// their device last said so (-1: never). See presence.go.
+	WorkingOn   string `json:"working_on"`
+	IdleSeconds int    `json:"idle_seconds"`
 }
 
 // gamePlayers reports where every player stands. A player is finished once
@@ -363,6 +367,10 @@ FROM turns WHERE game_id = {:g} GROUP BY user_id`).
 			owes[s.NextUser]++
 		}
 	}
+	here, err := gamePresence(app, gameID)
+	if err != nil {
+		return nil, err
+	}
 	// The stories there will be: those there are, and one for each player
 	// still to open the game. (A dropped player's never will.)
 	allStarted, storyCount := true, len(stories)
@@ -393,6 +401,11 @@ FROM turns WHERE game_id = {:g} GROUP BY user_id`).
 			Skipped:    skipped[u.Id],
 			TotalTurns: totalTurns,
 			Owes:       owes[u.Id],
+			// Never seen, unless it says otherwise
+			IdleSeconds: -1,
+		}
+		if h, ok := here[u.Id]; ok {
+			p.WorkingOn, p.IdleSeconds = h.WorkingOn, h.IdleSeconds
 		}
 		p.Finished = p.Dropped || over || (allStarted && !endless && p.Turns >= total)
 		out = append(out, p)

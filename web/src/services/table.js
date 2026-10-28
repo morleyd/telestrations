@@ -5,17 +5,23 @@
 // players in seat order (GET /api/games/{id}/players); rows: the progress
 // view, one row per story; meId: whoever is looking; onTop: the notebook on
 // top of each player's pile last time (player id to story id), which stays
-// there while it's still theirs.
+// there while it's still theirs; awaySeconds: how long a player's device can
+// be quiet before they count as away.
 //
 // Each seat gets the notebooks waiting on that player, the one they're on
-// first. That's their own story while they write its opening word (TakeTurn
-// does that before anything else); else the one on top last time; else the
-// one that has been round the table the fewest times, and of those the first
-// by id, which is the one TakeTurn gives them next. A player who hasn't opened
-// the game yet has no story of their own, so a blank page stands in for it.
-// Dropped players have left the table: the server skips their turns as
-// stories reach them.
-export function seatPlayers(players, rows, meId, onTop = new Map()) {
+// first. That's the one on their screen, if they say (working_on, see
+// TakeTurn's presence); else their own story while they write its opening
+// word (TakeTurn does that before anything else); else the one on top last
+// time; else the one that has been round the table the fewest times, and of
+// those the first by id, which is the one TakeTurn gives them next. A player
+// who hasn't opened the game yet has no story of their own, so a blank page
+// stands in for it. Dropped players have left the table: the server skips
+// their turns as stories reach them.
+//
+// A seat with notebooks has a state (see stateOf): working, notStarted or
+// away; and heldSeconds, how long the oldest of them has been with them (null
+// if the progress doesn't say).
+export function seatPlayers(players, rows, meId, onTop = new Map(), { awaySeconds = AWAY_SECONDS } = {}) {
   const all = players || []
   const stories = rows || []
   const piles = new Map(all.map((p) => [p.id, []]))
@@ -24,6 +30,7 @@ export function seatPlayers(players, rows, meId, onTop = new Map()) {
       id: row.story_id,
       isDraw: Boolean(row.prev_prompt),
       taken: row.turns_taken || 0,
+      held: row.held_seconds ?? null,
     })
   }
   const unstarted = notStarted(all, stories)
@@ -31,22 +38,65 @@ export function seatPlayers(players, rows, meId, onTop = new Map()) {
     if (player.dropped) return []
     const papers = piles.get(player.id)
     if (unstarted.has(player.id)) papers.push({ id: `first:${player.id}`, isDraw: false, taken: 0 })
-    // Their opening word (no turns taken) always first, even over the one on
-    // top last time: that was only our best guess, before their own story
-    // showed up. Then the one on top last time, then the one TakeTurn gives
-    // them next.
+    // The one on their screen first: they've said so. Then their opening word
+    // (no turns taken), even over the one on top last time: that was only our
+    // best guess, before their own story showed up. Then the one on top last
+    // time, then the one TakeTurn gives them next.
+    const working = workingOn(player, papers)
     const top = onTop.get(player.id)
-    papers.sort((a, b) => (a.taken > 0) - (b.taken > 0) || (b.id === top) - (a.id === top) ||
-      a.taken - b.taken || (a.id < b.id ? -1 : 1))
+    papers.sort((a, b) => (b === working) - (a === working) || (a.taken > 0) - (b.taken > 0) ||
+      (b.id === top) - (a.id === top) || a.taken - b.taken || (a.id < b.id ? -1 : 1))
     const status = papers.length ? (papers[0].isDraw ? "drawing" : "writing") : player.finished ? "done" : "waiting"
+    const held = papers.map((p) => p.held).filter((h) => h != null)
     return [{
       player,
       papers: papers.map(({ id, isDraw }) => ({ id, isDraw })),
       status,
+      state: papers.length ? stateOf(player, working, awaySeconds) : null,
+      heldSeconds: held.length ? Math.max(...held) : null,
       isMe: player.id === meId,
       waitingOn: status === "waiting" ? nextFrom(player, all, stories) : null,
     }]
   })
+}
+
+// What each notebook's holder is up to with it, by story id, for the list (the
+// table shows one state a seat). A player working is working on the notebook
+// on their screen, the top of their pile; the rest are set aside, so not
+// started. Otherwise the seat's state: away, or not started.
+export function storyStates(seats) {
+  const out = {}
+  for (const seat of seats) {
+    if (!seat.state) continue
+    seat.papers.forEach((paper, k) => {
+      out[paper.id] = seat.state === "working" && k > 0 ? "notStarted" : seat.state
+    })
+  }
+  return out
+}
+
+// How long a player's device can go without reporting before they count as
+// away: it reports every ~20s while the game is open (see TakeTurn).
+export const AWAY_SECONDS = 60
+
+// The notebook in papers that player has on their screen, by their presence
+// (working_on is "storyId:index", as TakeTurn keys a turn), or undefined. One
+// at an earlier place in the story is a turn they've already left.
+function workingOn(player, papers) {
+  const [story, index] = (player.working_on || "").split(":")
+  return story ? papers.find((p) => p.id === story && String(p.taken) === index) : undefined
+}
+
+// What a player holding notebooks is up to: "working" with one on their
+// screen, "away" once their device has gone quiet, else "notStarted" (they're
+// looking at the table, or have set their turns aside, or never opened the
+// game: idle_seconds -1). Without presence at all (an older server), working,
+// as before there was any.
+function stateOf(player, working, awaySeconds) {
+  const idle = player.idle_seconds
+  if (idle == null) return "working"
+  if (idle >= awaySeconds) return "away"
+  return working ? "working" : "notStarted"
 }
 
 // Whose notebook reaches player next: the nearest player before them in the

@@ -34,8 +34,13 @@ const redrawn = (page) =>
 // they're SVG animations.
 async function settle(page) {
   await redrawn(page)
-  await page.waitForFunction(() => document.getAnimations().length === 0)
+  await stillNow(page)
 }
+
+// Until nothing is sliding or fading: every animation done, bar the ones that
+// loop for good (a status pill's moving icon)
+const stillNow = (page) => page.waitForFunction(() => document.getAnimations()
+  .every((a) => a.effect?.getComputedTiming().iterations === Infinity))
 
 // How far the page, and the waiting screen inside it (which scrolls itself),
 // reach past their width
@@ -731,7 +736,7 @@ test('on a phone, a notebook passed from the last player to the first goes up be
     // The last player has their own word to write, and then the middle's
     await expect(notebooksOf(page, last.name)).toHaveCount(2)
     const theirs = await topStory(page, last.name)
-    await page.waitForFunction(() => document.getAnimations().length === 0)
+    await stillNow(page)
     await watchSlides(page)
 
     await submitWord(last.page, 'a kite')
@@ -825,7 +830,7 @@ test('a player leaving redraws the table without sliding the notebooks', async (
     const players = [fakePlayer(meId, 'Dani'), fakePlayer('a', 'Ana'), fakePlayer('b', 'Bo'), fakePlayer('c', 'Cy')]
     show({ players, rows })
     await expect(notebooksOf(page, 'Cy')).toHaveCount(1)
-    await page.waitForFunction(() => document.getAnimations().length === 0)
+    await stillNow(page)
     await watchSlides(page)
 
     show({ players: players.map((p) => (p.id === 'b' ? { ...p, dropped: true } : p)), rows })

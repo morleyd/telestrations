@@ -195,6 +195,13 @@ export function notebooksOf(page, username) {
   return page.locator(`.story-paper[data-holder="${username}"]`)
 }
 
+// From a turn, to the table by the notebooks menu in the app bar.
+export async function lookAtTable(page) {
+  await page.getByRole('button', { name: 'Your notebooks' }).click()
+  await page.getByText('Look at the table').click()
+  await expect(page.getByText('Around the table')).toBeVisible()
+}
+
 // Seats in rotation order (stories pass seat 0 -> 1 -> ...), mapped back to the
 // test's pages by username. Seating is decided server-side at begin.
 export async function seatedPages(request, code, pagesByName) {
@@ -203,9 +210,14 @@ export async function seatedPages(request, code, pagesByName) {
 }
 
 // Three players (alpha hosts) in a started game, each on their first turn.
-// seats lists them in rotation order (see seatedPages).
-export async function startThreePlayerGame(browser, request) {
+// seats lists them in rotation order (see seatedPages). awaySeconds shortens
+// how long a quiet device takes to show as away, on every page (see
+// services/presence.js).
+export async function startThreePlayerGame(browser, request, { awaySeconds } = {}) {
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+  if (awaySeconds) {
+    await Promise.all(contexts.map((c) => c.addInitScript((s) => localStorage.setItem('awaySeconds', s), String(awaySeconds))))
+  }
   const pages = await Promise.all(contexts.map((ctx) => ctx.newPage()))
   const names = ['alpha', 'bravo', 'charlie']
   const code = await createGame(pages[0], { username: names[0], timed: false })

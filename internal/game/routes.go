@@ -26,6 +26,10 @@ func BindRoutes(se *core.ServeEvent) {
 	// Host-only mid-game controls: skip or drop a player (see host.go).
 	bindHostRoutes(se)
 
+	// Which turn each player has on screen, and whether they're still here
+	// (see presence.go).
+	bindPresenceRoutes(se)
+
 	// Atomic game start. Assigning player positions and flipping isStarted
 	// from the client was racy: positions were written one-by-one over the
 	// host's live (realtime-mutated) roster, so a late joiner could keep the

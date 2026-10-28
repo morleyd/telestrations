@@ -8,7 +8,7 @@
     <TransitionGroup name="paper" tag="div" class="papers" aria-hidden="true">
       <div v-for="p in placed" :key="p.id" :ref="(el) => keep(p.id, el)" class="story-paper" :data-story="p.id"
         :data-holder="p.holder" :style="paperStyle(p)">
-        <StoryPaper :id="p.id" :is-draw="p.isDraw" :active="p.k === 0" :width="layout.paper.w"
+        <StoryPaper :id="p.id" :is-draw="p.isDraw" :active="p.k === 0 && p.working" :width="layout.paper.w"
           :height="layout.paper.h" />
       </div>
     </TransitionGroup>
@@ -24,37 +24,37 @@
           <span class="seat-name-text">{{ seat.player.username }}</span>
           <span v-if="seat.isMe" class="seat-you">&nbsp;(you)</span>
         </div>
-        <span class="seat-status" :class="`seat-status--${seat.status}`">
-          <v-icon :icon="ICONS[seat.status]" size="14" />
-          <span class="seat-status-text">{{ statusText(seat) }}</span>
-          <span v-if="seat.papers.length > 1" class="seat-pile">+{{ seat.papers.length - 1 }}</span>
-        </span>
+        <div class="seat-status-row" :class="{ 'seat-status-row--left': layout.seats[i].label.align === 'right' }">
+          <StatusPill v-slot="{ label }" class="seat-status" :status="seat.status" :state="seat.state">
+            <span class="seat-status-text">{{ seat.waitingOn ? `Waiting on ${seat.waitingOn.username}` : label }}</span>
+            <span v-if="seat.papers.length > 1" class="seat-pile">+{{ seat.papers.length - 1 }}</span>
+          </StatusPill>
+          <!-- For the host: how long the oldest of them has been there -->
+          <span v-if="heldOffset != null && seat.heldSeconds != null" class="seat-held"
+            :title="`Held for ${heldText(seat.heldSeconds + heldOffset)}`">
+            {{ heldText(seat.heldSeconds + heldOffset) }}
+          </span>
+        </div>
       </div>
     </div>
   </div>
 </template>
 <script>
 import { pileSpot, travel } from '@/services/table'
-
-const ICONS = {
-  drawing: "mdi-pencil",
-  writing: "mdi-fountain-pen-tip",
-  waiting: "mdi-clock-outline",
-  done: "mdi-check",
-}
+import { heldText } from '@/services/progress'
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
 
 // The table on the waiting screen: the players round it (or down one side of
 // a long one), each with the notebooks waiting on them. seats: seatPlayers;
-// layout: roundTable or longTable, with a spot for each seat.
+// layout: roundTable or longTable, with a spot for each seat; heldOffset:
+// seconds since the seats' held times were read, ticking, to show them (the
+// host's), or null not to.
 export default {
   props: {
     seats: { type: Array, required: true },
     layout: { type: Object, required: true },
-  },
-  setup() {
-    return { ICONS }
+    heldOffset: { type: Number, default: null },
   },
   computed: {
     // Every notebook and where it lies. A move only slides within one layout:
@@ -65,6 +65,8 @@ export default {
       return this.seats.flatMap((seat, i) => seat.papers.map((paper, k) => ({
         ...paper, k, seat: i, key,
         holder: seat.player.username,
+        // The pencil only moves for someone on a turn
+        working: seat.state === "working",
         spot: pileSpot(seats[i], k),
       })))
     },
@@ -145,14 +147,7 @@ export default {
     box({ x, y, w, h }) {
       return { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` }
     },
-    statusText(seat) {
-      switch (seat.status) {
-        case "drawing": return "Drawing…"
-        case "writing": return "Writing…"
-        case "done": return "Done"
-        default: return seat.waitingOn ? `Waiting on ${seat.waitingOn.username}` : "Waiting"
-      }
-    },
+    heldText,
   },
 }
 </script>
@@ -242,26 +237,24 @@ export default {
   opacity: 0.6;
 }
 
-.seat-status {
-  display: inline-flex;
+/* The status, and for the host the time held beside it. The pill gives way
+   first: its text is cut short, keeping the icon and the pile count. */
+.seat-status-row {
+  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   max-width: 100%;
-  padding: 2px 10px 3px;
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  box-shadow: 2px 2px 0 var(--ink);
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
-  background: rgb(var(--v-theme-surface));
 }
 
-.seat-status > * {
-  flex: none;
+/* A name to the left of its avatar: the pill nearest the avatar */
+.seat-status-row--left {
+  flex-direction: row-reverse;
 }
 
-/* Cut short with an ellipsis, keeping the icon and the pile count */
+.seat-status {
+  min-width: 0;
+}
+
 .seat-status > .seat-status-text {
   flex: 0 1 auto;
   min-width: 0;
@@ -269,27 +262,12 @@ export default {
   text-overflow: ellipsis;
 }
 
-.seat-status--drawing {
-  background: rgb(var(--v-theme-secondary-lighten-3));
-}
-
-/* Tints over the paper color, so the shapes behind don't show through */
-.seat-status--writing {
-  background: linear-gradient(rgba(var(--v-theme-primary), 0.18), rgba(var(--v-theme-primary), 0.18)),
-    rgb(var(--v-theme-surface));
-}
-
-.seat-status--waiting {
-  background: rgb(var(--v-theme-surface-light));
-}
-
-.seat-status--done {
-  background: linear-gradient(rgba(var(--v-theme-grass), 0.2), rgba(var(--v-theme-grass), 0.2)),
-    rgb(var(--v-theme-surface));
-}
-
-.seat-status--done .v-icon {
-  color: rgb(var(--v-theme-grass));
+.seat-held {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .seat-pile {

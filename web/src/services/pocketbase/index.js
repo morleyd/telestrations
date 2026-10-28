@@ -162,6 +162,12 @@ export const pbService = {
     // taken, stories waiting on them, dropped, and whether they're finished.
     getPlayers: (gameId) => call(async () =>
       (await pb.send(`/api/games/${gameId}/players`, { requestKey: null })).players),
+    // This player's device is here, with the turn workingOn on screen
+    // ("storyId:index", or "" for none): the waiting screen's Working, Not
+    // started and Away (see presence.go). Best effort: a failure is only its
+    // answer's errMsg.
+    reportPresence: (gameId, userId, workingOn) =>
+      call(() => post(`/api/games/${gameId}/players/${userId}/presence`, { working_on: workingOn })),
     // Host-only: action is "skip" (their pending turns) or "drop" (from the game).
     hostAction: (gameId, userId, action, hostId) =>
       call(() => post(`/api/games/${gameId}/players/${userId}/${action}`, { host_id: hostId })),
