@@ -66,117 +66,88 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
 import { defaultSettings, gameFields } from '@/services/settings'
+import { oneAtATime } from '@/services/oneAtATime'
 export default {
   data() {
     return {
       settings: defaultSettings(),
       gameCode: "",
-      // One Enter runs either dialog's handler several times: SetUsername emits
-      // @username on keydown and keyup, and its submit bubbles to the dialog's
-      // own @submit form (see SetUsername's onSubmit). The other fields call the
-      // handler from their own @keyup.enter too. This latches on the first
-      // in-flight submit so the duplicates no-op instead of racing two creates for
-      // the same player (and, for New Game, two games). See WaitingRoom for the
-      // same guard.
-      submitting: false,
     }
   },
   computed: {
     ...mapStores(useUserStore),
   },
   methods: {
-    async onJoinClicked() {
-      // Latch synchronously before the first await so a duplicate call (see
-      // `submitting`) returns here instead of starting a second join.
-      if (this.submitting) {
+    // The navigation is awaited, so a duplicate call does nothing until this
+    // page is gone: navigation waits on a network check (router.beforeEach),
+    // and a keyup in that window would find the player this call created.
+    onJoinClicked: oneAtATime(async function () {
+      let validation = await this.$refs.form.validate()
+      if (!validation.valid) {
         return
       }
-      this.submitting = true
-      try {
-        let validation = await this.$refs.form.validate()
-        if (!validation.valid) {
-          return
-        }
-        validation = await this.$refs.username.validate()
-        if (!validation.valid) {
-          return
-        }
+      validation = await this.$refs.username.validate()
+      if (!validation.valid) {
+        return
+      }
 
-        const { data: game, errMsg, notFound } = await pbService.games.checkGameStatus(this.gameCode)
-        if (errMsg) {
-          this.$emit("snack", notFound ? "Invalid Game Code. Try again or create a new game." : errMsg, "error")
-          return
-        }
+      const { data: game, errMsg, notFound } = await pbService.games.checkGameStatus(this.gameCode)
+      if (errMsg) {
+        this.$emit("snack", notFound ? "Invalid Game Code. Try again or create a new game." : errMsg, "error")
+        return
+      }
 
-        // A failed read isn't a free name: joining on it would seat them twice.
-        const found = await pbService.users.getUser(validation.username, game.gameId)
-        if (found.errMsg) {
-          this.$emit("snack", found.errMsg, "error")
+      // A failed read isn't a free name: joining on it would seat them twice.
+      const found = await pbService.users.getUser(validation.username, game.gameId)
+      if (found.errMsg) {
+        this.$emit("snack", found.errMsg, "error")
+        return
+      }
+      const user = found.data
+      if (user) {
+        // Name taken: rejoin only if they confirm it's them; otherwise leave the
+        // join dialog open to pick another name.
+        if (!(await this.$refs.rejoin.ask(user))) {
           return
         }
-        const user = found.data
-        if (user) {
-          // Name taken: rejoin only if they confirm it's them; otherwise leave the
-          // join dialog open to pick another name.
-          if (!(await this.$refs.rejoin.ask(user))) {
-            return
-          }
-          this.userStore.user = user
-          this.$emit("snack", `Welcome back, ${user.username}!`, "success")
-          if (game.isStarted) {
-            await this.$router.push({ name: "TakeTurn", params: { gameCode: this.gameCode } });
-          } else {
-            await this.$router.push({ path: this.gameCode });
-          }
-        } else if (game.isStarted) {
-          this.$emit("snack", "Sorry, this game has already been started.", "error")
-          return
+        this.userStore.user = user
+        this.$emit("snack", `Welcome back, ${user.username}!`, "success")
+        if (game.isStarted) {
+          await this.$router.push({ name: "TakeTurn", params: { gameCode: this.gameCode } });
         } else {
-          let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, game.gameId, false)
-          if (resp.errMsg) {
-            this.$emit("snack", resp.errMsg, "error")
-            return
-          }
           await this.$router.push({ path: this.gameCode });
         }
-      } finally {
-        // The pushes above are awaited so the latch holds until HomeScreen is
-        // gone: navigation waits on a network check (router.beforeEach), and a
-        // keyup landing in that window would otherwise re-enter and find the
-        // player this call just created.
-        this.submitting = false
-      }
-    },
-    async onBeginClicked() {
-      // Latch synchronously (see `submitting`) so a duplicate Enter can't create
-      // a second game.
-      if (this.submitting) {
-        return
-      }
-      this.submitting = true
-      try {
-        let validation = await this.$refs.form.validate()
-        if (!validation.valid) {
-          return
-        }
-        validation = await this.$refs.username.validate()
-        if (!validation.valid) {
-          return
-        }
-
-        const { roundDuration, rounds, endless } = gameFields(this.settings)
-        let resp = await this.userStore.newGame(validation.username, validation.avatar, validation.color,
-          roundDuration, { rounds, endless })
+      } else if (game.isStarted) {
+        this.$emit("snack", "Sorry, this game has already been started.", "error")
+      } else {
+        let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, game.gameId, false)
         if (resp.errMsg) {
           this.$emit("snack", resp.errMsg, "error")
           return
         }
-
-        await this.$router.push({ path: resp.gameCode })
-      } finally {
-        this.submitting = false
+        await this.$router.push({ path: this.gameCode });
       }
-    },
+    }),
+    onBeginClicked: oneAtATime(async function () {
+      let validation = await this.$refs.form.validate()
+      if (!validation.valid) {
+        return
+      }
+      validation = await this.$refs.username.validate()
+      if (!validation.valid) {
+        return
+      }
+
+      const { roundDuration, rounds, endless } = gameFields(this.settings)
+      let resp = await this.userStore.newGame(validation.username, validation.avatar, validation.color,
+        roundDuration, { rounds, endless })
+      if (resp.errMsg) {
+        this.$emit("snack", resp.errMsg, "error")
+        return
+      }
+
+      await this.$router.push({ path: resp.gameCode })
+    }),
   },
 }
 </script>

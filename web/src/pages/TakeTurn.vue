@@ -62,6 +62,7 @@ import { useUserStore } from '@/stores/user';
 import { pb, pbService, endsAt, endCountdown } from '@/services/pocketbase'
 import { log } from '@/services/log'
 import TurnPane from '@/components/TurnPane.vue'
+import { oneAtATime } from '@/services/oneAtATime'
 
 // One turn: a story and a place in it. With rounds, a story comes back to the
 // same player at a later place.
@@ -100,11 +101,6 @@ export default {
       // The players, by id, for whose notebook is whose
       players: new Map(),
       showLoginDialog: false,
-      // One Enter in the login dialog runs onLoginClicked twice (see
-      // SetUsername's onSubmit). Latch on the first in-flight call so the
-      // duplicate no-ops. Kept apart from `writing`, the turn-write locks, so
-      // signing in can never hold or release a turn submit.
-      loggingIn: false,
       gameId: "",
       duration: -1,
       pollTimer: null,
@@ -414,40 +410,30 @@ export default {
       this.setScreen(null, "finished")
       this.$router.push({ name: "Review", params: { gameCode: this.$route.params.gameCode } });
     },
-    async onLoginClicked() {
-      // Latch synchronously before the first await (see `loggingIn`) so a
-      // duplicate call returns here instead of racing a second sign-in.
-      if (this.loggingIn) {
+    onLoginClicked: oneAtATime(async function () {
+      let validation = await this.$refs.username.validate()
+      if (!validation.valid) {
         return
       }
-      this.loggingIn = true
-      try {
-        let validation = await this.$refs.username.validate()
-        if (!validation.valid) {
-          return
-        }
 
-        const { data: user, errMsg } = await pbService.users.getUser(validation.username, this.gameId)
-        if (errMsg) {
-          this.$emit("snack", errMsg, "error")
-          return
-        }
-        if (!user) {
-          this.$emit("snack", "Not an active user in this game.", "error")
-          return
-        }
-        // Signing in here always takes over an existing seat, so make sure it's theirs.
-        if (!(await this.$refs.rejoin.ask(user))) {
-          return
-        }
-
-        this.userStore.user = user
-        this.showLoginDialog = false
-        await this.startPlaying()
-      } finally {
-        this.loggingIn = false
+      const { data: user, errMsg } = await pbService.users.getUser(validation.username, this.gameId)
+      if (errMsg) {
+        this.$emit("snack", errMsg, "error")
+        return
       }
-    },
+      if (!user) {
+        this.$emit("snack", "Not an active user in this game.", "error")
+        return
+      }
+      // Signing in here always takes over an existing seat, so make sure it's theirs.
+      if (!(await this.$refs.rejoin.ask(user))) {
+        return
+      }
+
+      this.userStore.user = user
+      this.showLoginDialog = false
+      await this.startPlaying()
+    }),
     // Where we stand, from the server: `finished` once we've taken a turn on
     // every story (and every active player has one), `dropped` if the host
     // removed us. Computed server-side because dropped players change both the
