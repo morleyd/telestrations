@@ -33,6 +33,7 @@ const myCustomLightTheme = {
     'on-secondary': '#1F1B16',
     'secondary-darken-1': '#B98620',
     'tertiary-lighten-3': '#F4D8D1',
+    'tertiary-lighten-2': '#DE8B74',
     tertiary: '#C83D17',
     'tertiary-darken-1': '#962E11',
     'tertiary-darken-2': '#641E0C',
