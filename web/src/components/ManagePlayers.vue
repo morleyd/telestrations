@@ -56,7 +56,6 @@ import { log } from '@/services/log'
 const REFRESH_MS = 3000
 
 export default {
-  name: "ManagePlayers",
   data() {
     return {
       gameId: "",
@@ -164,9 +163,3 @@ export default {
   },
 }
 </script>
-<style scoped>
-.wrap {
-  white-space: break-spaces;
-  word-break: break-word;
-}
-</style>

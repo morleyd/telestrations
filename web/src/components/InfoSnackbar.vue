@@ -12,7 +12,6 @@
 </template>
 <script>
 export default {
-  name: 'InfoSnackbar',
   data() {
     return {
       visible: false,

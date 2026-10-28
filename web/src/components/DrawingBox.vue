@@ -55,7 +55,6 @@ const ABOVE_AND_BELOW = 205
 const MIN_CANVAS = 360
 
 export default {
-  name: "Draw",
   emits: ["drawing"],
   data() {
     return {

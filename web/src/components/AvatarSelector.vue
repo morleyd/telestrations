@@ -23,7 +23,7 @@
           </v-card>
         </v-item>
       </v-item-group>
-      <v-card-actions class="justify-center pt-4" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+      <v-card-actions class="justify-center pt-4 safe-bottom">
         <v-btn size="large" color="primary" variant="elevated" @click="onSubmit">
           Submit
         </v-btn>
@@ -38,7 +38,6 @@ import { FACES } from '@/services/faces'
 const CHOICES = ["", ...FACES.keys()]
 
 export default {
-  name: 'AvatarSelector',
   props: [
     "avatar",
     "color",
@@ -138,9 +137,5 @@ export default {
   background: rgb(var(--v-theme-secondary-lighten-3));
   border-color: var(--ink);
   box-shadow: 3px 3px 0 var(--ink);
-}
-
-.safe-bottom {
-  margin-bottom: 64px;
 }
 </style>

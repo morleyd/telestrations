@@ -35,7 +35,7 @@
         </div>
       </draggable>
     </div>
-    <v-card-actions :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+    <v-card-actions class="safe-bottom">
       <v-btn v-if="userStore.is_host" color="primary" size="x-large" variant="elevated" @click="onBeginClicked">
         Begin!
       </v-btn>
@@ -74,7 +74,6 @@ import { pb, pbService } from '@/services/pocketbase'
 import { log } from '@/services/log'
 import { copyText } from '@/services/clipboard'
 export default {
-  name: "TakeTurn",
   data() {
     return {
       gameId: "",
@@ -401,13 +400,6 @@ export default {
   padding-block: 12px;
 }
 
-.wrap {
-  text-align: center;
-  white-space: break-spaces;
-  word-break: break-word;
-  word-wrap: break-word;
-}
-
 .waiting-box {
   width: min(480px, 100%);
   max-height: calc(100vh - 320px);
@@ -468,9 +460,5 @@ export default {
   line-height: 1;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-
-.safe-bottom {
-  margin-bottom: 64px;
 }
 </style>

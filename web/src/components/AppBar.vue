@@ -22,7 +22,6 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 export default {
-  name: "AppBar",
   computed: {
     ...mapStores(useUserStore),
   },

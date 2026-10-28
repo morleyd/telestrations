@@ -16,7 +16,6 @@
 // A round's timer: counts `duration` seconds down and emits `finished` once.
 // No timer for a duration of 0 or less (an untimed game).
 export default {
-  name: "CountdownTimer",
   props: ["duration"],
   emits: ["finished"],
   data() {

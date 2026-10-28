@@ -81,7 +81,6 @@ const POLL_MS = 2500
 const DROPPED_CHECK_TICKS = 4 // ~10s
 const END_CHECK_TICKS = 2 // ~5s, the realtime game update's fallback
 export default {
-  name: "TakeTurn",
   data() {
     return {
       // "loading" until the first pass decides which turn we're on. Kept apart

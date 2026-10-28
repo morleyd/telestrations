@@ -49,7 +49,6 @@ function savedView() {
 // still waiting, or looking at the table between turns. current: the notebook
 // the player last had on screen, kept on top of their pile.
 export default {
-  name: "WaitingScreen",
   props: {
     gameId: { type: String, required: true },
     title: { type: String, default: "Waiting for a notebook to come your way" },

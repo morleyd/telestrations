@@ -49,7 +49,6 @@ const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce
 // a long one), each with the notebooks waiting on them. seats: seatPlayers;
 // layout: roundTable or longTable, with a spot for each seat.
 export default {
-  name: "WaitingTable",
   props: {
     seats: { type: Array, required: true },
     layout: { type: Object, required: true },

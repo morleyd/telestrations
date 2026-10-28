@@ -9,7 +9,7 @@
       <h1 class="text-h2"><span class="highlight">Telestrations!</span></h1>
     </div>
 
-    <v-card class="pa-4 ma-4 sketch-card" height="176px" width="900" max-width="calc(100vw - 32px)" :class="$vuetify.display.smAndDown ? 'safe-bottom': ''">
+    <v-card class="pa-4 ma-4 sketch-card" height="176px" width="900" max-width="calc(100vw - 32px)">
       <v-row class="justify-center align-center">
         <v-dialog max-width="500">
           <template v-slot:activator="{ props: activatorProps }">
@@ -67,7 +67,6 @@ import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
 import { defaultSettings, gameFields } from '@/services/settings'
 export default {
-  name: 'InfoSnackbar',
   data() {
     return {
       settings: defaultSettings(),
@@ -179,17 +178,6 @@ export default {
 }
 </script>
 <style scoped>
-.wrap {
-  text-align: center;
-  white-space: break-spaces;
-  word-break: break-word;
-  word-wrap: break-word;
-}
-
-.safe-bottom {
-  margin-bottom: 64px;
-}
-
 .home-logo {
   transform: rotate(-4deg);
 }

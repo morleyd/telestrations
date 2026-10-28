@@ -21,7 +21,6 @@ import { SIZES } from "@/services/paint/engine";
 import { TOOLS } from "@/services/paint/tools";
 
 export default {
-  name: "PaintHelp",
   data() {
     return {
       // From the tool list itself, so a new or renamed tool shows up here.

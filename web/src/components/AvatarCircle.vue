@@ -22,7 +22,6 @@ import { FACES } from '@/services/faces'
 // A player's avatar: the face they picked (its name, see services/faces), or
 // else their initials.
 export default {
-  name: 'AvatarCircle',
   props: {
     avatar: { type: String, default: "" },
     color: { type: String, default: "" },

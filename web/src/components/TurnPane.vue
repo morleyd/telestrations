@@ -18,7 +18,6 @@ import { drawingURL } from '@/services/pocketbase'
 // prompt: the turn, as TakeTurn has it (a progress row, or for a first turn
 // the story itself); duration: the round's seconds, or -1 for no timer.
 export default {
-  name: "TurnPane",
   props: {
     prompt: { type: Object, required: true },
     duration: { type: Number, default: -1 },

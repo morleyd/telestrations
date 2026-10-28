@@ -36,7 +36,6 @@ const field = (name) => ({
 })
 
 export default {
-  name: "GameSettings",
   components: { VNumberInput },
   props: { modelValue: { type: Object, required: true } },
   emits: ["update:modelValue", "submit"],

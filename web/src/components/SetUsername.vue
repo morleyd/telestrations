@@ -18,7 +18,6 @@
 import { avatarColor } from '@/services/player'
 
 export default {
-  name: "SetUsername",
   props: {
     // Off where the name signs in to a seat that already has its avatar.
     pickAvatar: { type: Boolean, default: true },

@@ -154,7 +154,6 @@ import { settingsOf, gameFields } from '@/services/settings'
 // How often the review re-checks the game (see created).
 const POLL_MS = 5000
 export default {
-  name: "TakeTurn",
   data() {
     return {
       userMap: null,
@@ -795,12 +794,5 @@ export default {
   border-radius: 999px;
   color: var(--ink);
   font-weight: 600;
-}
-
-.wrap {
-  text-align: center;
-  white-space: break-spaces;
-  word-break: break-word;
-  word-wrap: break-word;
 }
 </style>

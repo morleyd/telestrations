@@ -32,6 +32,21 @@
   letter-spacing: 0.01em;
 }
 
+/* Centered text that wraps, long words and all. A Vuetify title would
+   otherwise cut it off with an ellipsis. */
+:root .wrap {
+  text-align: center;
+  white-space: break-spaces;
+  word-break: break-word;
+}
+
+/* Clear of a phone browser's own bar along the bottom */
+@media (max-width: 959.98px) {
+  .safe-bottom {
+    margin-bottom: 64px;
+  }
+}
+
 /* An ink-outlined card. Dialogs get it too. */
 :root .sketch-card,
 :root .v-dialog > .v-overlay__content > .v-card,
