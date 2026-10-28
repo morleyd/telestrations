@@ -272,43 +272,18 @@ export default {
       return this.$vuetify.display.xs && this.sidebarVisible
     },
   },
-  async created() {
-    const { data: game, errMsg } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
-    // The page can close while these reads are on their way; past this point
-    // nothing would clear the timer and subscriptions.
-    if (this.tornDown) return
-    if (errMsg) {
-      this.$emit("snack", errMsg, "error")
-    }
-    this.game = game
-    this.gameId = game?.gameId
-    this.getMe()
-    if (game?.nextGame && this.inThisGame) {
-      this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId)).notFound
-      if (this.tornDown) return
-    }
+  created() {
     // Realtime brings the host's End Game and Play again, but a phone that
     // slept through the event would never hear of them; and once End Game's
     // time is up everyone is finished with nothing written to say so. So also
     // check now and then.
     this.pollTimer = setInterval(() => this.poll(), POLL_MS)
-
+    pb.collection('turns').subscribe('*', () => {
+      this.refresh()
+      this.getMe()
+    }, { filter: pb.filter("game_id.game_code = {:code}", { code: this.$route.params.gameCode }) })
     this.refresh()
-
-    let that = this
-    pb.collection('turns').subscribe('*', async function (e) {
-      console.log("turns subscription event", e)
-      that.refresh()
-      that.getMe()
-    }, { filter: `game_id.game_code="${that.$route.params.gameCode}"` })
-    // The host ending the game finishes everyone; the host starting another
-    // takes everyone across to it.
-    if (this.gameId) {
-      pb.collection('games').subscribe(this.gameId, (e) => {
-        that.getMe()
-        if (e.record?.next_game && !that.game?.nextGame) that.nextGameStarted(e.record.next_game)
-      })
-    }
+    this.readGame()
   },
   unmounted() {
     // created()'s awaits may still be on their way; this stops them going on
@@ -323,6 +298,32 @@ export default {
     waitingOn,
     ranOutOfTime,
     turnBanner,
+    // The game: whether this viewer plays in it, and whether the host started
+    // another. Until a read works, the poll tries again (quiet: without
+    // saying so each time).
+    async readGame({ quiet = false } = {}) {
+      const { data: game, errMsg } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+      // The page can close while this read is on its way (past this point
+      // nothing would clear the subscription), and a slow read can overlap
+      // the poll's.
+      if (this.tornDown || this.game) return
+      if (errMsg) {
+        if (!quiet) this.$emit("snack", errMsg, "error")
+        return
+      }
+      this.game = game
+      this.gameId = game.gameId
+      this.getMe()
+      // The host ending the game finishes everyone; the host starting another
+      // takes everyone across to it.
+      pb.collection('games').subscribe(this.gameId, (e) => {
+        this.getMe()
+        if (e.record?.next_game && !this.game?.nextGame) this.nextGameStarted(e.record.next_game)
+      })
+      if (game.nextGame && this.inThisGame) {
+        this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId)).notFound
+      }
+    },
     // Where this viewer stands in the game, for "Back to game" and what the
     // page says before a story is open. The stored user can be from an
     // earlier game, so only one from this game counts.
@@ -339,6 +340,10 @@ export default {
       // Not over a read still on its way: it's as new, and cancelling it for
       // one that takes as long would never let either land.
       if (!this.progressReads) this.refresh()
+      if (!this.game) {
+        this.readGame({ quiet: true })
+        return
+      }
       if (!this.inThisGame || this.following) return
       if (this.movingAcross) {
         this.followNextGame() // the last try failed
