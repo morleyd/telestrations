@@ -46,8 +46,9 @@ function savedView() {
 }
 
 // Who's doing what. TakeTurn calls getProgress whenever it finds the player
-// still waiting, or looking at the table between turns. current: the notebook
-// the player last had on screen, kept on top of their pile.
+// still waiting, or looking at the table between turns, and the review on each
+// of its refreshes while a finished player watches. current: the notebook the
+// player last had on screen, kept on top of their pile.
 export default {
   props: {
     gameId: { type: String, required: true },

@@ -18,6 +18,10 @@ const SCREENS = [
   { width: 1440, height: 900 },
 ]
 
+// The waiting screen's title, on the review.
+const TABLE_TITLE = "You're done! Here's how the others are getting on"
+const switchTo = (page, name) => page.getByRole('group', { name: 'Show' }).getByRole('button', { name })
+
 // Regression: the drawing was sized to the screen and the name pinned on top of
 // it, so on some screen shapes the drawing covered who drew it.
 test('each review slide shows its prompt, and the drawing never covers the name', async ({ browser, request }) => {
@@ -146,6 +150,10 @@ test('a player who finishes early is told so, and sees who each story is waiting
     await expect(host.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
     await submitDrawing(host)
     await host.waitForURL(/\/review$/)
+    // The host opens on the game going on (see the next test); the stories
+    // are a switch away.
+    await expect(host.getByRole('heading', { name: TABLE_TITLE })).toBeVisible()
+    await switchTo(host, 'Stories').click()
     const intro = host.locator('.review-intro')
     await expect(intro).toContainText("You've finished all your turns!")
     await expect(storyItem(host, 'hosty')).toContainText('Waiting on buddy')
@@ -178,6 +186,121 @@ test('a player who finishes early is told so, and sees who each story is waiting
     await storyItem(host, 'hosty').click()
     await expect(host.locator('.v-carousel').getByText('a teapot')).toBeVisible()
     await expect(intro).toHaveCount(0)
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// The host who has finished all their turns still keeps an eye on the game:
+// the review opens on the table they waited at, kept up to date as the others
+// play, beside the stories. Once the game is over it's the intro again.
+test('a host who finishes first watches the table as the others play, until the game is over', async ({ browser, request }) => {
+  test.setTimeout(120_000)
+  const { contexts, host, hostName, seats } = await startThreePlayerGame(browser, request)
+  try {
+    // Stories pass up the seats; before is the seat whose notebooks go to the
+    // host, after the one the host's go to.
+    const h = seats.findIndex((s) => s.page === host)
+    const [before, after] = [seats[(h + 2) % 3], seats[(h + 1) % 3]]
+
+    // Every opening word, then the drawing the host's last turn guesses.
+    for (const s of seats) await submitWord(s.page, `${s.name}'s word`)
+    await expect(before.page.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
+    await submitDrawing(before.page)
+    // The host draws before's word and guesses that drawing, and is done.
+    await expect(host.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
+    await submitDrawing(host)
+    await expect(host.locator('textarea').first()).toBeVisible()
+    await submitWord(host, 'a guess')
+    await host.waitForURL(/\/review$/)
+
+    // The table, under the review's own title, with the stories beside it.
+    await expect(host.getByRole('heading', { name: TABLE_TITLE })).toBeVisible()
+    await expect(switchTo(host, 'Live game')).toHaveAttribute('aria-pressed', 'true')
+    await expect(seatOf(host, hostName).locator('.seat-status')).toHaveText('Done')
+    await expect(notebooksOf(host, after.name)).toHaveCount(2)
+    await expect(notebooksOf(host, before.name)).toHaveCount(0)
+    await expect(storyItem(host, hostName)).toContainText(`Waiting on ${after.name}`)
+    // How far the game is, once: in the list, not again over the table.
+    await expect(host.locator('#chat-scroll').getByText(/^Game \d+% done$/)).toBeVisible()
+    await expect(host.locator('.waiting-progress')).toBeHidden()
+    await expect(host.locator('.review-intro')).toHaveCount(0)
+
+    // after draws the host's word: that notebook moves on to before.
+    await submitDrawing(after.page)
+    await expect(notebooksOf(host, after.name)).toHaveCount(1)
+    await expect(notebooksOf(host, before.name)).toHaveCount(1)
+
+    // The last two turns, and the game is over.
+    await expect(after.page.locator('textarea').first()).toBeVisible()
+    await submitWord(after.page, 'a guess')
+    await expect(before.page.locator('textarea').first()).toBeVisible()
+    await submitWord(before.page, 'a guess')
+    await expect(host.locator('.review-intro')).toContainText("That's the game!")
+    await expect(host.getByRole('heading', { name: TABLE_TITLE })).toHaveCount(0)
+    await expect(host.getByRole('group', { name: 'Show' })).toHaveCount(0)
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// Any player who has finished can watch the game too, though they open on the
+// stories, and switch between the two. The game ending takes them back to the
+// intro, rather than a story they had open before.
+test('a finished player switches between the live game and the stories', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const contexts = await Promise.all([browser.newContext(), browser.newContext()])
+  const [host, guest] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'buddy')
+    await startGame(host, 2)
+    await guest.waitForURL(/\/draw$/)
+
+    // buddy draws the host's word, and that's all their turns.
+    await submitWord(guest, 'a kite')
+    await submitWord(host, 'a teapot')
+    await expect(guest.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
+    await submitDrawing(guest)
+    await guest.waitForURL(/\/review$/)
+    await expect(guest.locator('.review-intro')).toContainText("You've finished all your turns!")
+    await expect(switchTo(guest, 'Stories')).toHaveAttribute('aria-pressed', 'true')
+    await expect(guest.getByRole('heading', { name: TABLE_TITLE })).toHaveCount(0)
+
+    await switchTo(guest, 'Live game').click()
+    await expect(guest.getByRole('heading', { name: TABLE_TITLE })).toBeVisible()
+    await expect(seatOf(guest, 'buddy').locator('.seat-name')).toHaveText('buddy (you)')
+    await expect(notebooksOf(guest, 'hosty')).toHaveCount(1)
+    await expect(guest.locator('.review-intro')).toHaveCount(0)
+
+    // Opening a story leaves the table, and the switch goes back to it, and
+    // back to the story.
+    await storyItem(guest, 'hosty').click()
+    await expect(guest.locator('.v-carousel').getByText('a teapot')).toBeVisible()
+    await expect(guest.getByRole('heading', { name: TABLE_TITLE })).toHaveCount(0)
+    await expect(switchTo(guest, 'Stories')).toHaveAttribute('aria-pressed', 'true')
+    await switchTo(guest, 'Live game').click()
+    await expect(guest.getByRole('heading', { name: TABLE_TITLE })).toBeVisible()
+    await expect(guest.locator('.v-carousel')).toHaveCount(0)
+    await switchTo(guest, 'Stories').click()
+    await expect(guest.locator('.v-carousel').getByText('a teapot')).toBeVisible()
+
+    // On a phone, picking the live game closes the list, as picking a story
+    // does, and how far the game is clears the button that opens it again.
+    await guest.setViewportSize({ width: 390, height: 844 })
+    await switchTo(guest, 'Live game').click()
+    await expect(guest.locator('.review-sidebar')).toHaveCount(0)
+    const [menu, soFar] = await Promise.all([guest.locator('.mdi-menu'), guest.locator('.waiting-progress')]
+      .map((l) => l.boundingBox()))
+    expect(soFar.x).toBeGreaterThanOrEqual(menu.x + menu.width)
+
+    // Watching when the host finishes the game: the intro, not the story.
+    await expect(notebooksOf(guest, 'hosty')).toHaveCount(1)
+    await expect(host.getByRole('tab', { name: /Upload Photo/ })).toBeVisible()
+    await submitDrawing(host)
+    await expect(guest.locator('.review-intro')).toContainText("That's the game!")
+    await expect(guest.locator('.v-carousel')).toHaveCount(0)
+    await expect(guest.getByRole('heading', { name: TABLE_TITLE })).toHaveCount(0)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
