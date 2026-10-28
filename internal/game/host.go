@@ -828,13 +828,14 @@ func bindTurnGuards(app core.App) {
 		return e.Next()
 	})
 	// Read inside the write, like a player's server fields below: writing back
-	// a copy loaded before an /end would undo it.
+	// a copy loaded before an /end would undo it. The code stays too: changed,
+	// it could be another game's.
 	app.OnRecordUpdateRequest("games").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
 		current, err := e.App.FindRecordById("games", e.Record.Id)
 		if err != nil {
 			return e.NotFoundError("", err)
 		}
-		for _, field := range []string{"isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game"} {
+		for _, field := range []string{"game_code", "isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game"} {
 			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()

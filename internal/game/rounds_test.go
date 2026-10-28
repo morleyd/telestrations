@@ -81,8 +81,10 @@ func TestGameSettingsLockedAfterCreate(t *testing.T) {
 	app := newTestApp(t)
 	api := serveAPI(t, app)
 	g := newLobby(t, app, "ann", "ben").withRounds(t, 2, false)
+	other := newLobby(t, app, "cat")
 	rec := call(api, http.MethodPatch, gamesPath+"/"+g.game.Id, map[string]any{
 		"rounds": 5, "endless": true, "isStarted": true, "ends_at": time.Now(), "roundDuration": 30,
+		"game_code": other.game.GetString("game_code"),
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
@@ -96,6 +98,9 @@ func TestGameSettingsLockedAfterCreate(t *testing.T) {
 		t.Errorf("a client update changed the game: rounds %d, endless %v, started %v, ends_at %q, duration %d",
 			game.GetInt("rounds"), game.GetBool("endless"), game.GetBool("isStarted"),
 			game.GetString("ends_at"), game.GetInt("roundDuration"))
+	}
+	if game.GetString("game_code") != g.game.GetString("game_code") {
+		t.Errorf("a client update gave the game another game's code, %q", game.GetString("game_code"))
 	}
 }
 
