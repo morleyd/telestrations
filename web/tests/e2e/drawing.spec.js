@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
-import { createGame, expectStoriesAlternate, joinGame, PB_URL, playerIds, startGame, submitWord, stroke } from './helpers.js'
+import {
+  createGame, expectStoriesAlternate, joinGame, PB_URL, playerIds, startGame, submitWord, stroke, turnCreated,
+} from './helpers.js'
 import { SIZES } from '../../src/services/paint/engine.js'
 import { TOOLS } from '../../src/services/paint/tools.js'
 
@@ -560,5 +562,29 @@ test('a stroke still being drawn when the turn\'s timer runs out is saved as the
     expect(alphaDrawing.drawing).not.toBe('')
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// A submit that fails leaves the drawing as it was, to send again. (The canvas
+// used to be wiped as Submit was pressed, so the second try had nothing.)
+test('a drawing whose submit fails is still there to send again', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const { host, close } = await openDrawingTurn(browser)
+  try {
+    await stroke(host)
+    let failed = false
+    await host.route((url) => url.pathname.endsWith('/api/collections/turns/records'), (route) => {
+      if (failed || route.request().method() !== 'POST') return route.fallback()
+      failed = true
+      return route.fulfill({ status: 500, json: { status: 500, message: 'The server tripped.', data: {} } })
+    })
+    const submit = host.locator('.v-window-item--active').getByRole('button', { name: 'Submit' })
+    await submit.click()
+    await expect(host.getByText('The server tripped.')).toBeVisible()
+
+    const [saved] = await Promise.all([turnCreated(host), submit.click()])
+    expect((await saved.json()).drawing).not.toBe('')
+  } finally {
+    await close()
   }
 })

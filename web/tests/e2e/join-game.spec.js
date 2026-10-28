@@ -105,3 +105,43 @@ test('a copy with no selection to use says it couldn\'t', async ({ browser }) =>
     await context.close()
   }
 })
+
+// A phone whose connection drops in the lobby (asleep, say) misses the host
+// starting the game, and realtime doesn't send it again: once the connection
+// is back, the lobby catches up and goes to the game. (Chromium's offline mode
+// keeps an open event stream going, so the test drops the stream itself.)
+test('a player whose connection drops when the game starts follows it once back', async ({ browser }) => {
+  const contexts = await Promise.all([browser.newContext(), browser.newContext()])
+  // The guest's realtime streams, for the test to cut
+  await contexts[1].addInitScript(() => {
+    const streams = (window.realtimeStreams = [])
+    window.EventSource = class extends window.EventSource {
+      constructor(...args) {
+        super(...args)
+        streams.push(this)
+      }
+    }
+  })
+  const [host, guest] = await Promise.all(contexts.map((c) => c.newPage()))
+  try {
+    const code = await createGame(host, { username: 'hosty' })
+    await joinGame(guest, code, 'sleepy')
+    await guest.waitForFunction(() => window.realtimeStreams.some((s) => s.readyState === EventSource.OPEN))
+
+    // The connection drops, and stays down while the host starts the game
+    const realtime = (url) => url.pathname === '/api/realtime'
+    await guest.route(realtime, (route) => route.abort())
+    await guest.evaluate(() => window.realtimeStreams.forEach((s) => {
+      s.close()
+      s.dispatchEvent(new Event('error'))
+    }))
+    await startGame(host, 2)
+    await guest.waitForTimeout(1000)
+    await expect(guest).toHaveURL(new RegExp(`/${code}$`))
+
+    await guest.unroute(realtime)
+    await guest.waitForURL(new RegExp(`/${code}/draw$`), { timeout: 20_000 })
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
