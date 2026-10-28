@@ -673,8 +673,7 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 	return next, nil
 }
 
-// newGameCode is a game code nobody's using: five lowercase letters, as the
-// client makes them (see generateGameCode in stores/user.js).
+// newGameCode is a game code nobody's using: five lowercase letters.
 func newGameCode(app core.App) (string, error) {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
 	for range 20 {
@@ -818,8 +817,13 @@ func bindTurnGuards(app core.App) {
 
 	// A game's settings are fixed once it's created, and starting and ending it
 	// are the server's (/begin, /end). A client can create a game, not change
-	// one.
+	// one. Its code is the server's too, so no two games share one.
 	app.OnRecordCreateRequest("games").BindFunc(func(e *core.RecordRequestEvent) error {
+		code, err := newGameCode(e.App)
+		if err != nil {
+			return err
+		}
+		e.Record.Set("game_code", code)
 		e.Record.Set("isStarted", false)
 		e.Record.Set("ends_at", "")
 		e.Record.Set("next_game", "")

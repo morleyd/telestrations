@@ -62,6 +62,9 @@ func TestNewGameSettings(t *testing.T) {
 				t.Errorf("a client created a game started %v, ending at %q",
 					game.GetBool("isStarted"), game.GetString("ends_at"))
 			}
+			if code := game.GetString("game_code"); code == c.body["game_code"] || len(code) != 5 {
+				t.Errorf("the game's code is %q, want one of the server's", code)
+			}
 		})
 	}
 }
