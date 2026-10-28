@@ -5,10 +5,7 @@ package main
 import (
 	"io/fs"
 	"log"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/morleyd/telestrations/internal/game"
@@ -61,21 +58,11 @@ func main() {
 		return se.Next()
 	})
 
-	// Run PocketBase server
-	go func() {
-		if err := app.Start(); err != nil {
-			log.Fatalf("pocketbase start error: %v", err)
-		}
-	}()
-
-	// Graceful shutdown on signal
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	s := <-sig
-	log.Printf("received signal %s - shutting down", s.String())
-
-	time.Sleep(500 * time.Millisecond)
-	log.Println("exit")
+	// Start runs the command (serve, superuser, ...) and returns when it's done
+	// or on SIGINT/SIGTERM, after PocketBase's own graceful shutdown.
+	if err := app.Start(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // printInstallerLink is apis.DefaultInstallerFunc minus the browser launch.
