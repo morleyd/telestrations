@@ -11,8 +11,9 @@ import (
 
 // Presence: which turn each player has on screen, and when their device last
 // said so, for the waiting screen's Working / Not started / Away. TakeTurn
-// reports it whenever the turn on screen changes and every ~20s besides, so a
-// phone that's gone to sleep stops reporting.
+// reports it whenever the turn on screen changes, when the page comes back into
+// view, and every ~20s besides, so a phone that's gone to sleep stops
+// reporting.
 //
 // Both fields are written straight to the database rather than saved as a
 // record: a report every few seconds from every player mustn't run the record

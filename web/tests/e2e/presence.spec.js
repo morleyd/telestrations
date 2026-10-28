@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { startThreePlayerGame, submitWord, seatOf } from './helpers.js'
+import { startThreePlayerGame, submitWord, seatOf, lookAtTable } from './helpers.js'
 
 // The waiting screen says what each player holding notebooks is up to:
 // Working (a turn on their screen), Not started (none open: at the table, or
@@ -10,12 +10,6 @@ import { startThreePlayerGame, submitWord, seatOf } from './helpers.js'
 const AWAY = 8
 
 const stateOf = (page, name) => seatOf(page, name).locator('.seat-status')
-
-async function lookAtTable(page) {
-  await page.getByRole('button', { name: 'Your notebooks' }).click()
-  await page.getByText('Look at the table').click()
-  await expect(page.getByText('Around the table')).toBeVisible()
-}
 
 // Three players through their opening words, each on to a drawing.
 async function onDrawings(browser, request) {
@@ -87,6 +81,29 @@ test('presence: only the host sees how long notebooks have been held, and the ti
     await expect(host.locator('.story-held').first()).toHaveText(/^\d+:\d\d$/)
     await expect(guest.page.locator('.story-held')).toHaveCount(0)
     await expect(guest.page.locator('.story-state')).toHaveCount(3)
+  } finally {
+    await Promise.all(contexts.map((c) => c.close()))
+  }
+})
+
+// A phone that wakes, or a tab brought back, says it's here straight away,
+// not at its next heartbeat: its turn may be on screen already, and until
+// then it would read as away.
+test('presence: a page that comes back into view reports at once', async ({ browser, request }) => {
+  test.setTimeout(60_000)
+  // A heartbeat every 10s (a third of 30)
+  const { contexts, seats } = await startThreePlayerGame(browser, request, { awaySeconds: 30 })
+  const { page } = seats[0]
+  const report = (timeout) => page.waitForRequest(
+    (r) => r.method() === 'POST' && r.url().endsWith('/presence'), { timeout })
+  try {
+    // Sitting on a turn, nothing reports but the heartbeat: wait for one, and
+    // the next is 10s off.
+    await expect(page.locator('textarea').first()).toBeVisible()
+    await report(15_000)
+    const back = report(3_000)
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(JSON.parse((await back).postData()).working_on).toMatch(/:0$/)
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }

@@ -25,8 +25,8 @@
         <span class="story-waiting text-caption text-medium-emphasis" :title="waitingOn(story, userMap, meId)">
           {{ waitingOn(story, userMap, meId) }}
         </span>
-        <StatusPill v-if="story.next_user_id && states[story.next_user_id]" class="story-state"
-          :status="story.prev_prompt ? 'drawing' : 'writing'" :state="states[story.next_user_id]" />
+        <StatusPill v-if="story.next_user_id && states[story.story_id]" class="story-state"
+          :status="story.prev_prompt ? 'drawing' : 'writing'" :state="states[story.story_id]" />
         <span v-if="story.next_user_id && heldOffset != null && story.held_seconds != null" class="story-held">
           {{ heldText(story.held_seconds + heldOffset) }}
         </span>
@@ -88,10 +88,10 @@ function savedMode() {
 // theirs. By player: a line for each, with the turns they've had as a bar.
 // progress: the progress view's rows; players: the game's players, in seat
 // order; notStarted: the players who haven't opened the game; userMap: the
-// players by id; meId: whoever is looking; states: what each player holding
-// notebooks is up to, by id (see seatPlayers); heldOffset: seconds since the
-// rows' held times were read, ticking, to show them (the host's), or null not
-// to.
+// players by id; meId: whoever is looking; states: what each notebook's
+// holder is up to with it, by story id (see storyStates); heldOffset: seconds
+// since the rows' held times were read, ticking, to show them (the host's), or
+// null not to.
 export default {
   props: {
     progress: { type: Array, required: true },

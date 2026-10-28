@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import {
-  seatPlayers, roundTable, sidesTable, longTable, crowded, labelBox, pileSpot, travel,
+  seatPlayers, storyStates, roundTable, sidesTable, longTable, crowded, labelBox, pileSpot, travel,
 } from '../../src/services/table.js'
 
 // The waiting screen's table: who sits where with which notebooks, and where
@@ -172,6 +172,19 @@ test('a player holding notebooks is working, not started or away, by what their 
 
   // Without presence (an older server), working, as before there was any
   expect(seatPlayers([player('a'), player('b')], [story('s1', 'b', 1)], 'a')[1].state).toBe('working')
+})
+
+// The list has a row for each notebook, not each seat: someone working has
+// one notebook on their screen, and the others in their pile are set aside.
+test('in the list, a player is working only on the notebook on their screen', () => {
+  const rows = [story('s1', 'b', 3), story('s2', 'b', 1), story('s3', 'c', 1), story('s4', 'd', 1), story('s5', 'd', 2)]
+  const seats = seatPlayers([
+    player('a'),
+    player('b', { working_on: 's1:3', idle_seconds: 1 }), // on s1, s2 set aside
+    player('c', { working_on: '', idle_seconds: 1 }), // at the table
+    player('d', { working_on: 's4:1', idle_seconds: 90 }), // phone asleep on s4
+  ], rows, 'a')
+  expect(storyStates(seats)).toEqual({ s1: 'working', s2: 'notStarted', s3: 'notStarted', s4: 'away', s5: 'away' })
 })
 
 test('a seat is held as long as the oldest notebook in its pile', () => {

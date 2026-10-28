@@ -25,8 +25,8 @@
           <span v-if="seat.isMe" class="seat-you">&nbsp;(you)</span>
         </div>
         <div class="seat-status-row" :class="{ 'seat-status-row--left': layout.seats[i].label.align === 'right' }">
-          <StatusPill class="seat-status" :status="seat.status" :state="seat.state">
-            <span class="seat-status-text">{{ statusText(seat) }}</span>
+          <StatusPill v-slot="{ label }" class="seat-status" :status="seat.status" :state="seat.state">
+            <span class="seat-status-text">{{ seat.waitingOn ? `Waiting on ${seat.waitingOn.username}` : label }}</span>
             <span v-if="seat.papers.length > 1" class="seat-pile">+{{ seat.papers.length - 1 }}</span>
           </StatusPill>
           <!-- For the host: how long the oldest of them has been there -->
@@ -148,16 +148,6 @@ export default {
       return { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` }
     },
     heldText,
-    statusText(seat) {
-      if (seat.state === "notStarted") return "Not started"
-      if (seat.state === "away") return "Away"
-      switch (seat.status) {
-        case "drawing": return "Drawing…"
-        case "writing": return "Writing…"
-        case "done": return "Done"
-        default: return seat.waitingOn ? `Waiting on ${seat.waitingOn.username}` : "Waiting"
-      }
-    },
   },
 }
 </script>

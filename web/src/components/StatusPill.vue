@@ -6,7 +6,7 @@
   <span class="status-pill" :class="[`status-pill--${look}`, { 'status-pill--working': state === 'working' }]"
     :data-state="state || status">
     <v-icon class="status-pill-icon" :icon="icon" size="14" />
-    <slot><span class="status-pill-text">{{ label }}</span></slot>
+    <slot :label="label"><span class="status-pill-text">{{ label }}</span></slot>
   </span>
 </template>
 <script>
@@ -30,7 +30,8 @@ const LABELS = {
 }
 
 // status: seatPlayers' status; state: its state (working, notStarted, away),
-// null with no notebooks. The default slot replaces the label.
+// null with no notebooks. The default slot replaces the label, and is given it
+// (label) to say instead or as well.
 export default {
   name: "StatusPill",
   props: {

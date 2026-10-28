@@ -60,6 +60,21 @@ export function seatPlayers(players, rows, meId, onTop = new Map(), { awaySecond
   })
 }
 
+// What each notebook's holder is up to with it, by story id, for the list (the
+// table shows one state a seat). A player working is working on the notebook
+// on their screen, the top of their pile; the rest are set aside, so not
+// started. Otherwise the seat's state: away, or not started.
+export function storyStates(seats) {
+  const out = {}
+  for (const seat of seats) {
+    if (!seat.state) continue
+    seat.papers.forEach((paper, k) => {
+      out[paper.id] = seat.state === "working" && k > 0 ? "notStarted" : seat.state
+    })
+  }
+  return out
+}
+
 // How long a player's device can go without reporting before they count as
 // away: it reports every ~20s while the game is open (see TakeTurn).
 export const AWAY_SECONDS = 60

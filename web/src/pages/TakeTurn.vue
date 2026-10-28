@@ -213,6 +213,7 @@ export default {
     clearInterval(this.pollTimer);
     this.pollTimer = null
     clearInterval(this.endTimer)
+    document.removeEventListener("visibilitychange", this.onVisible)
   },
   methods: {
     // Once we know who the player is (stored user, or after the login dialog):
@@ -297,6 +298,12 @@ export default {
         }
       }, POLL_MS)
       this.reportPresence()
+      // A tab or phone that comes back says so at once: its turn may already be
+      // on screen, and until the next beat it would read as away.
+      this.onVisible = () => {
+        if (document.visibilityState === "visible") this.reportPresence()
+      }
+      document.addEventListener("visibilitychange", this.onVisible)
     },
     // The host skipped a turn we owed (at index in storyId), maybe the one on
     // screen or one set aside. Never write that turn, and move on if it's the

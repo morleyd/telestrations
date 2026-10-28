@@ -18,7 +18,7 @@ import (
 //     expression as JSON.
 //   - users gains working_on, the turn a player has on screen ("storyId:index",
 //     or empty), and seen_at, when their device last said so. The presence
-//     route (see host.go) writes both straight to the database, firing no
+//     route (see presence.go) writes both straight to the database, firing no
 //     record hooks or realtime events: they change every few seconds.
 
 // progressViewHeld is progressViewRounds with held_seconds: seconds since the

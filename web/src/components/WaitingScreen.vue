@@ -23,7 +23,7 @@
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pbService } from '@/services/pocketbase'
-import { seatPlayers, notStarted, roundTable, sidesTable, longTable } from '@/services/table'
+import { seatPlayers, storyStates, notStarted, roundTable, sidesTable, longTable } from '@/services/table'
 import { gameProgress } from '@/services/progress'
 import { awaySeconds } from '@/services/presence'
 
@@ -92,9 +92,9 @@ export default {
     heldOffset() {
       return this.isHost && this.readAt ? Math.max(0, (this.now - this.readAt) / 1000) : null
     },
-    // What each player holding notebooks is up to, by id, for the list
+    // What each notebook's holder is up to with it, by story id, for the list
     states() {
-      return Object.fromEntries(this.seats.filter((s) => s.state).map((s) => [s.player.id, s.state]))
+      return storyStates(this.seats)
     },
     // The players who haven't opened the game, in seat order: the table gives
     // each a blank page, and the list a row

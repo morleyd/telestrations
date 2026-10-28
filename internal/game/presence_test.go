@@ -114,9 +114,10 @@ func TestPresenceReportsWhatsOnScreenAndWhenSeen(t *testing.T) {
 		t.Fatalf("presence: %d", code)
 	}
 	got = g.status(t, api)
-	if got["ann"].WorkingOn != turn || got["ann"].IdleSeconds < 0 || got["ann"].IdleSeconds > 2 {
-		t.Errorf("after a report: %+v, want working on %s, just seen", got["ann"], turn)
+	if got["ann"].WorkingOn != turn {
+		t.Errorf("after a report: %+v, want working on %s", got["ann"], turn)
 	}
+	requireAbout(t, "ann's idle seconds just after a report", float64(got["ann"].IdleSeconds), 0)
 	if got["ben"].IdleSeconds != -1 {
 		t.Errorf("ben, who never reported: idle %d, want -1", got["ben"].IdleSeconds)
 	}
@@ -141,9 +142,11 @@ func TestPresenceReportsWhatsOnScreenAndWhenSeen(t *testing.T) {
 	if code := g.presence(api, "ann", ""); code != http.StatusNoContent {
 		t.Fatalf("presence: %d", code)
 	}
-	if got := g.status(t, api)["ann"]; got.WorkingOn != "" || got.IdleSeconds > 2 {
-		t.Errorf("after reporting nothing on screen: %+v", got)
+	got = g.status(t, api)
+	if got["ann"].WorkingOn != "" {
+		t.Errorf("after reporting nothing on screen: %+v", got["ann"])
 	}
+	requireAbout(t, "ann's idle seconds after reporting nothing on screen", float64(got["ann"].IdleSeconds), 0)
 }
 
 // Only a player in the game can report, and only something turn-sized.
