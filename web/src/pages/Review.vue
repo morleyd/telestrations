@@ -254,6 +254,10 @@ export default {
     stillPlaying() {
       return Boolean(this.me && !this.me.finished && !this.me.dropped)
     },
+    // A player in this game with nothing left to play, and not dropped.
+    finishedPlaying() {
+      return Boolean(this.me?.finished && !this.me.dropped)
+    },
     // Whoever is looking, for "Waiting on you": only a player in this game.
     myId() {
       return this.inThisGame ? this.userStore.userId : ""
@@ -270,7 +274,7 @@ export default {
     // A player who has finished, while the game goes on, can watch it. The
     // progress says whether it has, so not before that's read.
     canWatch() {
-      return Boolean(this.me?.finished && !this.me.dropped && this.progressLoaded && !this.allDone)
+      return this.finishedPlaying && this.progressLoaded && !this.allDone
     },
     // The host keeps an eye on the game, so it's theirs to begin with; the
     // others came to see the stories.
@@ -289,7 +293,7 @@ export default {
           text: "The game is over. Pick a story from the list to see how it turned out.",
         }
       }
-      if (this.me?.finished && !this.me.dropped) {
+      if (this.finishedPlaying) {
         return {
           icon: "mdi-check-circle",
           title: "You've finished all your turns!",
@@ -314,9 +318,8 @@ export default {
   },
   watch: {
     watching(now, was) {
-      // On a phone the list leaves the table a sliver of the screen, as it
-      // does a story (see onUserClick).
-      if (now && this.$vuetify.display.xs) this.sidebarVisible = false
+      // The host opening on the live game, or anyone switching to it
+      if (now) this.closeListOnPhone()
       // The game is over: back to the intro, not a story opened before.
       if (was && this.allDone) this.story = null
     },
@@ -491,8 +494,13 @@ export default {
     },
     pickView(view) {
       this.pickedView = view
-      // As picking a story does (see onUserClick).
-      if (view === "table" && this.$vuetify.display.xs) this.sidebarVisible = false
+      // Even if it's on already: the list may have been opened over it
+      if (view === "table") this.closeListOnPhone()
+    },
+    // On a phone the list leaves the main area a sliver of the screen; get it
+    // out of the way once a story or the live game is in front of them.
+    closeListOnPhone() {
+      if (this.$vuetify.display.xs) this.sidebarVisible = false
     },
     async onUserClick(userId) {
       this.pickedView = "stories"
@@ -500,9 +508,7 @@ export default {
       this.brokenDrawings = {} // and give any drawing that wouldn't load another go
       this.starterId = userId
       this.storyLoading = true
-      // On a phone the list leaves the story a sliver of the screen; get it
-      // out of the way once they've picked one.
-      if (this.$vuetify.display.xs) this.sidebarVisible = false
+      this.closeListOnPhone()
       let resp = await pbService.progress.getUserStoryWithTurns(userId)
       if (this.starterId !== userId) return // another story was opened meanwhile
       this.storyLoading = false
