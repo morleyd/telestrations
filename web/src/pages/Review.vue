@@ -440,6 +440,7 @@ export default {
     },
     async onUserClick(userId) {
       this.story = null // Reset the story while waiting so index resets
+      this.brokenDrawings = {} // and give any drawing that wouldn't load another go
       this.starterId = userId
       this.storyLoading = true
       // On a phone the list leaves the story a sliver of the screen; get it
