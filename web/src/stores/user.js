@@ -3,8 +3,14 @@ import { defineStore } from 'pinia'
 import { pbService } from '@/services/pocketbase'
 
 export const useUserStore = defineStore('user', {
+  // Per tab, so two tabs can be two players. Reached only inside getItem and
+  // setItem, where the plugin catches a throw: a browser that blocks site data
+  // throws on any touch of sessionStorage, which at load would stop the app.
   persist: {
-    storage: sessionStorage,
+    storage: {
+      getItem: (key) => sessionStorage.getItem(key),
+      setItem: (key, value) => sessionStorage.setItem(key, value),
+    },
   },
   state: () => ({
     user: null,
