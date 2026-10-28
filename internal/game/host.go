@@ -373,10 +373,10 @@ FROM turns WHERE game_id = {:g} GROUP BY user_id`).
 		}
 	}
 	// The same for everyone: each story comes to each player once a round.
+	total := storyCount * rounds
 	var totalTurns *int
 	if !endless {
-		n := storyCount * rounds
-		totalTurns = &n
+		totalTurns = &total
 	}
 
 	out := make([]playerStatus, 0, len(users))
@@ -394,7 +394,7 @@ FROM turns WHERE game_id = {:g} GROUP BY user_id`).
 			TotalTurns: totalTurns,
 			Owes:       owes[u.Id],
 		}
-		p.Finished = p.Dropped || over || (allStarted && !endless && p.Turns >= len(stories)*rounds)
+		p.Finished = p.Dropped || over || (allStarted && !endless && p.Turns >= total)
 		out = append(out, p)
 	}
 	return out, nil

@@ -44,11 +44,13 @@ export function gameProgress(rows) {
 }
 
 // How far a player has got, from their row of the game's players: "5 / 8"
-// turns, the bar's share of them they took (done) and the share written for
-// them (skipped: the host skipped them, they were dropped, or their timer ran
-// out with nothing entered), and a note for beside it. In an endless game (no
-// total) it's the turns so far, with the bars against the most turns anyone
-// has (most).
+// turns, the bar's percent of them they took (doneShare) and the percent
+// written for them (skippedShare: the host skipped them, they were dropped, or
+// their timer ran out with nothing entered), a note for beside it, and whether
+// they've yet to start (unstarted: not done or dropped, with no story of their
+// own and no turns at all; unlike the table, a turn on someone else's story
+// counts as started). In an endless game (no total) it's the turns so far, with
+// the bars against the most turns anyone has (most).
 export function playerTurns(player, most = 0) {
   const turns = player?.turns || 0
   const skipped = Math.min(player?.skipped || 0, turns)
@@ -56,16 +58,19 @@ export function playerTurns(player, most = 0) {
   const label = total == null ? `${turns} ${turns == 1 ? "turn" : "turns"}` : `${turns} / ${total}`
   const of = total ?? most
   const share = (n) => (of ? Math.min(100, (n / of) * 100) : 0)
-  const done = share(turns - skipped)
+  const doneShare = share(turns - skipped)
+  const unstarted = !player?.dropped && !player?.finished && !turns && !player?.has_story
   let status = ""
   if (player?.dropped) status = "Dropped"
   else if (player?.finished) status = "Done"
-  else if (!turns && !player?.has_story) status = "Not started yet"
+  else if (unstarted) status = "Not started yet"
   return {
     label,
-    done,
-    skipped: Math.min(100 - done, share(skipped)),
+    doneShare,
+    // It comes after the turns taken, so it stops at the end of the bar
+    skippedShare: Math.min(100 - doneShare, share(skipped)),
     status,
     skippedNote: skipped ? `${skipped} skipped` : "",
+    unstarted,
   }
 }

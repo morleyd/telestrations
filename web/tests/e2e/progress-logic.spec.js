@@ -90,30 +90,38 @@ function player(turns, skipped = 0, total = 8, extra = {}) {
 }
 
 test('a player\'s bar shows the turns they took and, after them, the turns skipped for them', () => {
-  expect(playerTurns(player(5, 2))).toEqual({ label: '5 / 8', done: 37.5, skipped: 25, status: '', skippedNote: '2 skipped' })
-  expect(playerTurns(player(3))).toEqual({ label: '3 / 8', done: 37.5, skipped: 0, status: '', skippedNote: '' })
+  expect(playerTurns(player(5, 2)))
+    .toEqual({ label: '5 / 8', doneShare: 37.5, skippedShare: 25, status: '', skippedNote: '2 skipped', unstarted: false })
+  expect(playerTurns(player(3)))
+    .toEqual({ label: '3 / 8', doneShare: 37.5, skippedShare: 0, status: '', skippedNote: '', unstarted: false })
   // Every turn so far skipped
-  expect(playerTurns(player(2, 2, 4))).toMatchObject({ done: 0, skipped: 50, skippedNote: '2 skipped' })
+  expect(playerTurns(player(2, 2, 4))).toMatchObject({ doneShare: 0, skippedShare: 50, skippedNote: '2 skipped' })
   // Never past the end, whatever the counts
   const over = playerTurns(player(9, 3, 8))
-  expect(over.done + over.skipped).toBe(100)
-  expect(playerTurns(player(2, 5, 8))).toMatchObject({ done: 0, skipped: 25, skippedNote: '2 skipped' })
+  expect(over.doneShare + over.skippedShare).toBe(100)
+  expect(playerTurns(player(2, 5, 8))).toMatchObject({ doneShare: 0, skippedShare: 25, skippedNote: '2 skipped' })
   // Nothing to take (no stories yet)
-  expect(playerTurns(player(0, 0, 0))).toMatchObject({ label: '0 / 0', done: 0, skipped: 0 })
+  expect(playerTurns(player(0, 0, 0))).toMatchObject({ label: '0 / 0', doneShare: 0, skippedShare: 0 })
 })
 
+// unstarted dims the row, so it goes with the note: never with Done or Dropped
 test('a player\'s note says if they\'re done, dropped or not started yet', () => {
-  expect(playerTurns(player(8, 1, 8, { finished: true }))).toMatchObject({ status: 'Done', skippedNote: '1 skipped' })
+  expect(playerTurns(player(8, 1, 8, { finished: true })))
+    .toMatchObject({ status: 'Done', skippedNote: '1 skipped', unstarted: false })
   // A dropped player is finished too; dropped is what to say
   expect(playerTurns(player(3, 3, 8, { dropped: true, finished: true })))
-    .toMatchObject({ status: 'Dropped', skippedNote: '3 skipped' })
-  expect(playerTurns(player(0, 0, 8, { has_story: false }))).toMatchObject({ status: 'Not started yet' })
+    .toMatchObject({ status: 'Dropped', skippedNote: '3 skipped', unstarted: false })
+  expect(playerTurns(player(0, 0, 8, { has_story: false }))).toMatchObject({ status: 'Not started yet', unstarted: true })
   // Turns on others' stories before their own is open: they've started
-  expect(playerTurns(player(1, 1, 8, { has_story: false }))).toMatchObject({ status: '', skippedNote: '1 skipped' })
+  expect(playerTurns(player(1, 1, 8, { has_story: false })))
+    .toMatchObject({ status: '', skippedNote: '1 skipped', unstarted: false })
+  // The game ended before they opened it
+  expect(playerTurns(player(0, 0, 8, { has_story: false, finished: true }))).toMatchObject({ status: 'Done', unstarted: false })
 })
 
 test('in an endless game a player has a count of turns, the bars against the most anyone has', () => {
-  expect(playerTurns(player(6, 2, null), 8)).toEqual({ label: '6 turns', done: 50, skipped: 25, status: '', skippedNote: '2 skipped' })
-  expect(playerTurns(player(1, 0, null), 8)).toMatchObject({ label: '1 turn', done: 12.5 })
-  expect(playerTurns(player(0, 0, null), 0)).toMatchObject({ label: '0 turns', done: 0, skipped: 0 })
+  expect(playerTurns(player(6, 2, null), 8))
+    .toEqual({ label: '6 turns', doneShare: 50, skippedShare: 25, status: '', skippedNote: '2 skipped', unstarted: false })
+  expect(playerTurns(player(1, 0, null), 8)).toMatchObject({ label: '1 turn', doneShare: 12.5 })
+  expect(playerTurns(player(0, 0, null), 0)).toMatchObject({ label: '0 turns', doneShare: 0, skippedShare: 0 })
 })

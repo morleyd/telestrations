@@ -38,13 +38,13 @@
        the turns they took, then in another color the ones skipped for
        them, of all they'll get. -->
   <div v-else class="story-grid">
-    <div v-for="{ player, turns, unstarted } in playerRows" :key="player.id" class="story-row player-row"
-      :class="{ 'story-row--unstarted': unstarted }">
+    <div v-for="{ player, turns } in playerRows" :key="player.id" class="story-row player-row"
+      :class="{ 'story-row--unstarted': turns.unstarted }">
       <AvatarCircle v-bind="avatarOf(player)" :size="24" />
       <span class="hand story-name" :title="player.username">{{ player.username }}</span>
       <v-progress-linear class="sketch-bar" color="secondary" bg-color="surface" bg-opacity="1"
-        buffer-color="tertiary-lighten-2" buffer-opacity="1" height="18" :model-value="turns.done"
-        :buffer-value="turns.done + turns.skipped" striped>
+        buffer-color="tertiary-lighten-2" buffer-opacity="1" height="18" :model-value="turns.doneShare"
+        :buffer-value="turns.doneShare + turns.skippedShare" striped>
         <template v-slot:default>
           <strong class="story-count">{{ turns.label }}</strong>
         </template>
@@ -101,7 +101,6 @@ export default {
       return this.players.map((player) => ({
         player,
         turns: playerTurns(player, most),
-        unstarted: !player.has_story && !player.turns && !player.dropped,
       }))
     },
   },
