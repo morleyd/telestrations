@@ -97,9 +97,9 @@ export default {
     },
   },
   async created() {
-    const { data: game, errMsg, notFound } = await pbService.games.checkGameStatus(this.gameCode)
+    const { data: game, errMsg } = await pbService.games.checkGameStatus(this.gameCode)
     if (errMsg) {
-      this.$emit("snack", notFound ? "Invalid Game Code. Try again or create a new game." : errMsg, "error")
+      this.$emit("snack", errMsg, "error")
       this.$router.push({ name: "Home" });
       return
     }

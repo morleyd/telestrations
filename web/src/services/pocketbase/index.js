@@ -172,9 +172,13 @@ export const pbService = {
     // play. roundDuration is in seconds (-1 untimed). Answers { game_id, game_code }.
     rematch: (gameId, hostId, { roundDuration, rounds, endless }) => call(() =>
       post(`/api/games/${gameId}/rematch`, { host_id: hostId, round_duration: roundDuration, rounds, endless })),
-    // The game with this code (see gameStatus)
-    checkGameStatus: (gameCode) => call(async () =>
-      gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode })))),
+    // The game with this code (see gameStatus). notFound: there's none, and
+    // errMsg says so.
+    async checkGameStatus(gameCode) {
+      const resp = await call(async () =>
+        gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }))))
+      return resp.notFound ? { ...resp, errMsg: "Invalid Game Code. Try again or create a new game." } : resp
+    },
   },
   users: {
     deleteUser: (userId) => call(() => pb.collection('users').delete(userId, { requestKey: null })),

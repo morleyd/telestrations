@@ -245,7 +245,7 @@ export default {
           return
         }
         that.getTurns()
-      }, { filter: `game_id="${that.gameId}"` })
+      }, { filter: pb.filter("game_id = {:gameId}", { gameId: that.gameId }) })
       // The host's End Game arrives as an update to the game.
       pb.collection('games').subscribe(that.gameId, function (e) {
         // Just set, so the full countdown is left, whatever this device's
@@ -336,9 +336,9 @@ export default {
       this.$emit("snack", msg, color)
     },
     async isValidGame() {
-      const { data: validGame, errMsg, notFound } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+      const { data: validGame, errMsg } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
       if (errMsg) {
-        this.$emit("snack", notFound ? "Invalid Game Code. Please try again." : errMsg, "error")
+        this.$emit("snack", errMsg, "error")
         return false
       } else if (!validGame.isStarted) {
         this.$emit("snack", "Sorry, this game has not been started yet.", "error")

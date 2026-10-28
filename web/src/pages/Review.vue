@@ -286,8 +286,8 @@ export default {
     this.readGame()
   },
   unmounted() {
-    // created()'s awaits may still be on their way; this stops them going on
-    // to start the timer and subscriptions after they're cleared here.
+    // readGame()'s read may still be on its way; this stops it subscribing to
+    // the game after the subscriptions are cleared here.
     this.tornDown = true
     pb.collection('turns').unsubscribe();
     pb.collection('games').unsubscribe();
