@@ -4,35 +4,34 @@ import { log } from "@/services/log";
 const routes = [
   {
     path: "/",
-    component: () => import("@/pages/HomeScreen"),
+    component: () => import("@/pages/HomeScreen.vue"),
     name: "Home",
   },
   {
     path: "/:gameCode([A-Z]{5})/draw",
-    component: () => import("@/pages/TakeTurn"),
+    component: () => import("@/pages/TakeTurn.vue"),
     name: "TakeTurn",
   },
-  // Game code (5 case insensitive letters) sends users to waiting room
   {
     path: "/:gameCode([A-Z]{5})/review",
-    component: () => import("@/pages/Review"),
+    component: () => import("@/pages/Review.vue"),
     name: "Review",
   },
   // Game code (5 case insensitive letters) sends users to waiting room
   {
     path: "/:gameCode([A-Z]{5})",
-    component: () => import("@/pages/WaitingRoom"),
+    component: () => import("@/pages/WaitingRoom.vue"),
     name: "WaitingRoom",
   },
   {
     path: '/:pathMatch(.*)*',
-    component: () => import("@/pages/PageNotFound"),
+    component: () => import("@/pages/PageNotFound.vue"),
     name: "PageNotFound",
   },
 ];
 
 const router = createRouter({
-  history: createWebHistory('/'), // base path also needs to be changed in /vite.config.mjs
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes
 });
 

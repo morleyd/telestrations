@@ -22,7 +22,6 @@ const emitVersionFile = {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/', // Also needs to be changed in router/router.js
   plugins: [
     emitVersionFile,
     Vue({
@@ -50,15 +49,6 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
-    extensions: [
-      '.js',
-      '.json',
-      '.jsx',
-      '.mjs',
-      '.ts',
-      '.tsx',
-      '.vue',
-    ],
   },
   server: {
     port: 3000,
