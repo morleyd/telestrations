@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -243,6 +244,9 @@ func playRandomGame(t *testing.T, app core.App, api http.Handler, rng *rand.Rand
 		if endAfter >= 0 && step >= endAfter && !ending {
 			actions = append(actions, action{"host ends", "host ends the game", 4, func(t *testing.T) {
 				expect(g.end(api, host), http.StatusOK, "end")
+				// The model says when time's up ("time's up" below), not the
+				// clock: a slow run (-race) must not outlast the real countdown.
+				g.endedAgo(t, -time.Hour)
 				ending = true
 			}})
 		}
