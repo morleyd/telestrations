@@ -158,8 +158,6 @@ export default {
     return {
       userMap: null,
       users: [],
-      username: "",
-      showEditUsernameDialog: false,
       sidebarVisible: true,
       story: null,
       gameId: "",
@@ -275,17 +273,17 @@ export default {
     },
   },
   async created() {
-    const game = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+    const { data: game, errMsg } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
     // The page can close while these reads are on their way; past this point
     // nothing would clear the timer and subscriptions.
     if (this.tornDown) return
-    if (game.errMsg) {
-      this.$emit("snack", game.errMsg, "error")
+    if (errMsg) {
+      this.$emit("snack", errMsg, "error")
     }
     this.game = game
-    this.gameId = game.gameId
+    this.gameId = game?.gameId
     this.getMe()
-    if (game.nextGame && this.inThisGame) {
+    if (game?.nextGame && this.inThisGame) {
       this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId)).notFound
       if (this.tornDown) return
     }
@@ -348,8 +346,8 @@ export default {
       }
       this.getMe()
       if (this.game?.nextGame) return
-      const game = await pbService.games.checkGameStatus(this.$route.params.gameCode)
-      if (game.nextGame && !this.game?.nextGame) this.nextGameStarted(game.nextGame)
+      const { data: game } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+      if (game?.nextGame && !this.game?.nextGame) this.nextGameStarted(game.nextGame)
     },
     // The host started the next game while this page was open: take the
     // player across.
@@ -384,7 +382,7 @@ export default {
     async followNextGame() {
       if (this.following || !this.inThisGame) return
       this.following = true
-      const { seat, notFound, errMsg } = await pbService.users.getNextSeat(this.userStore.userId)
+      const { data: seat, notFound, errMsg } = await pbService.users.getNextSeat(this.userStore.userId)
       if (!seat) {
         this.following = false
         // Not found: they weren't carried over (dropped). Otherwise they can
@@ -414,13 +412,13 @@ export default {
     async getNames() {
       if (this.readingNames) return // it can take longer than the poll
       this.readingNames = true
-      const resp = await pbService.users.getUserMap(this.$route.params.gameCode)
+      const { data: players, errMsg } = await pbService.users.getUsers(this.$route.params.gameCode)
       this.readingNames = false
-      if (resp.errMsg) {
-        this.$emit("snack", resp.errMsg, "error")
+      if (errMsg) {
+        this.$emit("snack", errMsg, "error")
       }
-      if (!resp.userMap) return // the next refresh tries again
-      this.userMap = resp.userMap
+      if (!players) return // the next refresh tries again
+      this.userMap = Object.fromEntries(players.map((p) => [p.id, p]))
       this.getProgress()
     },
     async getProgress() {
@@ -434,13 +432,6 @@ export default {
       }
       this.users = resp.data
       this.progressLoaded = true
-    },
-    async getUsername(userId) {
-      let resp = await pbService.users.getUsername(userId)
-      if (resp.errMsg) {
-        this.$emit("snack", resp.errMsg, "error")
-      }
-      return resp.data || ""
     },
     async onUserClick(userId) {
       this.story = null // Reset the story while waiting so index resets
@@ -528,7 +519,7 @@ export default {
   border-radius: var(--wobble-small);
   box-shadow: 3px 3px 0 var(--ink);
   cursor: pointer;
-  /* Prevent text selection during drag */
+  /* Taps select a story, not its text */
   user-select: none;
   -webkit-user-select: none;
 
@@ -564,17 +555,6 @@ export default {
   align-items: center;
   justify-content: center;
   padding: 16px;
-}
-
-.back-image {
-  background-size: auto;
-  width: calc(100% - 150px);
-  height: calc(100vh - 130px);
-  justify-items: center;
-  top: 16px;
-  position: absolute;
-  background-repeat: no-repeat;
-  background-position: center center;
 }
 
 /* The arrows sit in the bottom corners, level with the slide dots, which

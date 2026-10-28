@@ -102,17 +102,20 @@ export default {
           return
         }
 
-        let validGame = await pbService.games.checkGameStatus(this.gameCode)
-        if (validGame.errMsg) {
-          this.$emit("snack", validGame.errMsg, "error")
-          return
-        } else if (!validGame.gameId) {
-          this.$emit("snack", "Invalid Game Code. Try again or create a new game.", "error")
+        const { data: game, errMsg, notFound } = await pbService.games.checkGameStatus(this.gameCode)
+        if (errMsg) {
+          this.$emit("snack", notFound ? "Invalid Game Code. Try again or create a new game." : errMsg, "error")
           return
         }
 
-        let user = await pbService.users.getUser(validation.username, validGame.gameId)
-        if (Object.prototype.hasOwnProperty.call(user, "id")) {
+        // A failed read isn't a free name: joining on it would seat them twice.
+        const found = await pbService.users.getUser(validation.username, game.gameId)
+        if (found.errMsg) {
+          this.$emit("snack", found.errMsg, "error")
+          return
+        }
+        const user = found.data
+        if (user) {
           // Name taken: rejoin only if they confirm it's them; otherwise leave the
           // join dialog open to pick another name.
           if (!(await this.$refs.rejoin.ask(user))) {
@@ -120,16 +123,16 @@ export default {
           }
           this.userStore.user = user
           this.$emit("snack", `Welcome back, ${user.username}!`, "success")
-          if (validGame.isStarted) {
+          if (game.isStarted) {
             await this.$router.push({ name: "TakeTurn", params: { gameCode: this.gameCode } });
           } else {
             await this.$router.push({ path: this.gameCode });
           }
-        } else if (validGame.isStarted) {
+        } else if (game.isStarted) {
           this.$emit("snack", "Sorry, this game has already been started.", "error")
           return
         } else {
-          let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, validGame.gameId, false)
+          let resp = await this.userStore.newUser(validation.username, validation.avatar, validation.color, game.gameId, false)
           if (resp.errMsg) {
             this.$emit("snack", resp.errMsg, "error")
             return

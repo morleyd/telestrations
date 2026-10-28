@@ -85,9 +85,9 @@ export default {
   async mounted() {
     const code = this.$route.params.gameCode
     if (!code || !['TakeTurn', 'Review'].includes(this.$route.name)) return
-    const game = await pbService.games.checkGameStatus(code)
-    if (game.isStarted) this.gameId = game.gameId
-    this.endsAt = game.endsAt
+    const { data: game } = await pbService.games.checkGameStatus(code)
+    if (game?.isStarted) this.gameId = game.gameId
+    this.endsAt = game?.endsAt ?? null
   },
   unmounted() {
     clearInterval(this.timer)

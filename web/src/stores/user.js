@@ -31,9 +31,6 @@ export const useUserStore = defineStore('user', {
     avatar() {
       return this.user?.avatar
     },
-    position() {
-      return this.user?.position
-    },
   },
   actions: {
     // rounds: how many times each story goes round the group; endless: until

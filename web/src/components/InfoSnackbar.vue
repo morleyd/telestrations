@@ -28,9 +28,7 @@ export default {
      * @param {string} color - The color of the snackbar
      */
     show(text, color = "primary") {
-      // don't display snackbar if no text or from a pocketbase abort message
-      if (!text || JSON.stringify(text).includes("signal is aborted without reason")) return
-      console.log("InfoSnackbar", text)
+      if (!text) return
       this.visible = true
       this.text = text
       this.color = color

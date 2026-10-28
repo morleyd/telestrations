@@ -78,7 +78,6 @@ export default {
     return {
       gameId: "",
       users: [],
-      username: "",
       showEditUsernameDialog: false,
       // One Enter in the join form runs onUsernameSubmit several times
       // (SetUsername emits @username on keydown and keyup, and its submit
@@ -103,13 +102,9 @@ export default {
     let gameCode = this.$route.params.gameCode
 
     // Check game status
-    let validGame = await pbService.games.checkGameStatus(gameCode)
-    if (validGame.errMsg) {
-      this.$emit("snack", validGame.errMsg, "error")
-      this.$router.push({ name: "Home" });
-      return
-    } else if (!validGame.gameId) {
-      this.$emit("snack", "Invalid Game Code. Try again or create a new game.", "error")
+    const { data: validGame, errMsg, notFound } = await pbService.games.checkGameStatus(gameCode)
+    if (errMsg) {
+      this.$emit("snack", notFound ? "Invalid Game Code. Try again or create a new game." : errMsg, "error")
       this.$router.push({ name: "Home" });
       return
     } else if (validGame.isStarted) {
@@ -169,8 +164,8 @@ export default {
         // tab. Only a 404 means we're gone; a failed read (network blip, busy
         // server) keeps the stored user rather than signing them out.
         const fresh = await pbService.users.getUserById(stored.id)
-        if (fresh.id || !fresh.notFound) {
-          if (fresh.id) this.userStore.user = fresh
+        if (!fresh.notFound) {
+          if (fresh.data) this.userStore.user = fresh.data
           else log.warn("waitingRoom.user.refreshFailed", { err: fresh.errMsg })
           log.setContext({ username: this.userStore.username, userId: this.userStore.userId })
           log.info("waitingRoom.user", { outcome: "member" })
@@ -252,9 +247,14 @@ export default {
       }
     },
     async createUser(username, avatar, color) {
-      let user = await pbService.users.getUser(username, this.gameId)
-
-      if (Object.prototype.hasOwnProperty.call(user, "id")) {
+      // A failed read isn't a free name: joining on it would seat them twice.
+      const found = await pbService.users.getUser(username, this.gameId)
+      if (found.errMsg) {
+        this.$emit("snack", found.errMsg, "error")
+        return
+      }
+      const user = found.data
+      if (user) {
         // Name taken: rejoin only if they confirm it's them; otherwise keep the
         // join dialog open to pick another name.
         if (!(await this.$refs.rejoin.ask(user))) {
@@ -277,28 +277,23 @@ export default {
       log.setContext({ username: this.userStore.username, userId: this.userStore.userId })
     },
     async updateUser(username, avatar, color) {
-      // Check if user exists (they just need to re-login)
-      let user = await pbService.users.getUser(username, this.gameId)
-      if (Object.prototype.hasOwnProperty.call(user, "id") && user.id != this.userStore.userId) {
+      const found = await pbService.users.getUser(username, this.gameId)
+      if (found.errMsg) {
+        this.$emit("snack", found.errMsg, "error")
+        return
+      }
+      if (found.data && found.data.id != this.userStore.userId) {
         this.$emit("snack", "Username already exists. Please enter a new one (or ignore if it's you).", "warning")
         return
-      } else {
-        let updateData = {
-          "username": username,
-          "color": color,
-          "avatar": avatar,
-          "game": this.userStore.gameId,
-          "is_host": this.userStore.is_host,
-          "position": this.userStore.position,
-        }
-        let resp = await pbService.users.updateUser(this.userStore.userId, updateData)
-        if (resp.errMsg) {
-          this.$emit("snack", resp.errMsg, "error")
-          return;
-        }
-        this.userStore.user = resp.data
-        this.showEditUsernameDialog = false
       }
+      // The rest of a player is the server's (see the users update guard)
+      const resp = await pbService.users.updateUser(this.userStore.userId, { username, color, avatar })
+      if (resp.errMsg) {
+        this.$emit("snack", resp.errMsg, "error")
+        return
+      }
+      this.userStore.user = resp.data
+      this.showEditUsernameDialog = false
     },
   },
 };

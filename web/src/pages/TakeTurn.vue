@@ -1,4 +1,3 @@
-// firstTurn finished waiting playing browsing
 <template>
   <AppBar>
     <NotebookMenu v-if="userState == 'playing' && !leaving" :notebooks="notebooks" :disabled="writing.has(turnKey)"
@@ -62,16 +61,17 @@ import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
 import { pb, pbService, endsAt, endCountdown } from '@/services/pocketbase'
 import { log } from '@/services/log'
-import { sameName } from '@/services/player'
 import TurnPane from '@/components/TurnPane.vue'
 
 // One turn: a story and a place in it. With rounds, a story comes back to the
 // same player at a later place.
 const turnKeyOf = (storyId, index) => `${storyId}:${index ?? 0}`
 // A turn as TakeTurn has it: a progress row, or for a first turn the story
-// itself, at place 0. Its key, and whether it's a drawing (after a word) or a
-// word (after a drawing, or the opening one).
-const keyOf = (p) => turnKeyOf(p.story_id || p.id, p.turns_taken)
+// itself, at place 0. Its story, its place in it, its key, and whether it's a
+// drawing (after a word) or a word (after a drawing, or the opening one).
+const storyOf = (p) => p.story_id || p.id
+const placeOf = (p) => p.turns_taken ?? 0
+const keyOf = (p) => turnKeyOf(storyOf(p), placeOf(p))
 const isDrawOf = (p) => Boolean(p?.prev_prompt)
 const isFirstOf = (p) => !p.story_id
 // KeepAlive keeps components by name (see paneFor)
@@ -105,10 +105,8 @@ export default {
       // duplicate no-ops. Kept apart from `writing`, the turn-write locks, so
       // signing in can never hold or release a turn submit.
       loggingIn: false,
-      username: "",
       gameId: "",
       duration: -1,
-      reviewPath: "",
       pollTimer: null,
       ownStory: null,
       turnsInFlight: null,
@@ -137,16 +135,13 @@ export default {
   },
   computed: {
     ...mapStores(useUserStore),
-    // The turn on screen: its story, and its place in the story (a first
-    // turn's curPrompt is the story itself, at place 0).
-    storyId() {
-      return this.curPrompt?.story_id || this.curPrompt?.id || ""
-    },
-    turnIndex() {
-      return this.curPrompt?.turns_taken ?? 0
-    },
+    // The turn on screen
     turnKey() {
-      return this.storyId && turnKeyOf(this.storyId, this.turnIndex)
+      return this.curPrompt ? keyOf(this.curPrompt) : ""
+    },
+    // The review's address, to show
+    reviewPath() {
+      return new URL(this.$router.resolve({ name: "Review", params: this.$route.params }).href, location.href).href
     },
     onTurn() {
       return ['playing', 'firstTurn'].includes(this.userState)
@@ -191,7 +186,6 @@ export default {
     this.loggedQueue = null
   },
   async mounted() {
-    this.reviewPath = this.getReviewPath()
     // Check if game code is valid and game is active
     this.gameId = await this.isValidGame()
     if (!this.gameId) {
@@ -287,14 +281,14 @@ export default {
       this.pollTimer = setInterval(async function () {
         ticks++
         if (!that.endsAt && ticks % END_CHECK_TICKS == 0) {
-          const game = await pbService.games.checkGameStatus(that.$route.params.gameCode)
-          if (game.endsAt) that.startEnding(game.endsAt, game.endCountdown)
+          const { data: game } = await pbService.games.checkGameStatus(that.$route.params.gameCode)
+          if (game?.endsAt) that.startEnding(game.endsAt, game.endCountdown)
         }
         if (["waiting", "loading", "browsing"].includes(that.userState)) {
           that.getTurns()
         } else if (ticks % DROPPED_CHECK_TICKS == 0 && that.onTurn) {
           that.getTurns()
-          if ((await pbService.users.getUserById(that.userStore.userId)).dropped) that.setRemoved()
+          if ((await pbService.users.getUserById(that.userStore.userId)).data?.dropped) that.setRemoved()
         }
       }, POLL_MS)
     },
@@ -341,25 +335,14 @@ export default {
       const who = mine ? "your notebook" : "someone's notebook"
       return start ? who[0].toUpperCase() + who.slice(1) : who
     },
-    getReviewPath() {
-      let curPath = window.location.href
-      let parts = curPath?.split("/")
-      if (parts?.at(-1) == "draw") {
-        return parts.slice(0, -1).join("/") + "/review"
-      }
-      return ""
-    },
     emitSnack(msg, color) {
       if (color == "error") log.warn("snack", { msg })
       this.$emit("snack", msg, color)
     },
     async isValidGame() {
-      let validGame = await pbService.games.checkGameStatus(this.$route.params.gameCode)
-      if (validGame.errMsg) {
-        this.$emit("snack", validGame.errMsg, "error")
-        return false
-      } else if (!validGame.gameId) {
-        this.$emit("snack", "Invalid Game Code. Please try again.", "error")
+      const { data: validGame, errMsg, notFound } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
+      if (errMsg) {
+        this.$emit("snack", notFound ? "Invalid Game Code. Please try again." : errMsg, "error")
         return false
       } else if (!validGame.isStarted) {
         this.$emit("snack", "Sorry, this game has not been started yet.", "error")
@@ -444,17 +427,11 @@ export default {
           return
         }
 
-        // Check user is in game
-        let resp = await pbService.users.getUsers(this.$route.params.gameCode)
-        if (resp.errMsg) {
-          this.$emit("snack", resp.errMsg, "error")
-          return;
+        const { data: user, errMsg } = await pbService.users.getUser(validation.username, this.gameId)
+        if (errMsg) {
+          this.$emit("snack", errMsg, "error")
+          return
         }
-        if (!resp.data) {
-          return;
-        }
-
-        let user = resp.data.find(o => sameName(o.username, validation.username))
         if (!user) {
           this.$emit("snack", "Not an active user in this game.", "error")
           return
@@ -522,7 +499,7 @@ export default {
           // Transient failure (network blip, 5xx) — NOT "no story yet".
           // Creating a story here would mint a duplicate; leave state alone
           // and let the poll re-enter this pass.
-          console.warn("getStory failed, will retry", userStory.errMsg)
+          log.warn("story.read.failed", { err: userStory.errMsg })
           return
         }
         if (userStory.errMsg) {
@@ -545,11 +522,11 @@ export default {
             this.$emit("snack", created.errMsg, "error")
             return
           }
-          this.ownStory = created
-          this.showTurn(created)
+          this.ownStory = created.data
+          this.showTurn(created.data)
           return
         }
-        this.ownStory = userStory
+        this.ownStory = userStory.data
       }
 
       // 1.5 Did we actually take the first turn on our own story? Latch this once
@@ -560,7 +537,7 @@ export default {
         if (turn.errMsg && !turn.notFound) {
           // Transient failure — re-showing the first-turn UI on it would
           // invite a duplicate submission. Let the poll retry instead.
-          console.warn("getTurn failed, will retry", turn.errMsg)
+          log.warn("turn.read.failed", { err: turn.errMsg })
           return
         }
         if (turn.errMsg) {
@@ -589,11 +566,8 @@ export default {
         }
       }
 
-      let next = await pbService.progress.getNextPerUser(this.userStore.userId)
-      if (next.errMsg) {
-        this.emitSnack(next.errMsg, "error")
-        next = []
-      }
+      const { data: next = [], errMsg } = await pbService.progress.getNextPerUser(this.userStore.userId)
+      if (errMsg) this.emitSnack(errMsg, "error")
       const done = p => this.submittedTurns.has(keyOf(p))
       const stale = next.filter(done)
       if (stale.length) {
@@ -752,8 +726,8 @@ export default {
       }
       let isDrawing = typeof data == "object"
       let wasFirstTurn = isFirstOf(prompt)
-      let storyId = prompt.story_id || prompt.id
-      let index = prompt.turns_taken ?? 0
+      let storyId = storyOf(prompt)
+      let index = placeOf(prompt)
 
       if (isDrawing != isDrawOf(prompt) && !wasFirstTurn) {
         log.warn("turn.submit.typeMismatch", { story: storyId, isDraw: isDrawOf(prompt), isDrawing })
@@ -784,7 +758,7 @@ export default {
         if (this.expiredTurns.delete(key) && this.isOpen(key)) this.onTimerFinished(prompt)
         return
       }
-      log.info("turn.submit.ok", { story: storyId, index, turn: resp.id })
+      log.info("turn.submit.ok", { story: storyId, index, turn: resp.data.id })
       this.turnWritten(prompt)
     },
     // A turn's round timer ran out, on screen or set aside. Submit whatever
@@ -811,10 +785,8 @@ export default {
         return
       }
 
-      const storyId = prompt.story_id || prompt.id
-      const index = prompt.turns_taken ?? 0
       const resp = await this.writeTurn(prompt,
-        () => pbService.progress.timeoutTurn(storyId, this.userStore.userId, index))
+        () => pbService.progress.timeoutTurn(storyOf(prompt), this.userStore.userId, placeOf(prompt)))
       if (!resp) return
       if (onScreen) this.emitSnack("Time's up!", "info")
       this.turnWritten(prompt)
@@ -837,8 +809,8 @@ export default {
     // out-of-date screen never strands the player.
     refused(resp, prompt) {
       if (!resp.errMsg) return false
-      const storyId = prompt.story_id || prompt.id
-      const index = prompt.turns_taken ?? 0
+      const storyId = storyOf(prompt)
+      const index = placeOf(prompt)
       switch (resp.errCode) {
         case "turn_skipped":
           this.onTurnSkipped(storyId, index)

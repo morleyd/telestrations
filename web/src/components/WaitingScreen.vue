@@ -130,13 +130,9 @@ export default {
         pbService.progress.getFullProgress(this.$route.params.gameCode),
         pbService.games.getPlayers(this.gameId),
       ])
-      // Cancelled by a newer refresh, or a newer one has already landed
-      if (rows.aborted || mine < this.shown) return
-      const errMsg = rows.errMsg || players.errMsg
-      if (errMsg) {
-        this.$emit("snack", errMsg, "error")
-        return // keep what we had; the next refresh retries
-      }
+      // Cancelled by a newer refresh, or a newer one has already landed. A
+      // failed one keeps what we had: TakeTurn refreshes again in a moment.
+      if (rows.aborted || mine < this.shown || rows.errMsg || players.errMsg) return
       this.shown = mine
       this.rows = rows.data
       this.players = players.data
