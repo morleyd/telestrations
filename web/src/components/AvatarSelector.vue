@@ -14,13 +14,11 @@
     <v-card class="pa-4">
       <v-card-title class="text-center text-h5 pb-4">Pick your avatar</v-card-title>
       <v-item-group v-model="selectedIndex" class="avatar-options" mandatory>
-        <v-item v-for="n in 16" :key="n" v-slot="{ isSelected, toggle }">
+        <v-item v-for="(choice, i) in CHOICES" :key="choice" v-slot="{ isSelected, toggle }">
           <v-card class="avatar-option" :class="{ 'avatar-option--selected': isSelected }" flat @click="toggle">
             <v-scroll-y-transition>
-              <AvatarCircle v-if="n == 1" id="avatar1" :color="color" :name="username" :size="72" />
               <!-- The name too, so each face shows on this player's own scrap -->
-              <AvatarCircle v-else :id="'avatar' + n" :avatar="idxMap[n]" :color="color" :name="username"
-                :size="72" />
+              <AvatarCircle :id="'avatar' + (i + 1)" :avatar="choice" :color="color" :name="username" :size="72" />
             </v-scroll-y-transition>
           </v-card>
         </v-item>
@@ -34,21 +32,11 @@
   </v-dialog>
 </template>
 <script>
-import glee from '@/assets/avatars/glee.svg?raw'
-import goofy from '@/assets/avatars/goofy.svg?raw'
-import grin from '@/assets/avatars/grin.svg?raw'
-import grumpy from '@/assets/avatars/grumpy.svg?raw'
-import happy from '@/assets/avatars/happy.svg?raw'
-import hey from '@/assets/avatars/hey.svg?raw'
-import joy from '@/assets/avatars/joy.svg?raw'
-import lick from '@/assets/avatars/lick.svg?raw'
-import raspberry from '@/assets/avatars/raspberry.svg?raw'
-import smile from '@/assets/avatars/smile.svg?raw'
-import smileLick from '@/assets/avatars/smileLick.svg?raw'
-import snarky from '@/assets/avatars/snarky.svg?raw'
-import uneyed from '@/assets/avatars/uneyed.svg?raw'
-import wildLick from '@/assets/avatars/wildLick.svg?raw'
-import winkyLick from '@/assets/avatars/winkyLick.svg?raw'
+import { FACES } from '@/services/faces'
+
+// The letters first (""), then the faces
+const CHOICES = ["", ...FACES.keys()]
+
 export default {
   name: 'AvatarSelector',
   props: [
@@ -56,53 +44,27 @@ export default {
     "color",
     "username",
   ],
+  emits: ["submit"],
+  setup() {
+    return { CHOICES }
+  },
   data() {
     return {
       selectedIndex: 0,
       visible: false,
-      // Spot 1 is the letters. TODO It'll take editing all the SVGs, but
-      // consider editing their stroke color.
-      idxMap: {
-        2: glee,
-        3: goofy,
-        4: grin,
-        5: grumpy,
-        6: happy,
-        7: hey,
-        8: joy,
-        9: lick,
-        10: raspberry,
-        11: smile,
-        12: smileLick,
-        13: snarky,
-        14: wildLick,
-        15: winkyLick,
-        16: uneyed,
-      },
     }
-  },
-  computed: {
-    localAvatar: {
-      get() {
-        return this.avatar;
-      },
-      set(newValue) {
-        this.$emit('submit', newValue);
-      }
-    },
   },
   methods: {
     onSubmit() {
-      // Spot 1, the letters, has no face: "" clears a face already saved,
-      // where undefined would be left out of the update.
-      this.localAvatar = this.idxMap[this.selectedIndex + 1] ?? ""
+      // "" for the letters clears a face already saved, where undefined would
+      // be left out of the update.
+      this.$emit('submit', CHOICES[this.selectedIndex] ?? "")
       this.visible = false
     },
     show() {
       // Start on the avatar they have now. Not at mount: a name being edited
       // gets its avatar after this has mounted.
-      let foundIndex = Object.values(this.idxMap).indexOf(this.localAvatar)
-      this.selectedIndex = foundIndex > -1 ? foundIndex + 1 : 0
+      this.selectedIndex = Math.max(0, CHOICES.indexOf(this.avatar))
       this.visible = true
     },
   },
