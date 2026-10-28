@@ -13,8 +13,8 @@
           </v-btn>
         </div>
       </div>
-      <WaitingList v-if="view === 'list'" :progress="rows" :not-started="unstarted" :user-map="userMap"
-        :me-id="userStore.userId" />
+      <WaitingList v-if="view === 'list'" :progress="rows" :players="players" :not-started="unstarted"
+        :user-map="userMap" :me-id="userStore.userId" />
       <WaitingTable v-else-if="layout" :seats="seats" :layout="layout" />
     </div>
   </div>

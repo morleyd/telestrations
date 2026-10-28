@@ -402,6 +402,89 @@ test('the list has a row for every player at the table, and 13 fit on a laptop',
   }
 })
 
+// From the CoW playtest: the list can count each player's turns instead, of
+// all they'll get, with those skipped for them (by the host, by dropping them,
+// or by their timer running out with nothing entered) in another color. The
+// pick stays on the device.
+test('the list can count each player\'s turns, skipped ones in another color, and it stays that way', async ({ browser, request }) => {
+  test.setTimeout(120_000)
+  const { page, meId, show, close } = await fakeGame(browser, request)
+  try {
+    // Five players, two rounds: 5 stories x 2 = 10 turns each. Lou hasn't
+    // opened the game; Dee was dropped.
+    const player = (id, name, turns, skipped, extra = {}) =>
+      fakePlayer(id, name, { turns, skipped, total_turns: 10, ...extra })
+    const players = [
+      player(meId, 'Dani', 4, 0),
+      player('p1', 'Sam', 4, 2),
+      player('p2', 'Dee', 3, 3, { dropped: true, finished: true }),
+      player('p3', 'Player With A Long Name', 10, 1, { finished: true }),
+      player('p4', 'Lou', 0, 0, { has_story: false }),
+    ]
+    const rows = ['p1', 'p2', 'p3', meId].map((id, i) => fakeStory(`s${i}`, id, 'p1', 3 + i, 10))
+    show({ players, rows })
+    await page.setViewportSize({ width: 1366, height: 768 })
+    // (No seat at the table for Dee)
+    await expect(page.locator('.seat')).toHaveCount(4)
+
+    await page.getByRole('button', { name: 'List' }).click()
+    await expect(page.getByRole('button', { name: 'Stories', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.story-row')).toHaveCount(5)
+    await page.getByRole('button', { name: 'Players', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Players', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('button', { name: 'Stories', exact: true })).toHaveAttribute('aria-pressed', 'false')
+
+    // A row a player, in seat order, with their turns of all they'll get
+    const playerRows = page.locator('.player-row')
+    await expect(playerRows.locator('.story-name')).toHaveText(['Dani', 'Sam', 'Dee', 'Player With A Long Name', 'Lou'])
+    await expect(playerRows.locator('.story-count')).toHaveText(['4 / 10', '4 / 10', '3 / 10', '10 / 10', '0 / 10'])
+    await expect(playerRows.locator('.story-waiting'))
+      .toHaveText(['', '2 skipped', 'Dropped · 3 skipped', 'Done · 1 skipped', 'Not started yet'])
+
+    // Sam's bar: the two turns he took, then the two skipped, in a color of
+    // their own
+    const bar = await playerRows.nth(1).locator('.v-progress-linear').evaluate((el) => {
+      const part = (sel) => el.querySelector(sel)
+      const width = (sel) => part(sel).getBoundingClientRect().width / el.clientWidth
+      const color = (sel) => getComputedStyle(part(sel)).backgroundColor
+      return {
+        taken: width('.v-progress-linear__determinate'), upToSkipped: width('.v-progress-linear__buffer'),
+        takenColor: color('.v-progress-linear__determinate'), skippedColor: color('.v-progress-linear__buffer'),
+        keyColor: getComputedStyle(el.closest('.player-row').querySelector('.skipped-key')).backgroundColor,
+      }
+    })
+    expect(bar.taken).toBeCloseTo(0.2, 1)
+    expect(bar.upToSkipped).toBeCloseTo(0.4, 1)
+    expect(bar.skippedColor).not.toBe(bar.takenColor)
+    // The color beside "2 skipped" is the key to it
+    expect(bar.keyColor).toBe(bar.skippedColor)
+
+    // A line each, on a laptop and on a phone
+    await redrawn(page)
+    expectOneLineRows(await listRows(page), 1366)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await redrawn(page)
+    expectOneLineRows(await listRows(page), 390)
+    expect(await sidewaysScroll(page), 'no sideways scroll on a phone').toBeLessThanOrEqual(1)
+
+    // Still by player after a reload
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Players', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.player-row')).toHaveCount(5)
+
+    // An endless game has no total: a count of turns
+    show({ players: players.map((p) => ({ ...p, total_turns: null })), rows })
+    await expect(playerRows.locator('.story-count'))
+      .toHaveText(['4 turns', '4 turns', '3 turns', '10 turns', '0 turns'], { timeout: 15_000 })
+
+    await page.getByRole('button', { name: 'Stories', exact: true }).click()
+    await expect(page.locator('.player-row')).toHaveCount(0)
+    await expect(page.locator('.story-row')).toHaveCount(5)
+  } finally {
+    await close()
+  }
+})
+
 // A big game: n players, one round, steps turns taken, by whoever holds a
 // story; slow players rarely, so stories pile up in front of them.
 function bigGame(n, slow, steps, meId) {

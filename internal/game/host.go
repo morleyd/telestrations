@@ -300,6 +300,13 @@ type playerStatus struct {
 	Dropped  bool   `json:"dropped"`
 	HasStory bool   `json:"has_story"`
 	Turns    int    `json:"turns"`
+	// Of those turns, the ones written for them: the host skipped them, they
+	// were dropped, or their timer ran out with nothing entered. (Partial work
+	// at the timer is their own turn, and isn't counted.)
+	Skipped int `json:"skipped"`
+	// The turns they get in all, one a round on every story, counting the
+	// stories of players yet to open the game; null in an endless game.
+	TotalTurns *int `json:"total_turns"`
 	// Stories waiting on this player right now.
 	Owes int `json:"owes"`
 	// Nothing left for this player to do in the game.
@@ -333,17 +340,19 @@ func gamePlayers(app core.App, gameID string) ([]playerStatus, error) {
 	}
 
 	var turnCounts []struct {
-		UserID string `db:"user_id"`
-		N      int    `db:"n"`
+		UserID  string `db:"user_id"`
+		N       int    `db:"n"`
+		Skipped int    `db:"skipped"`
 	}
-	err = app.DB().NewQuery("SELECT user_id, COUNT(*) AS n FROM turns WHERE game_id = {:g} GROUP BY user_id").
+	err = app.DB().NewQuery(`SELECT user_id, COUNT(*) AS n, SUM(CASE WHEN skipped THEN 1 ELSE 0 END) AS skipped
+FROM turns WHERE game_id = {:g} GROUP BY user_id`).
 		Bind(dbx.Params{"g": gameID}).All(&turnCounts)
 	if err != nil {
 		return nil, err
 	}
-	turns := map[string]int{}
+	turns, skipped := map[string]int{}, map[string]int{}
 	for _, t := range turnCounts {
-		turns[t.UserID] = t.N
+		turns[t.UserID], skipped[t.UserID] = t.N, t.Skipped
 	}
 
 	hasStory := map[string]bool{}
@@ -354,27 +363,38 @@ func gamePlayers(app core.App, gameID string) ([]playerStatus, error) {
 			owes[s.NextUser]++
 		}
 	}
-	allStarted := true
+	// The stories there will be: those there are, and one for each player
+	// still to open the game. (A dropped player's never will.)
+	allStarted, storyCount := true, len(stories)
 	for _, u := range users {
 		if !u.GetBool("dropped") && !hasStory[u.Id] {
 			allStarted = false
+			storyCount++
 		}
+	}
+	// The same for everyone: each story comes to each player once a round.
+	total := storyCount * rounds
+	var totalTurns *int
+	if !endless {
+		totalTurns = &total
 	}
 
 	out := make([]playerStatus, 0, len(users))
 	for _, u := range users {
 		p := playerStatus{
-			ID:       u.Id,
-			Username: u.GetString("username"),
-			Avatar:   u.GetString("avatar"),
-			Color:    u.GetString("color"),
-			IsHost:   u.GetBool("is_host"),
-			Dropped:  u.GetBool("dropped"),
-			HasStory: hasStory[u.Id],
-			Turns:    turns[u.Id],
-			Owes:     owes[u.Id],
+			ID:         u.Id,
+			Username:   u.GetString("username"),
+			Avatar:     u.GetString("avatar"),
+			Color:      u.GetString("color"),
+			IsHost:     u.GetBool("is_host"),
+			Dropped:    u.GetBool("dropped"),
+			HasStory:   hasStory[u.Id],
+			Turns:      turns[u.Id],
+			Skipped:    skipped[u.Id],
+			TotalTurns: totalTurns,
+			Owes:       owes[u.Id],
 		}
-		p.Finished = p.Dropped || over || (allStarted && !endless && p.Turns >= len(stories)*rounds)
+		p.Finished = p.Dropped || over || (allStarted && !endless && p.Turns >= total)
 		out = append(out, p)
 	}
 	return out, nil
