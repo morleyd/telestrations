@@ -16,6 +16,7 @@
 </template>
 <script>
 import { avatarColor } from '@/services/player'
+import { FACES } from '@/services/faces'
 
 export default {
   props: {
@@ -39,10 +40,12 @@ export default {
       this.avatar = avatar
     },
     // The name as typed, less any spaces around it (a phone keyboard's
-    // suggestion leaves one at the end)
+    // suggestion leaves one at the end), and the face picked, or "" for none:
+    // an avatar from an older page (its markup) isn't one the server takes.
     async validate() {
       const validation = await this.$refs.form.validate()
-      return { ...validation, username: this.username.trim(), color: this.color, avatar: this.avatar }
+      const avatar = FACES.has(this.avatar) ? this.avatar : ""
+      return { ...validation, username: this.username.trim(), color: this.color, avatar }
     },
     onAvatarSelect(avatar) {
       this.avatar = avatar

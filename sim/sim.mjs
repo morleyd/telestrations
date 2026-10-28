@@ -113,7 +113,7 @@ async function createGame(n) {
   for (let i = 0; i < n; i++) {
     const u = await jpost("/api/collections/users/records", {
       username: `p${i}`,
-      avatar: "a",
+      avatar: "",
       color: "#123456",
       game_id: game.id,
       is_host: i === 0,

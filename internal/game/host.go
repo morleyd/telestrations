@@ -7,8 +7,11 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"slices"
+	"sync"
 	"time"
 
+	"github.com/morleyd/telestrations/web"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
@@ -49,6 +52,8 @@ const (
 
 	// The web app checks a picture's type before sending it; an old page may not.
 	msgBadPicture = "That kind of picture can't be used here. Try a JPEG or PNG."
+
+	msgNotAnAvatar = "That isn't one of the avatars. Pick a face, or none."
 )
 
 // Refusal codes: a refused write carries one as data.code.code (see refuse), and
@@ -755,6 +760,16 @@ func inWriteTx(guard func(e *core.RecordRequestEvent) error) func(e *core.Record
 	}
 }
 
+// faceNames are the avatars a player may pick (see isAvatar).
+var faceNames = sync.OnceValue(web.FaceNames)
+
+// isAvatar reports whether avatar is one a player may have: a face's name, or
+// "" for their initials. The web app puts a face in the page as HTML, so a
+// player's text must never get there by way of this field.
+func isAvatar(avatar string) bool {
+	return avatar == "" || slices.Contains(faceNames(), avatar)
+}
+
 // gameStarted reports whether gameID has begun. An unknown game hasn't;
 // relation validation reports that.
 func gameStarted(app core.App, gameID string) bool {
@@ -852,6 +867,9 @@ func bindTurnGuards(app core.App) {
 		if gameStarted(e.App, e.Record.GetString("game_id")) {
 			return e.BadRequestError(msgGameStarted, nil)
 		}
+		if !isAvatar(e.Record.GetString("avatar")) {
+			return e.BadRequestError(msgNotAnAvatar, nil)
+		}
 		e.Record.Set("dropped", false)
 		e.Record.Set("from_user", "") // only a rematch carries a player over
 		if e.Record.GetBool("is_host") {
@@ -874,13 +892,16 @@ func bindTurnGuards(app core.App) {
 		return e.Next()
 	}))
 
-	// Clients may rename themselves and change their look. Everything else
-	// about a player is the server's: `dropped` (the host endpoints), hosting
-	// (game creation), the seat (/begin) and the game. The update writes every
-	// field, so those are read again inside the write: the copy PocketBase
-	// loaded before it may predate a /begin or a drop, and writing that copy
-	// back would undo it.
+	// Clients may rename themselves and change their look (to another face).
+	// Everything else about a player is the server's: `dropped` (the host
+	// endpoints), hosting (game creation), the seat (/begin) and the game. The
+	// update writes every field, so those are read again inside the write: the
+	// copy PocketBase loaded before it may predate a /begin or a drop, and
+	// writing that copy back would undo it.
 	app.OnRecordUpdateRequest("users").BindFunc(inWriteTx(func(e *core.RecordRequestEvent) error {
+		if !isAvatar(e.Record.GetString("avatar")) {
+			return e.BadRequestError(msgNotAnAvatar, nil)
+		}
 		current, err := e.App.FindRecordById("users", e.Record.Id)
 		if err != nil {
 			return e.NotFoundError("", err)

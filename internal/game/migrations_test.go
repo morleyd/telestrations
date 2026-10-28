@@ -244,6 +244,32 @@ func TestUniqueGameCodesMigrationRecodesSharedCodes(t *testing.T) {
 	}
 }
 
+// Avatars an older page saved as markup, or anyone saved as anything but a
+// face's name, are cleared; faces and initials stay.
+func TestFaceAvatarsMigrationClearsTheRest(t *testing.T) {
+	app := newTestApp(t)
+	revertThrough(t, app, "1784660000_face_avatars.go")
+	lobby := newLobby(t, app, "ann", "ben", "cat")
+	for name, avatar := range map[string]string{"ann": "glee", "ben": `<svg onload="alert(1)"></svg>`, "cat": "nope"} {
+		lobby.players[name].Set("avatar", avatar)
+		if err := app.Save(lobby.players[name]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Up(); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"ann": "glee", "ben": "", "cat": ""} {
+		user, err := app.FindRecordById("users", lobby.players[name].Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := user.GetString("avatar"); got != want {
+			t.Errorf("%s's avatar after the migration: %q, want %q", name, got, want)
+		}
+	}
+}
+
 // A server that ran master before PR #5 already had the schema-index
 // migration (1784200000) but not the PR's own two, which are numbered earlier
 // and merged later. Upgrading applies them out of order (and the rounds
