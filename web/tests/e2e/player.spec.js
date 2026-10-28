@@ -16,8 +16,9 @@ test('initials are the first letters of the first and last words', () => {
   expect(initials('🐮 cow')).toBe('🐮C')
 })
 
-test('names match whatever their capitals', () => {
+test('names match whatever their capitals, and spaces around them', () => {
   expect(sameName('Sam', 'sam')).toBe(true)
+  expect(sameName('Sam ', ' sam')).toBe(true)
   expect(sameName('BUDDY', 'Buddy')).toBe(true)
   expect(sameName('Émile', 'émile')).toBe(true)
   // The accent typed as its own mark after the letter is the same name.

@@ -43,7 +43,7 @@
               <v-card-title class="text-center text-h4 wrap">Enter a Game Code</v-card-title>
               <v-form ref="form" @submit.prevent="onJoinClicked">
                 <v-row class="pa-2">
-                  <v-text-field v-model="gameCode" label="Game Code" @input="gameCode = gameCode.toLowerCase()"
+                  <v-text-field v-model="gameCode" label="Game Code" @input="gameCode = gameCode.trim().toLowerCase()"
                     @keyup.enter="onJoinClicked" :rules="[v => !!v?.trim() || 'Game Code cannot be empty!']" />
                 </v-row>
                 <SetUsername ref="username" @username="onJoinClicked" />

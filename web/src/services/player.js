@@ -1,8 +1,8 @@
 // A player's name as the game matches it, and the avatar drawn from it.
 
 // Names keep the capitals they were typed with, but two names that differ
-// only in capitals are the same player: "Sam" coming back as "sam" finds
-// their seat instead of joining as someone new.
+// only in capitals, or in spaces around them, are the same player: "Sam"
+// coming back as "sam " finds their seat instead of joining as someone new.
 export function sameName(a, b) {
   return nameKey(a) === nameKey(b)
 }
@@ -10,7 +10,7 @@ export function sameName(a, b) {
 // NFC first, so an accent typed as its own mark after the letter is the same
 // name as the accented letter.
 function nameKey(name) {
-  return String(name ?? "").normalize("NFC").toLowerCase()
+  return String(name ?? "").trim().normalize("NFC").toLowerCase()
 }
 
 let graphemes

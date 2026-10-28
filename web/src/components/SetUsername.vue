@@ -38,12 +38,11 @@ export default {
       this.username = username
       this.avatar = avatar
     },
+    // The name as typed, less any spaces around it (a phone keyboard's
+    // suggestion leaves one at the end)
     async validate() {
-      let validation = await this.$refs.form.validate()
-      validation["username"] = this.username
-      validation["color"] = this.color
-      validation["avatar"] = this.avatar
-      return validation
+      const validation = await this.$refs.form.validate()
+      return { ...validation, username: this.username.trim(), color: this.color, avatar: this.avatar }
     },
     onAvatarSelect(avatar) {
       this.avatar = avatar
