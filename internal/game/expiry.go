@@ -45,14 +45,18 @@ func bindExpiry(se *core.ServeEvent) error {
 		return err
 	}
 	app := se.App
-	app.Cron().MustAdd("gameExpiry", expirySchedule, func() {
+	expire := func() {
 		n, err := deleteExpiredGames(app, time.Now())
 		if err != nil {
 			app.Logger().Error("expiry: failed", "deleted", n, "error", err.Error())
 		} else if n > 0 {
 			app.Logger().Info("expiry: games deleted", "deleted", n)
 		}
-	})
+	}
+	app.Cron().MustAdd("gameExpiry", expirySchedule, expire)
+	// And once on starting: a host that stops the server while nobody plays
+	// (Fly.io does) runs no job meanwhile, so games can have expired since.
+	go expire()
 	// So the review page can say how long the stories stay.
 	se.Router.GET("/api/expiry", func(e *core.RequestEvent) error {
 		return e.JSON(http.StatusOK, map[string]any{
