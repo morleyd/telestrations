@@ -38,6 +38,10 @@ test('one person plays a whole game with the bots', async ({ page, request }) =>
   }
   expect(turns).toBe(4)
 
+  // The person is done once their own turns are; the bots may still be
+  // finishing other stories. The review says when the whole game is.
+  await expect(page.getByText('Game done')).toBeVisible({ timeout: 60_000 })
+
   // Every story went round all four players, a word then drawings and guesses.
   const stories = await expectStoriesAlternate(request, code, 4)
   const bots = Object.values(stories).flat().filter((t) => /^bot_/.test(t.drawing))
