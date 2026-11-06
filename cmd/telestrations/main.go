@@ -5,6 +5,7 @@ package main
 import (
 	"io/fs"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +17,13 @@ import (
 )
 
 func main() {
+	// Home network or internet (see game.Mode). A public server without a
+	// usable superuser doesn't start at all.
+	mode, err := game.ModeFromEnv(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Serialize reads onto a single data.db connection.
 	//
 	// PocketBase's default read pool (DataMaxOpenConns: 120) let concurrent
@@ -44,6 +52,14 @@ func main() {
 		// page in the machine's default browser. That fires on every fresh data
 		// dir (every E2E run), so print the link instead and never launch it.
 		se.InstallerFunc = printInstallerLink
+
+		// On the internet: the superuser from the environment, no setup link,
+		// and the dashboard hidden unless it's switched on.
+		if mode.Public {
+			if err := game.ServePublic(se, mode); err != nil {
+				return err
+			}
+		}
 
 		game.BindRoutes(se)
 
