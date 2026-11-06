@@ -37,3 +37,8 @@ e2e: setup
 .PHONY: readme-gif
 readme-gif: setup
 	RECORD_GIF=1 npx playwright test readme-gif.spec.js --retries=0
+
+# Checks a deployed server (DEPLOY.md): make -C web hosted URL=https://...
+.PHONY: hosted
+hosted: setup
+	HOSTED_URL=$(URL) npx playwright test hosted.spec.js --retries=0

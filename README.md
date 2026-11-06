@@ -189,8 +189,9 @@ internet can't, so it runs in public mode, set from the environment:
 Everywhere, public or not, a name is at most 24 characters and a word or guess
 at most 200.
 
-Without `PUBLIC_MODE`, none of this applies but those text limits. The plan for hosting the game is
-in [docs/hosting-plan.md](docs/hosting-plan.md).
+Without `PUBLIC_MODE`, none of this applies but those text limits.
+[DEPLOY.md](DEPLOY.md) puts the game on Fly.io in public mode, and
+[docs/hosting-plan.md](docs/hosting-plan.md) is the plan the work followed.
 
 ## Development
 

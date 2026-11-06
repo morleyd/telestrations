@@ -11,6 +11,10 @@ const repoRoot = path.resolve(webDir, '..')
 // the real pb_data: the backend starts on an empty .e2e-pb-data, which
 // PocketBase builds from the migrations (schema + API rules). The ports are in
 // ports.js.
+//
+// With HOSTED_URL set, nothing starts: the tests run against that server
+// instead (only hosted.spec.js is written for one; see DEPLOY.md).
+const hosted = process.env.HOSTED_URL
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -26,13 +30,13 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    baseURL: hosted || `http://127.0.0.1:${WEB_PORT}`,
     trace: 'retain-on-failure',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
-  webServer: [
+  webServer: hosted ? [] : [
     {
       // Real backend on a test port, against a fresh data dir. The wipe lives
       // here rather than in a globalSetup because Playwright starts webServers
