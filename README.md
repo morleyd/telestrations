@@ -1,6 +1,7 @@
-# Telestrations
+# Doodle Drift
 
-A PocketBase (Go) backend with an embedded Vue/Vuetify frontend.
+A drawing-telephone party game: a PocketBase (Go) backend with an embedded
+Vue/Vuetify frontend.
 
 ## Play on your local network
 
@@ -12,8 +13,8 @@ make run      # npm install, build the web app and the server, serve on 0.0.0.0:
 ```
 
 `make run HTTP=0.0.0.0:9000` picks another port, and `make build` just builds
-`bin/telestrations`. To run that yourself, give it the data directory:
-`./bin/telestrations serve --dir pb_data --http 0.0.0.0:8090`. The games are
+`bin/doodledrift`. To run that yourself, give it the data directory:
+`./bin/doodledrift serve --dir pb_data --http 0.0.0.0:8090`. The games are
 kept in `pb_data`; without `--dir`, a built server keeps them next to itself,
 in `bin/pb_data`.
 
@@ -26,7 +27,7 @@ The web app is embedded at build time, so rebuild after any change to it.
 
 ## Layout
 
-- `cmd/telestrations`: the server's `main`. It puts the pieces below together.
+- `cmd/doodledrift`: the server's `main`. It puts the pieces below together.
 - `internal/game`: the game itself: the record hooks and write guards, the
   host controls, End Game and Play again, the API routes, and the Go tests.
 - `internal/migrations`: the database schema and the views the turn rotation
@@ -41,7 +42,7 @@ Every browser sends its game events to the server (`/api/client-log`), and the
 server records each turn as it's saved. All of it lands in the PocketBase
 dashboard under **Logs** (`http://<ip>:8090/_/#/logs`). To sign in there, make
 yourself a superuser: follow the setup link the server prints the first time it
-starts, or run `./bin/telestrations superuser upsert you@example.com <password>`
+starts, or run `./bin/doodledrift superuser upsert you@example.com <password>`
 (with `--dir` if the games aren't next to the binary). Useful filters:
 
 - `data.game = "abcde"`: everything from every device in one game, by game code
