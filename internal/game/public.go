@@ -33,6 +33,8 @@ import (
 //     proxy in front puts the visitor's address in (Fly-Client-IP on
 //     Fly.io); MAX_PLAYERS (default 30) caps a game's players, and MAX_GAMES
 //     (default 1000) the games on the server.
+//   - Games are deleted once they're no longer needed, and logs kept for two
+//     days (see expiry.go).
 //
 // Without PUBLIC_MODE nothing here applies, and the server is set up as for
 // `make run`.
@@ -156,6 +158,9 @@ func ServePublic(se *core.ServeEvent, m Mode) error {
 		})
 	}
 	if err := applyLimits(se, m); err != nil {
+		return fmt.Errorf("public mode: %w", err)
+	}
+	if err := bindExpiry(se); err != nil {
 		return fmt.Errorf("public mode: %w", err)
 	}
 	se.App.Logger().Info("public mode", "dashboard", m.Dashboard, "proxy_header", m.ProxyHeader,
