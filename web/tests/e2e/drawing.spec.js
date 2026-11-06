@@ -409,7 +409,8 @@ test('right-click sets the background, custom colors outlast a reload, bad saved
   const { host, close } = await openDrawingTurn(browser)
   const errors = []
   host.on('pageerror', (e) => errors.push(e.message))
-  const KEY = 'telestrations.paint.recentColors'
+  const KEY = 'doodle-drift.paint.recentColors'
+  const OLD_KEY = 'telestrations.paint.recentColors' // before the game was renamed
   const reload = async () => {
     await host.reload()
     await expect(host.locator(CANVAS)).toBeVisible({ timeout: 15_000 })
@@ -440,6 +441,13 @@ test('right-click sets the background, custom colors outlast a reload, bad saved
     await host.evaluate((key) => localStorage.setItem(key, '{not json'), KEY)
     await reload()
     await expect(host.locator('.palette-recents .palette-empty')).toHaveCount(4)
+    // Colors saved before the rename are still found.
+    await host.evaluate(([key, old]) => {
+      localStorage.removeItem(key)
+      localStorage.setItem(old, JSON.stringify(['#112233']))
+    }, [KEY, OLD_KEY])
+    await reload()
+    await expect(button(host, 'Recent color #112233')).toBeVisible()
     expect(errors).toEqual([])
 
     // What Submit saves is a 1200 × 800 PNG: read it back from the server.

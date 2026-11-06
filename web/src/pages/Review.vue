@@ -535,14 +535,14 @@ export default {
       this.story = turns.length ? reviewTurns(turns) : null
     },
     storyTitle(name) {
-      return { title: `${name}'s story`, subtitle: `Telestrations · game ${this.gameCode}` }
+      return { title: `${name}'s story`, subtitle: `Doodle Drift · game ${this.gameCode}` }
     },
     async downloadStory() {
       // Taken now: another story can be opened while this one draws.
       const [turns, name] = [this.story, this.starterName]
       await this.download("story", async () => {
         const blob = await storyImage(turns, this.userMap, this.storyTitle(name))
-        saveFile(blob, `telestrations-${fileSafe(this.gameCode)}-${fileSafe(name)}.png`)
+        saveFile(blob, `doodle-drift-${fileSafe(this.gameCode)}-${fileSafe(name)}.png`)
       })
     },
     // Every story in the game, one image each, in a zip.
@@ -564,7 +564,7 @@ export default {
           this.$emit("snack", "There are no stories to download yet.", "info")
           return
         }
-        saveFile(await zipFiles(files), `telestrations-${fileSafe(this.gameCode)}.zip`)
+        saveFile(await zipFiles(files), `doodle-drift-${fileSafe(this.gameCode)}.zip`)
       })
     },
     async download(kind, make) {

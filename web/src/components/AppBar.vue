@@ -3,11 +3,9 @@
 // The AppBar provides a simple toolbar at the top of a given page
 <template>
   <v-app-bar color="primary" flat density="compact" class="app-bar">
-    <div class="app-bar-brand d-flex align-center cursor-pointer" @click="$router.push({ name: 'Home' })">
-      <span class="app-bar-logo mx-2">
-        <v-img width="26" height="34" src="@/assets/logo.svg" />
-      </span>
-      <v-toolbar-title class="app-bar-title">Telestrations</v-toolbar-title>
+    <!-- The name alone, until the game has a logo -->
+    <div class="app-bar-brand d-flex align-center cursor-pointer ps-4" @click="$router.push({ name: 'Home' })">
+      <v-toolbar-title class="app-bar-title">Doodle Drift</v-toolbar-title>
     </div>
     <v-spacer />
     <!-- What a page adds for its own controls (TakeTurn: the notebooks) -->
@@ -32,32 +30,20 @@ export default {
   width: 200px;
 }
 
-/* On a phone, the logo alone, to leave room for a page's own controls */
+/* On a phone, the name smaller, to leave room for a page's own controls */
 @media (max-width: 599px) {
   .app-bar-brand {
     width: auto;
   }
 
   .app-bar-title {
-    display: none;
+    font-size: 1rem !important;
   }
 }
 
 /* The ink rule under the bar: a shadow, so the bar stays 48px tall */
 .app-bar {
   box-shadow: 0 3px 0 var(--ink);
-}
-
-/* The logo's navy needs a paper backing on the blue */
-.app-bar-logo {
-  flex: none;
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  background: rgb(var(--v-theme-surface));
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--ink);
 }
 
 .app-bar-title {

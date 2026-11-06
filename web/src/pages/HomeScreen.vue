@@ -1,12 +1,10 @@
 <template>
   <v-card class="overflow-y-auto pb-16 align-content-space-evenly" height="100vh" width="100vw" color="transparent"
     flat style="justify-items: center; display: grid;">
-    <v-img class="my-4 home-logo" min-width="150" min-height="150" src="@/assets/logo.svg" />
-
     <div class="text-center">
       <div class="hand home-welcome">Welcome to</div>
 
-      <h1 class="text-h2"><span class="highlight">Telestrations!</span></h1>
+      <h1 class="text-h2"><span class="highlight">Doodle Drift!</span></h1>
     </div>
 
     <v-card class="pa-4 ma-4 sketch-card" height="176px" width="900" max-width="calc(100vw - 32px)">
@@ -154,10 +152,6 @@ export default {
 }
 </script>
 <style scoped>
-.home-logo {
-  transform: rotate(-4deg);
-}
-
 .home-welcome {
   font-size: 1.6rem;
   line-height: 1.2;
