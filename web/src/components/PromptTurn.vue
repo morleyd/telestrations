@@ -7,7 +7,9 @@
     <div v-else class="mb-4 d-flex" style="height: 248px;">
       <v-img :src="drawing || sadCow" width="100%" style="justify-self: center;" />
     </div>
-    <v-textarea v-model="prompt" class="prompt-field" bg-color="white" label="Your Prompt Here..." hide-details />
+    <!-- The server's limit too (migration 1784810000) -->
+    <v-textarea v-model="prompt" class="prompt-field" bg-color="white" label="Your Prompt Here..." hide-details
+      maxlength="200" />
     <v-btn class="ma-4" color="primary" variant="elevated" size="x-large" @click="onSaveClicked">
       Submit
     </v-btn>
