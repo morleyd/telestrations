@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import {
   createGame, joinGame, startGame, startThreePlayerGame, submitWord, submitDrawing, turnState, seatOf, notebooksOf,
-  PB_URL,
+  PB_URL, withCode,
 } from './helpers.js'
 
 // The waiting screen sits everyone round a table, each with the notebooks
@@ -69,6 +69,7 @@ async function fakeGame(browser, request) {
   await expect(page.locator('.waiting-table')).toBeVisible()
   const users = await (await request.get(
     `${PB_URL}/api/collections/users/records?filter=${encodeURIComponent(`game_id.game_code="${code}"&&username="Dani"`)}`,
+    { headers: withCode(code) },
   )).json()
   let game = null
   await page.route((url) => /\/api\/games\/[^/]+\/players$/.test(url.pathname),

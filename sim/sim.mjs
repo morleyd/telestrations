@@ -31,10 +31,14 @@ const PNG_BYTES = Uint8Array.from(atob(PNG_B64), (c) => c.charCodeAt(0));
 const enc = encodeURIComponent;
 let REQ = 0;
 let ERRORS = [];
+// The code of the game being played: the server shows a game only to requests
+// that carry it (internal/game/access.go). Games are played one at a time.
+let GAME_CODE = "";
 
 async function api(path, opts = {}) {
   REQ++;
-  const res = await fetch(BASE + path, opts);
+  const headers = { ...(GAME_CODE ? { "X-Game-Code": GAME_CODE } : {}), ...opts.headers };
+  const res = await fetch(BASE + path, { ...opts, headers });
   const text = await res.text();
   let body;
   try {
@@ -102,13 +106,11 @@ function shuffle(arr, seed) {
 
 // --- setup ---------------------------------------------------------------
 
-let GAME_SEQ = 0;
 async function createGame(n) {
-  const code = "g" + Date.now().toString(36) + "x" + (GAME_SEQ++).toString(36);
-  const game = await jpost("/api/collections/games/records", {
-    game_code: code,
-    roundDuration: -1,
-  });
+  // The server picks the game's code
+  GAME_CODE = "";
+  const game = await jpost("/api/collections/games/records", { roundDuration: -1 });
+  GAME_CODE = game.game_code;
   const users = [];
   for (let i = 0; i < n; i++) {
     const u = await jpost("/api/collections/users/records", {
@@ -123,10 +125,14 @@ async function createGame(n) {
   return { code: game.game_code, game, users };
 }
 
-const begin = (gameId, order) => jpost(`/api/games/${gameId}/begin`, { order });
+// Only the host starts the game: p0, who created it.
+const begin = (gameId, order, hostId) => jpost(`/api/games/${gameId}/begin`, { order, host_id: hostId });
 async function deleteUser(id) {
   REQ++;
-  const res = await fetch(`${BASE}/api/collections/users/records/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/api/collections/users/records/${id}`, {
+    method: "DELETE",
+    headers: { "X-Game-Code": GAME_CODE },
+  });
   return { ok: res.ok, status: res.status };
 }
 
@@ -321,7 +327,7 @@ async function playGame(nCreate, scenario) {
   if (scenario === "shuffled") order = shuffle(order, nCreate * 7 + 1);
   else if (scenario === "straggler") order = shuffle(order, nCreate * 13 + 3).slice(0, roster.length - 1);
 
-  const beginResp = await begin(game.id, order);
+  const beginResp = await begin(game.id, order, users[0].id);
 
   const n = roster.length;
   const { finished, rounds } = await drive(roster, game.id, n, {
@@ -352,7 +358,7 @@ async function playGame(nCreate, scenario) {
 // each to be refused, and confirm the game still finishes perfectly intact.
 async function probeMidGameDeletion(n) {
   const { game, users } = await createGame(n);
-  await begin(game.id, users.map((u) => u.id));
+  await begin(game.id, users.map((u) => u.id), users[0].id);
   const state = { finished: new Set() };
   // Warm up so stories + turns + view rows all exist.
   for (let r = 0; r < 3; r++)

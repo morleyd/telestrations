@@ -70,7 +70,7 @@
 import { VueDraggableNext } from 'vue-draggable-next'
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pb, pbService } from '@/services/pocketbase'
+import { pb, pbService, gameHeaders } from '@/services/pocketbase'
 import { log } from '@/services/log'
 import { copyText } from '@/services/clipboard'
 import { oneAtATime } from '@/services/oneAtATime'
@@ -114,9 +114,9 @@ export default {
     // starting the game moves everyone to it.
     pb.collection('games').subscribe(this.gameId, (e) => {
       if (e.record.isStarted) this.toGame()
-    })
+    }, { headers: gameHeaders(this.gameCode) })
     pb.collection('users').subscribe('*', (e) => this.onRosterEvent(e),
-      { filter: pb.filter("game_id = {:gameId}", { gameId: this.gameId }) })
+      { filter: pb.filter("game_id = {:gameId}", { gameId: this.gameId }), headers: gameHeaders(this.gameCode) })
     // Realtime doesn't replay what it missed while the connection was down (a
     // phone asleep in the lobby): catch up each time it's back.
     pb.realtime.subscribe('PB_CONNECT', () => this.catchUp())
@@ -223,7 +223,7 @@ export default {
       // drag order) as a preference; the server seats those players first and
       // appends anyone our local snapshot missed, so a late joiner can no longer
       // corrupt the 0..N-1 ordering.
-      const { errMsg } = await pbService.games.beginGame(this.gameId, this.users.map(u => u.id))
+      const { errMsg } = await pbService.games.beginGame(this.gameId, this.users.map(u => u.id), this.userStore.userId)
       if (errMsg) {
         this.$emit("snack", errMsg, "error")
         return

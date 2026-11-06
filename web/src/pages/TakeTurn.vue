@@ -59,7 +59,7 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pb, pbService, endsAt, endCountdown } from '@/services/pocketbase'
+import { pb, pbService, endsAt, endCountdown, gameHeaders } from '@/services/pocketbase'
 import { log } from '@/services/log'
 import { heartbeatSeconds } from '@/services/presence'
 import TurnPane from '@/components/TurnPane.vue'
@@ -249,14 +249,14 @@ export default {
           return
         }
         that.getTurns()
-      }, { filter: pb.filter("game_id = {:gameId}", { gameId: that.gameId }) })
+      }, { filter: pb.filter("game_id = {:gameId}", { gameId: that.gameId }), headers: gameHeaders() })
       // The host's End Game arrives as an update to the game.
       pb.collection('games').subscribe(that.gameId, function (e) {
         // Just set, so the full countdown is left, whatever this device's
         // clock says about the deadline.
         const at = endsAt(e.record)
         if (at) that.startEnding(at, endCountdown(e.record), { justSet: true })
-      })
+      }, { headers: gameHeaders() })
 
       // Polling fallback. Advancing a turn is driven by the realtime
       // subscription above, but a wake-up event can arrive while we're

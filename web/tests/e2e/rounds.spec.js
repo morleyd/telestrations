@@ -103,7 +103,7 @@ test('Infinite: the host ends it, and everyone mid-turn gets the countdown', asy
 
     // Both turns were kept: the host's as played, buddy's as timed out.
     const { id: gameId } = await gameByCode(request, code)
-    const turnsByNewest = await records(request, 'turns', `game_id="${gameId}"`, '-created')
+    const turnsByNewest = await records(request, code, 'turns', `game_id="${gameId}"`, '-created')
     const id = await playerIds(request, code)
     const last = (name) => turnsByNewest.find((t) => t.user_id === id[name])
     expect(last('hosty')).toMatchObject({ timed_out: false, skipped: false })
@@ -114,7 +114,7 @@ test('Infinite: the host ends it, and everyone mid-turn gets the countdown', asy
     // And once the grace after the deadline is up, the game is over: no story
     // waits on anyone.
     await expect.poll(async () => {
-      const progress = await records(request, 'progress', `game_id="${gameId}"`)
+      const progress = await records(request, code, 'progress', `game_id="${gameId}"`)
       return progress.filter((row) => row.next_user_id).length
     }, { timeout: 15_000 }).toBe(0)
   } finally {
@@ -148,7 +148,7 @@ test('one player, Infinite: the story keeps coming back to them until the host e
   await page.waitForURL(/\/review$/, { timeout: 20_000 })
 
   const { id: gameId } = await gameByCode(request, code)
-  const turns = await records(request, 'results', `game_id="${gameId}"`, 'turn_number')
+  const turns = await records(request, code, 'results', `game_id="${gameId}"`, 'turn_number')
   expect(turns.map((t) => Boolean(t.drawing))).toEqual([false, true, false, true])
 })
 

@@ -20,8 +20,8 @@ async function pick(page, name) {
 
 // The turns saved in a game, by player name
 async function turnsBy(request, code) {
-  const users = await records(request, 'users', `game_id.game_code="${code}"`, 'created')
-  const turns = await records(request, 'turns', `game_id.game_code="${code}"`, 'created')
+  const users = await records(request, code, 'users', `game_id.game_code="${code}"`, 'created')
+  const turns = await records(request, code, 'turns', `game_id.game_code="${code}"`, 'created')
   return Object.fromEntries(users.map((u) => [u.username, turns.filter((t) => t.user_id === u.id)]))
 }
 

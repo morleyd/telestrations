@@ -3,9 +3,32 @@ import { sameName } from '@/services/player';
 import { fetchWhole } from './fetchWhole';
 
 export const pb = new PocketBase(import.meta.env.VITE_POCKETBASE_URL || "http://127.0.0.1:8090/")
-// So a cancelled request always rejects as cancelled, never as an empty answer
-// (see fetchWhole).
-pb.beforeSend = (url, options) => ({ url, options: { ...options, fetch: fetchWhole } })
+
+// A game's code is the key to it: the server shows a game, and anything in
+// it, only to a request that carries the code in this header (see
+// internal/game/access.go). The game this tab is in is set from the address
+// (router.js), or as the player joins or creates one.
+const GAME_CODE_HEADER = "X-Game-Code"
+let gameCode = ""
+
+export function setGameCode(code) {
+  gameCode = String(code || "").toLowerCase()
+}
+
+// The header for code's game, for a request that isn't about the current one
+// (the next game, after Play again) and for realtime subscriptions, which
+// beforeSend doesn't see.
+export function gameHeaders(code = gameCode) {
+  return code ? { [GAME_CODE_HEADER]: String(code).toLowerCase() } : {}
+}
+
+// Every request carries the current game's code, unless it names one itself.
+// And so a cancelled request always rejects as cancelled, never as an empty
+// answer (see fetchWhole).
+pb.beforeSend = (url, options) => ({
+  url,
+  options: { ...options, headers: { ...gameHeaders(), ...options.headers }, fetch: fetchWhole },
+})
 // A note on the SDK's auto-cancellation: it aborts an in-flight request whenever
 // a second one with the same key starts. That is right for the recurring
 // refreshes (getUsers and getFullProgress below): the latest response wins, and
@@ -146,8 +169,10 @@ function gameStatus(game) {
     isStarted: game.isStarted,
     endsAt: endsAt(game),
     endCountdown: endCountdown(game),
-    // The game the host started after this one (Play again), if any
+    // The game the host started after this one (Play again), if any, and its
+    // code: the way into it
     nextGame: game.next_game || "",
+    nextGameCode: game.next_game_code || "",
   }
 }
 
@@ -155,9 +180,9 @@ export const pbService = {
   games: {
     // The server picks the game's code (see the games create guard in host.go).
     createGame: (data) => call(() => pb.collection('games').create(data, { requestKey: null })),
-    // Seats the players in `order` (the host's drag order; the server seats
-    // anyone it leaves out after them) and starts the game.
-    beginGame: (gameId, order) => call(() => post(`/api/games/${gameId}/begin`, { order })),
+    // Host-only: seats the players in `order` (the host's drag order; the
+    // server seats anyone it leaves out after them) and starts the game.
+    beginGame: (gameId, order, hostId) => call(() => post(`/api/games/${gameId}/begin`, { order, host_id: hostId })),
     // Where every player stands mid-game (see gamePlayers in host.go): turns
     // taken, stories waiting on them, dropped, and whether they're finished.
     getPlayers: (gameId) => call(async () =>
@@ -182,7 +207,8 @@ export const pbService = {
     // errMsg says so.
     async checkGameStatus(gameCode) {
       const resp = await call(async () =>
-        gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }))))
+        gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }),
+          { headers: gameHeaders(gameCode) })))
       return resp.notFound ? { ...resp, errMsg: "Invalid Game Code. Try again or create a new game." } : resp
     },
   },
@@ -201,9 +227,11 @@ export const pbService = {
       return players.find((p) => sameName(p.username, username)) || null
     }),
     // userId's seat in the game the host started after theirs (Play again),
-    // with that game expanded. notFound: they don't have one (they were dropped).
-    getNextSeat: (userId) => call(() =>
-      getFirstListItemRetry('users', pb.filter("from_user = {:userId}", { userId }), { expand: "game_id" })),
+    // whose code is nextGameCode, with that game expanded. notFound: they
+    // don't have one (they were dropped).
+    getNextSeat: (userId, nextGameCode) => call(() =>
+      getFirstListItemRetry('users', pb.filter("from_user = {:userId}", { userId }),
+        { expand: "game_id", headers: gameHeaders(nextGameCode) })),
     // notFound: the player really is gone, not just a failed read.
     getUserById: (userId) => call(() => pb.collection('users').getOne(userId, { requestKey: null })),
     // The game's players, in the order they joined. A refresh: a newer one
