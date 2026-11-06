@@ -33,14 +33,6 @@ export default defineConfig({
     Vuetify({ styles: { configFile: 'src/styles/settings.scss' } }),
     Components(),
   ],
-  // Vuetify's SASS (see the settings file above) on Sass's current API, not
-  // the deprecated one, which warns on every file
-  css: {
-    preprocessorOptions: {
-      sass: { api: 'modern-compiler' },
-      scss: { api: 'modern-compiler' },
-    },
-  },
   define: {
     'process.env': {},
     'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId),
