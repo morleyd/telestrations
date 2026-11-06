@@ -378,9 +378,14 @@ test('every keyboard shortcut, and none while typing a color or on the Upload Ph
     await host.keyboard.press('Control+Shift+z')
     expect(await drawn()).toBeGreaterThan(20)
 
-    // Typing in the picker's hex field types; it doesn't switch tools.
+    // Typing in the picker's hex field types; it doesn't switch tools. Clicked
+    // into first, as a person would: the click waits for the menu to finish
+    // opening, which can move focus as it ends.
     await button(host, 'More colors').click()
-    await host.locator('.v-color-picker-edit input').pressSequentially('eg')
+    const hexField = host.locator('.v-color-picker-edit input')
+    await hexField.click()
+    await expect(hexField).toBeFocused()
+    await hexField.pressSequentially('eg')
     await expect(button(host, 'Brush')).toHaveAttribute('aria-pressed', 'true')
     await host.keyboard.press('Escape')
     await expect(host.locator('.v-color-picker')).toHaveCount(0)
