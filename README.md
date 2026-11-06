@@ -2,8 +2,6 @@
 
 A PocketBase (Go) backend with an embedded Vue/Vuetify frontend.
 
-Admin account (PocketBase dashboard at `/_/`): `asdf@asdf.asdf` / `asdfasdfasdf`.
-
 ## Play on your local network
 
 This builds everything into a single binary. It serves the API and the web app
@@ -41,7 +39,10 @@ The web app is embedded at build time, so rebuild after any change to it.
 
 Every browser sends its game events to the server (`/api/client-log`), and the
 server records each turn as it's saved. All of it lands in the PocketBase
-dashboard under **Logs** (`http://<ip>:8090/_/#/logs`). Useful filters:
+dashboard under **Logs** (`http://<ip>:8090/_/#/logs`). To sign in there, make
+yourself a superuser: follow the setup link the server prints the first time it
+starts, or run `./bin/telestrations superuser upsert you@example.com <password>`
+(with `--dir` if the games aren't next to the binary). Useful filters:
 
 - `data.game = "abcde"`: everything from every device in one game, by game code
 - `data.user = "firefox"` or `data.browser = "safari"`: one player or one browser
@@ -138,6 +139,21 @@ When a player's timer runs out:
 During the game these look like any other turn to the next player. The review
 marks them: partial work gets a "⏱ Ran out of time" banner, and an empty turn
 gets a "⏱ *name* ran out of time" slide.
+
+## Public mode
+
+On a home network the game trusts the people in the room. A server on the
+internet can't, so it runs in public mode, set from the environment:
+
+- `PUBLIC_MODE=1` turns it on.
+- `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 20 characters) are the only
+  superuser. The server won't start without them; it creates or updates that
+  superuser on every start and removes any other. It prints no setup link.
+- `ADMIN_DASHBOARD=1` serves the dashboard (`/_/`) and lets the superuser sign
+  in. Without it, both answer 404. Turn it on to read the logs, then off again.
+
+Without `PUBLIC_MODE`, none of this applies. The plan for hosting the game is
+in [docs/hosting-plan.md](docs/hosting-plan.md).
 
 ## Development
 
