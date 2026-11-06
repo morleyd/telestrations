@@ -1,4 +1,4 @@
-// Command telestrations is the game's server: PocketBase with the game's
+// Command doodledrift is the game's server: PocketBase with the game's
 // hooks, routes and migrations, serving the web app embedded from web/dist.
 package main
 
@@ -7,9 +7,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/morleyd/telestrations/internal/game"
-	_ "github.com/morleyd/telestrations/internal/migrations"
-	"github.com/morleyd/telestrations/web"
+	"github.com/morleyd/doodle-drift/internal/game"
+	_ "github.com/morleyd/doodle-drift/internal/migrations"
+	"github.com/morleyd/doodle-drift/web"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )

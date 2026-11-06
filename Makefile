@@ -1,7 +1,7 @@
-# Telestrations: a Go (PocketBase) server with the Vue web app embedded in it.
+# Doodle Drift: a Go (PocketBase) server with the Vue web app embedded in it.
 # `make` builds the server binary, web app included; `make help` lists the rest.
 
-BINARY := bin/telestrations
+BINARY := bin/doodledrift
 # Where the games are kept. A built PocketBase defaults to pb_data next to the
 # binary (bin/pb_data); this keeps them at the repo root, as `go run` does.
 DATA := pb_data
@@ -35,7 +35,7 @@ frontend: ## Build the web app into web/dist
 	VITE_POCKETBASE_URL=/ $(WEB) build
 
 build: frontend ## Build the server binary, with the web app embedded
-	go build -o $(BINARY) ./cmd/telestrations
+	go build -o $(BINARY) ./cmd/doodledrift
 
 run: build lan-url ## Build everything and serve it on your network (HTTP=host:port)
 	./$(BINARY) serve --dir $(DATA) --http $(HTTP)
@@ -48,7 +48,7 @@ lan-url: ## Print the address other devices on your network join at
 	fi
 
 dev-server: ## Development backend on http://127.0.0.1:8090 (LAN=1: on your network)
-	go run ./cmd/telestrations serve $(if $(LAN),--http 0.0.0.0:8090)
+	go run ./cmd/doodledrift serve $(if $(LAN),--http 0.0.0.0:8090)
 
 # On the network, the app on a phone must reach the backend at this machine's
 # address, not its own 127.0.0.1.

@@ -1,4 +1,4 @@
-// Telestrations full-game simulation harness.
+// Doodle Drift full-game simulation harness.
 //
 // Drives N players through a complete game against the real PocketBase
 // backend, the way web/src/pages/TakeTurn.vue plays one in its simplest form
