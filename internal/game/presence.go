@@ -66,6 +66,9 @@ func bindPresenceRoutes(se *core.ServeEvent) {
 			return e.BadRequestError("working_on is too long.", nil)
 		}
 		gameID, userID := e.Request.PathValue("gameId"), e.Request.PathValue("userId")
+		if _, err := requireGameCode(e, gameID); err != nil {
+			return err
+		}
 		var id string
 		err := e.App.DB().NewQuery("SELECT id FROM users WHERE id = {:u} AND game_id = {:g}").
 			Bind(dbx.Params{"u": userID, "g": gameID}).Row(&id)

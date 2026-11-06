@@ -3,10 +3,13 @@ package game
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,10 +46,117 @@ func newTestApp(t *testing.T) *tests.TestApp {
 
 // serveAPI is app's HTTP API (the built-in record routes plus the game's own,
 // BindRoutes), built the way `serve` builds it, so a test can send real
-// requests through the request hooks without opening a port.
+// requests through the request hooks without opening a port. Each request
+// goes in as one of the game's players would send it, with the game's code
+// (see asPlayer): the tests of the game's rules play the game. The access
+// tests use bareAPI, which sends only what each request says.
 func serveAPI(t *testing.T, app core.App) http.Handler {
 	t.Helper()
+	return asPlayer(app, bareAPI(t, app))
+}
+
+// bareAPI is serveAPI without asPlayer: a request carries a game's code only
+// if the test puts it there.
+func bareAPI(t *testing.T, app core.App) http.Handler {
+	t.Helper()
 	return serve(t, app, BindRoutes)
+}
+
+// asPlayer sends each request to api the way the web app does: with the code
+// of the game it's about in the X-Game-Code header, unless it has one. The
+// game is found from the request itself: the route, the record it's
+// addressed to, a game_id filter, or the game_id or story_id in its body.
+func asPlayer(app core.App, api http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(gameCodeHeader) == "" {
+			if game := requestGame(app, r); game != nil {
+				r.Header.Set(gameCodeHeader, game.GetString("game_code"))
+			}
+		}
+		api.ServeHTTP(w, r)
+	})
+}
+
+var (
+	gameRoute    = regexp.MustCompile(`^/api/games/([^/]+)/`)
+	storyRoute   = regexp.MustCompile(`^/api/stories/([^/]+)/`)
+	recordRoute  = regexp.MustCompile(`^/api/collections/([^/]+)/records/([^/]+)$`)
+	gameIDFilter = regexp.MustCompile(`game_id\s*=\s*"([^"]+)"`)
+)
+
+// requestGame is the game r is about, or nil if it can't tell.
+func requestGame(app core.App, r *http.Request) *core.Record {
+	find := func(collection, id string) *core.Record {
+		rec, _ := app.FindRecordById(collection, id)
+		return rec
+	}
+	var gameOf func(rec *core.Record) *core.Record
+	gameOf = func(rec *core.Record) *core.Record {
+		switch {
+		case rec == nil:
+			return nil
+		case rec.Collection().Name == "games":
+			return rec
+		case rec.GetString("game_id") != "":
+			return find("games", rec.GetString("game_id"))
+		case rec.GetString("story_id") != "":
+			return gameOf(find("stories", rec.GetString("story_id")))
+		}
+		return nil
+	}
+	p := r.URL.Path
+	if m := gameRoute.FindStringSubmatch(p); m != nil {
+		return find("games", m[1])
+	}
+	if m := storyRoute.FindStringSubmatch(p); m != nil {
+		return gameOf(find("stories", m[1]))
+	}
+	if m := recordRoute.FindStringSubmatch(p); m != nil {
+		return gameOf(find(m[1], m[2]))
+	}
+	if m := gameIDFilter.FindStringSubmatch(r.URL.Query().Get("filter")); m != nil {
+		return find("games", m[1])
+	}
+	fields := bodyFields(r)
+	if id := fields["game_id"]; id != "" {
+		return find("games", id)
+	}
+	if id := fields["story_id"]; id != "" {
+		return gameOf(find("stories", id))
+	}
+	return nil
+}
+
+// bodyFields is r's JSON or multipart form fields as strings, leaving r's
+// body to be read again.
+func bodyFields(r *http.Request) map[string]string {
+	if r.Body == nil {
+		return nil
+	}
+	data, err := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+		form := r.Clone(r.Context())
+		form.Body = io.NopCloser(bytes.NewReader(data))
+		if form.ParseMultipartForm(32<<20) == nil {
+			for k, v := range form.MultipartForm.Value {
+				out[k] = v[0]
+			}
+		}
+		return out
+	}
+	var body map[string]any
+	_ = json.Unmarshal(data, &body)
+	for k, v := range body {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
 }
 
 // serve builds app's handler the way `serve` does, with bind registering the
@@ -397,15 +507,30 @@ func beforeTheGuard(h *hook.TaggedHook[*core.RecordRequestEvent], fn func()) {
 	})
 }
 
-// begin starts the game as the host's Begin does, seating the players in the
-// order given.
-func (g *testGame) begin(t *testing.T, api http.Handler, names ...string) {
-	t.Helper()
+// host is the game's host.
+func (g *testGame) host() *core.Record {
+	for _, p := range g.players {
+		if p.GetBool("is_host") {
+			return p
+		}
+	}
+	return nil
+}
+
+// beginBody is what the host's Begin sends: their id and the seating order.
+func (g *testGame) beginBody(names ...string) map[string]any {
 	order := make([]string, len(names))
 	for i, name := range names {
 		order[i] = g.players[name].Id
 	}
-	rec := call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", map[string]any{"order": order})
+	return map[string]any{"host_id": g.host().Id, "order": order}
+}
+
+// begin starts the game as the host's Begin does, seating the players in the
+// order given.
+func (g *testGame) begin(t *testing.T, api http.Handler, names ...string) {
+	t.Helper()
+	rec := call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", g.beginBody(names...))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("begin: %d %s", rec.Code, rec.Body)
 	}

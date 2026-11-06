@@ -46,7 +46,8 @@ func TestSPAServesFilesPagesAndRealMisses(t *testing.T) {
 		{"/assets/index-old.js", http.StatusNotFound, ""}, // an old build's chunk
 		{"/assets/index-old.css", http.StatusNotFound, ""},
 		{"/health", http.StatusOK, `{"ok":true}`},
-		{"/api/games/nogame/players", http.StatusOK, `{"players":[]}`},
+		// The game's own route answers, not the page: a JSON 404 without the code.
+		{"/api/games/nogame/players", http.StatusNotFound, ""},
 	}
 	for _, c := range cases {
 		rec := call(h, http.MethodGet, c.path, nil)

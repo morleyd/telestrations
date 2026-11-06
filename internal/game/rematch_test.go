@@ -200,9 +200,10 @@ func TestRematchLinksAreTheServers(t *testing.T) {
 	g := newLobby(t, app, "ann")
 	other := newLobby(t, app, "ben")
 
+	// Changing a game is the server's alone (migration 1784800000).
 	rec := call(api, http.MethodPatch, gamesPath+"/"+g.game.Id, map[string]any{"next_game": other.game.Id})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("update: %d %s", rec.Code, rec.Body)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("update: %d %s, want 403", rec.Code, rec.Body)
 	}
 	if game, _ := app.FindRecordById("games", g.game.Id); game.GetString("next_game") != "" {
 		t.Error("a client linked a game to another")
