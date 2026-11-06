@@ -77,7 +77,10 @@ func TestModeFromEnvReadsTheDashboardSwitch(t *testing.T) {
 }
 
 func publicMode(dashboard bool) Mode {
-	return Mode{Public: true, AdminEmail: testAdminEmail, AdminPassword: testAdminPassword, Dashboard: dashboard}
+	return Mode{
+		Public: true, AdminEmail: testAdminEmail, AdminPassword: testAdminPassword, Dashboard: dashboard,
+		MaxPlayers: defaultMaxPlayers, MaxGames: defaultMaxGames,
+	}
 }
 
 // installer is the type of core.ServeEvent.InstallerFunc.
