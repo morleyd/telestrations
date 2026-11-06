@@ -331,7 +331,8 @@ test.describe('colors, the palette and the tools', () => {
 test.describe('the README', () => {
   test('lists every drawing shortcut there is, and no others', () => {
     const readme = fs.readFileSync(new URL('../../../README.md', import.meta.url), 'utf8')
-    const section = readme.split(/^## /m).find((s) => s.startsWith('Drawing'))
+    // A section or a subsection (it sits under Playing it)
+    const section = readme.split(/^###? /m).find((s) => s.startsWith('Drawing'))
     expect(section, 'a Drawing section').toBeTruthy()
     const keysLine = section.slice(section.indexOf('- Keys:'))
     const named = [...keysLine.matchAll(/\*\*([^*]+)\*\*/g)].map((m) => m[1])
