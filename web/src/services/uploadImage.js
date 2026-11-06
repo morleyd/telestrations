@@ -59,9 +59,13 @@ export function brandsOf(head) {
   return brands
 }
 
-/** heicToJpeg converts a HEIC to a JPEG blob, fetching the decoder first. */
+/**
+ * heicToJpeg converts a HEIC to a JPEG blob, fetching the decoder first. Its
+ * CSP build: the default one builds functions from strings, which the public
+ * server's Content-Security-Policy refuses (see internal/game/headers.go).
+ */
 async function heicToJpeg(file) {
-  const { heicTo } = await import("heic-to")
+  const { heicTo } = await import("heic-to/csp")
   return heicTo({ blob: file, type: "image/jpeg", quality: 0.85 })
 }
 

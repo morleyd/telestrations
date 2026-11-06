@@ -35,6 +35,7 @@ import (
 //     (default 1000) the games on the server.
 //   - Games are deleted once they're no longer needed, and logs kept for two
 //     days (see expiry.go).
+//   - Security headers, and no cross-origin requests (see headers.go).
 //
 // Without PUBLIC_MODE nothing here applies, and the server is set up as for
 // `make run`.
@@ -163,6 +164,7 @@ func ServePublic(se *core.ServeEvent, m Mode) error {
 	if err := bindExpiry(se); err != nil {
 		return fmt.Errorf("public mode: %w", err)
 	}
+	bindSecurityHeaders(se)
 	se.App.Logger().Info("public mode", "dashboard", m.Dashboard, "proxy_header", m.ProxyHeader,
 		"max_players", m.MaxPlayers, "max_games", m.MaxGames)
 	return nil
