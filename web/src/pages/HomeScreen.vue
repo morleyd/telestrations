@@ -9,17 +9,23 @@
       <h1 class="text-h2"><span class="highlight">Doodle Drift!</span></h1>
     </div>
 
-    <v-card class="pa-4 ma-4 sketch-card" height="176px" width="900" max-width="calc(100vw - 32px)">
+    <v-card class="pa-4 ma-4 sketch-card" width="900" max-width="calc(100vw - 32px)">
       <v-row class="justify-center align-center">
-        <v-dialog max-width="500">
-          <template v-slot:activator="{ props: activatorProps }">
-            <v-btn v-bind="activatorProps" class="ma-4" size="x-large" color="primary">
-              New Game
-            </v-btn>
-          </template>
+        <v-btn class="ma-4" size="x-large" color="primary" @click="openNewGame(false)">
+          New Game
+        </v-btn>
+        <!-- One person and the server's bots: a whole game to try alone -->
+        <v-btn class="ma-4" size="x-large" color="primary" variant="outlined" prepend-icon="mdi-robot-happy"
+          @click="openNewGame(true)">
+          Play with bots
+        </v-btn>
+        <v-dialog v-model="newGameOpen" max-width="500">
           <template v-slot:default>
             <v-card class="pa-4 bg-white" width="500" max-width="100%">
               <v-card-title class="text-center text-h4">Let's Get Started!</v-card-title>
+              <v-card-subtitle v-if="withBots" class="text-center wrap">
+                {{ botCount }} bots will join you. Press Begin in the waiting room when you're ready.
+              </v-card-subtitle>
               <v-form ref="form" @submit.prevent="onBeginClicked">
                 <SetUsername ref="username" @username="onBeginClicked" />
                 <GameSettings v-model="settings" @submit="onBeginClicked" />
@@ -72,12 +78,20 @@ export default {
     return {
       settings: defaultSettings(),
       gameCode: "",
+      // The New Game dialog: open, and whether bots join the game it makes
+      newGameOpen: false,
+      withBots: false,
+      botCount: 3,
     }
   },
   computed: {
     ...mapStores(useUserStore),
   },
   methods: {
+    openNewGame(withBots) {
+      this.withBots = withBots
+      this.newGameOpen = true
+    },
     // The navigation is awaited, so a duplicate call does nothing until this
     // page is gone: navigation waits on a network check (router.beforeEach),
     // and a keyup in that window would find the player this call created.
@@ -146,6 +160,11 @@ export default {
       if (resp.errMsg) {
         this.$emit("snack", resp.errMsg, "error")
         return
+      }
+      if (this.withBots) {
+        // The game is made either way: without its bots, friends can still join.
+        const bots = await pbService.games.addBots(this.userStore.gameId, this.userStore.userId, this.botCount)
+        if (bots.errMsg) this.$emit("snack", `The bots couldn't join: ${bots.errMsg}`, "error")
       }
 
       await this.$router.push({ path: resp.gameCode })

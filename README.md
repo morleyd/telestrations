@@ -130,6 +130,20 @@ new ones. Everybody on the review goes straight to their first turn. Anyone
 who'd wandered off finds a **Join the new game** button on the old game's
 review page.
 
+## Playing with bots
+
+**Play with bots** on the home screen makes a game with three bots in it, so
+one person can play a whole game. Bots are players the server plays
+(`internal/game/bots.go`): each takes a few seconds over a turn, opens with a
+word, draws one of a dozen doodles (`doodles.go`; one that matches the word
+if it can, any if not), and guesses. A bot's guess at another bot's doodle is
+close but not always the same; a person's drawing gets a wild guess. That's
+the drift.
+
+Bots only play while a person in the game has been around in the last ten
+minutes, so a game everyone has left goes quiet and expires like any other.
+They come along to Play again, and count as players everywhere else.
+
 ## Rounds
 
 The **New Game** dialog sets how many rounds to play: how many times each story

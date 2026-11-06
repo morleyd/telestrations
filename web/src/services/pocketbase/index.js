@@ -180,6 +180,9 @@ function gameStatus(game) {
 
 export const pbService = {
   games: {
+    // Host-only, before the game starts: count bots join it, players the
+    // server plays (see internal/game/bots.go). Answers { added }.
+    addBots: (gameId, hostId, count) => call(() => post(`/api/games/${gameId}/bots`, { host_id: hostId, count })),
     // The server picks the game's code (see the games create guard in host.go).
     createGame: (data) => call(() => pb.collection('games').create(data, { requestKey: null })),
     // Host-only: seats the players in `order` (the host's drag order; the
