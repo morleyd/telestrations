@@ -118,3 +118,22 @@ jobs:
           path: web/test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  # The image fly deploy builds (Dockerfile, DEPLOY.md): it builds, and it
+  # serves the game, in public mode too.
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t doodle-drift .
+      - name: The image serves the game in public mode
+        run: |
+          docker run -d --name dd -p 8080:8080 -e PUBLIC_MODE=1 \
+            -e ADMIN_EMAIL=ci@example.com -e ADMIN_PASSWORD=ci-password-of-some-length doodle-drift
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8080/health && break; sleep 1; done
+          curl -fs http://127.0.0.1:8080/ | grep -q "<title>Doodle Drift</title>"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/_/)" = 404
+      - name: Its logs
+        if: ${{ !cancelled() }}
+        run: docker logs dd

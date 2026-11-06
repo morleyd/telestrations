@@ -1,0 +1,42 @@
+# Doodle Drift on Fly.io: one small machine that stops when nobody is playing
+# and starts on the next visit, with the games on a volume. See DEPLOY.md.
+# The app name is the address (doodle-drift.fly.dev): change it here if it's
+# taken.
+
+app = "doodle-drift"
+# Denver: the nearest region to Idaho. Players anywhere can reach it.
+primary_region = "den"
+
+[build]
+
+[env]
+  # The stricter settings for a server on the internet (README: Public mode).
+  # ADMIN_EMAIL and ADMIN_PASSWORD are secrets: fly secrets set, never here.
+  PUBLIC_MODE = "1"
+  # Fly's proxy puts each visitor's address in this header; without it, every
+  # visitor would share the proxy's address, and its rate limits.
+  TRUSTED_PROXY_HEADER = "Fly-Client-IP"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Stop when idle, start on the next request (a few seconds' wait for the
+  # first visitor). Open game tabs hold a live connection, which keeps it up.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[mounts]
+  source = "pb_data"
+  destination = "/pb_data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

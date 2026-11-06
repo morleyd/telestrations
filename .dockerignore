@@ -1,0 +1,15 @@
+.git
+.github
+**/.DS_Store
+bin
+pb_data
+.e2e-pb-data
+docs
+sim
+tools
+web/node_modules
+web/dist/assets
+web/dist/index.html
+web/dist/version.json
+web/test-results
+web/playwright-report
