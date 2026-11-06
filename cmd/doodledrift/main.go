@@ -53,6 +53,8 @@ func main() {
 		}
 
 		game.BindRoutes(se)
+		// Bots play their turns in the background (see bots.go).
+		game.RunBots(se.App)
 
 		// The web app, last so it can't shadow the API routes above.
 		staticFS, err := fs.Sub(web.Dist, "dist")

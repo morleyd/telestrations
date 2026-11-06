@@ -30,6 +30,9 @@ func BindRoutes(se *core.ServeEvent) {
 	// (see presence.go).
 	bindPresenceRoutes(se)
 
+	// Adding bots to a game (see bots.go).
+	bindBotRoutes(se)
+
 	// Atomic game start. Assigning player positions and flipping isStarted
 	// from the client was racy: positions were written one-by-one over the
 	// host's live (realtime-mutated) roster, so a late joiner could keep the

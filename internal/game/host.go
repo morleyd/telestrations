@@ -697,7 +697,7 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 	seating := make([]string, 0, len(old))
 	for i, u := range old {
 		seat := core.NewRecord(users)
-		for _, field := range []string{"username", "avatar", "color", "is_host"} {
+		for _, field := range []string{"username", "avatar", "color", "is_host", "is_bot"} {
 			seat.Set(field, u.Get(field))
 		}
 		seat.Set("game_id", next.Id)
@@ -899,6 +899,7 @@ func bindTurnGuards(app core.App) {
 		}
 		e.Record.Set("dropped", false)
 		e.Record.Set("from_user", "") // only a rematch carries a player over
+		e.Record.Set("is_bot", false) // only the server seats a bot
 		if e.Record.GetBool("is_host") {
 			_, err := e.App.FindFirstRecordByFilter("users", "game_id = {:g} && is_host = true",
 				dbx.Params{"g": e.Record.GetString("game_id")})
@@ -933,7 +934,7 @@ func bindTurnGuards(app core.App) {
 		if err != nil {
 			return e.NotFoundError("", err)
 		}
-		for _, field := range []string{"dropped", "is_host", "position", "game_id", "from_user"} {
+		for _, field := range []string{"dropped", "is_host", "position", "game_id", "from_user", "is_bot"} {
 			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()
