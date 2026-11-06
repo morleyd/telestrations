@@ -31,3 +31,9 @@ check:
 .PHONY: e2e
 e2e: setup
 	npx playwright test
+
+# Records the README GIF's frames (tests/e2e/readme-gif.spec.js), into
+# test-results/readme-gif.
+.PHONY: readme-gif
+readme-gif: setup
+	RECORD_GIF=1 npx playwright test readme-gif.spec.js --retries=0
