@@ -1,6 +1,7 @@
 package game
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -182,7 +183,13 @@ func TestPublicModeSaysHowLongGamesAreKept(t *testing.T) {
 
 	app = newTestApp(t)
 	rec := call(servePublic(t, app, publicMode(false)), http.MethodGet, "/api/expiry", nil)
-	if rec.Code != http.StatusOK || rec.Body.String() != `{"after_finish_hours":48,"idle_days":7}` {
+	// Decoded, not compared as text: Go's JSON encoder doesn't sort map keys.
+	var got struct {
+		AfterFinishHours int `json:"after_finish_hours"`
+		IdleDays         int `json:"idle_days"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if rec.Code != http.StatusOK || got.AfterFinishHours != 48 || got.IdleDays != 7 {
 		t.Errorf("public: %d %s", rec.Code, rec.Body)
 	}
 	if days := app.Settings().Logs.MaxDays; days != logDays {
