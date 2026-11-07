@@ -33,8 +33,9 @@ import (
 //   - Guessing codes: an address that keeps asking for different games that
 //     don't exist is turned away for a while (codeGuesses).
 //   - A game holds at most Mode.MaxPlayers players, and the server at most
-//     Mode.MaxGames games, so neither one game nor a stream of new ones can
-//     fill the disk.
+//     Mode.MaxGames games. That bounds the games and players, not the disk:
+//     turns and their drawings are limited per address by rate
+//     (turns:create), not in total, so a long game can still take room.
 //   - The client log only takes reports about a game that exists.
 
 const (
