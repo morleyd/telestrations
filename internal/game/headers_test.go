@@ -12,10 +12,11 @@ import (
 
 // The security headers and CORS on a public server (headers.go).
 
-// serveLikeServe is app's API with the middleware `serve` adds on top of the
-// router (CORS for any origin, PocketBase's default) and a stand-in for the
-// dashboard, then public mode if public.
-func serveLikeServe(t *testing.T, app core.App, public bool) http.Handler {
+// serveWithCORS is app's API with the CORS-for-any-origin middleware that
+// `serve` adds on top of the router (which servePublic leaves out, and public
+// mode must unbind) and a stand-in for the dashboard, then public mode if
+// public.
+func serveWithCORS(t *testing.T, app core.App, public bool) http.Handler {
 	t.Helper()
 	var err error
 	api := serve(t, app, func(se *core.ServeEvent) {
@@ -47,7 +48,7 @@ func get(api http.Handler, path string, header map[string]string) *httptest.Resp
 }
 
 func TestPublicModeSendsSecurityHeaders(t *testing.T) {
-	api := serveLikeServe(t, newTestApp(t), true)
+	api := serveWithCORS(t, newTestApp(t), true)
 	h := get(api, "/health", nil).Header()
 
 	want := map[string]string{
@@ -74,7 +75,7 @@ func TestPublicModeSendsSecurityHeaders(t *testing.T) {
 
 // The dashboard's UI needs PocketBase's own policy.
 func TestTheDashboardKeepsItsOwnPolicy(t *testing.T) {
-	api := serveLikeServe(t, newTestApp(t), true)
+	api := serveWithCORS(t, newTestApp(t), true)
 	if csp := get(api, "/_/", nil).Header().Get("Content-Security-Policy"); csp != "" {
 		t.Errorf("the dashboard got the game's CSP: %q", csp)
 	}
@@ -85,7 +86,7 @@ func TestTheDashboardKeepsItsOwnPolicy(t *testing.T) {
 // itself drops X-Frame-Options from file responses so they can be embedded.)
 func TestAFileKeepsPocketBasesSandboxPolicy(t *testing.T) {
 	app := newTestApp(t)
-	api := serveLikeServe(t, app, true)
+	api := serveWithCORS(t, app, true)
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 	turn := g.drawWithFile(t, "ann", "ben")
@@ -107,7 +108,7 @@ func TestAFileKeepsPocketBasesSandboxPolicy(t *testing.T) {
 }
 
 func TestAtHomeTheHeadersAreAsBefore(t *testing.T) {
-	api := serveLikeServe(t, newTestApp(t), false)
+	api := serveWithCORS(t, newTestApp(t), false)
 	h := get(api, "/health", map[string]string{"Origin": "http://192.168.1.20:3000"}).Header()
 	for _, k := range []string{"Strict-Transport-Security", "Content-Security-Policy", "Referrer-Policy"} {
 		if v := h.Get(k); v != "" {
@@ -123,7 +124,7 @@ func TestAtHomeTheHeadersAreAsBefore(t *testing.T) {
 // The web app comes from the API's own address, so no other site's page
 // gets to read the API from a visitor's browser.
 func TestPublicModeAllowsNoOtherOrigin(t *testing.T) {
-	api := serveLikeServe(t, newTestApp(t), true)
+	api := serveWithCORS(t, newTestApp(t), true)
 	rec := get(api, "/health", map[string]string{"Origin": "https://evil.example"})
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("Access-Control-Allow-Origin = %q, want none", got)
