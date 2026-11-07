@@ -208,10 +208,15 @@ func ensureAdmin(app core.App, email, password string) error {
 // (signing in, password resets and the rest), as if neither existed.
 func hideAdmin(e *core.RequestEvent) error {
 	p := e.Request.URL.Path
-	if p == "/_" || strings.HasPrefix(p, "/_/") || isSuperusersAPI(e.App, p) {
+	if isDashboardPath(p) || isSuperusersAPI(e.App, p) {
 		return e.NotFoundError("", nil)
 	}
 	return e.Next()
+}
+
+// isDashboardPath reports whether path is PocketBase's dashboard (/_/).
+func isDashboardPath(path string) bool {
+	return path == "/_" || strings.HasPrefix(path, "/_/")
 }
 
 // isSuperusersAPI reports whether path is under /api/collections/{c}/ for the

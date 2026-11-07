@@ -54,7 +54,7 @@ func bindSecurityHeaders(se *core.ServeEvent) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "same-origin")
-			if p := e.Request.URL.Path; p != "/_" && !strings.HasPrefix(p, "/_/") && !strings.HasPrefix(p, "/api/files/") {
+			if p := e.Request.URL.Path; !isDashboardPath(p) && !strings.HasPrefix(p, "/api/files/") {
 				h.Set("Content-Security-Policy", contentSecurityPolicy)
 			}
 			return e.Next()
