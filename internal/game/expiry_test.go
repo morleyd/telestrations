@@ -2,12 +2,15 @@ package game
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/cron"
 )
 
 // Expiry (expiry.go): a public server deletes a game keepAfterFinish after
@@ -57,8 +60,11 @@ func TestAFinishedGameIsKept48Hours(t *testing.T) {
 	}
 	for _, col := range []string{"turns", "stories", "users"} {
 		var left int
-		_ = app.DB().NewQuery("SELECT COUNT(*) FROM " + col + " WHERE game_id = {:g}").
+		err := app.DB().NewQuery("SELECT COUNT(*) FROM " + col + " WHERE game_id = {:g}").
 			Bind(dbx.Params{"g": g.game.Id}).Row(&left)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if left != 0 {
 			t.Errorf("%d %s left", left, col)
 		}
@@ -175,10 +181,81 @@ func TestExpiryLeavesAPlayedAgainGameWhole(t *testing.T) {
 	}
 }
 
+// rowCount is how many records of collection belong to gameID.
+func rowCount(t *testing.T, app core.App, collection, gameID string) int {
+	t.Helper()
+	var n int
+	err := app.DB().NewQuery("SELECT COUNT(*) FROM " + collection + " WHERE game_id = {:g}").
+		Bind(dbx.Params{"g": gameID}).Row(&n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// One game that can't be deleted doesn't stop the games after it, and its own
+// delete is all or nothing: the turns and stories that go before the failing
+// player are put back.
+func TestOneUndeletableGameLeavesTheRestToExpire(t *testing.T) {
+	app := newTestApp(t)
+	// Made first, so the sweep reaches it first.
+	stuck := newGame(t, app, "ann", "ben")
+	stuck.play(t, "ann", "ann")
+	stuck.play(t, "ben", "ben")
+	fine := newGame(t, app, "cat", "dan")
+	fine.play(t, "cat", "cat")
+
+	app.OnRecordDelete("users").BindFunc(func(e *core.RecordEvent) error {
+		if e.Record.GetString("game_id") == stuck.game.Id {
+			return errors.New("refused")
+		}
+		return e.Next()
+	})
+	before := map[string]int{}
+	for _, col := range []string{"turns", "stories", "users"} {
+		before[col] = rowCount(t, app, col, stuck.game.Id)
+		if before[col] == 0 {
+			t.Fatalf("fixture: no %s in the stuck game", col)
+		}
+	}
+
+	n, err := deleteExpiredGames(app, later(8*24*time.Hour))
+	if n != 1 {
+		t.Errorf("%d deleted, want 1", n)
+	}
+	if err == nil || !strings.Contains(err.Error(), stuck.game.Id) || strings.Contains(err.Error(), fine.game.Id) {
+		t.Errorf("error %v, want one naming only the stuck game", err)
+	}
+	if exists(t, app, "games", fine.game.Id) {
+		t.Error("the other game didn't expire")
+	}
+	if !exists(t, app, "games", stuck.game.Id) {
+		t.Error("the stuck game was deleted anyway")
+	}
+	for col, want := range before {
+		if got := rowCount(t, app, col, stuck.game.Id); got != want {
+			t.Errorf("stuck game's %s: %d left, want %d (rolled back)", col, got, want)
+		}
+	}
+}
+
+// expiryJob is the scheduled expiry sweep, or nil if app has none.
+func expiryJob(app core.App) *cron.Job {
+	for _, job := range app.Cron().Jobs() {
+		if job.Id() == "gameExpiry" {
+			return job
+		}
+	}
+	return nil
+}
+
 func TestPublicModeSaysHowLongGamesAreKept(t *testing.T) {
 	app := newTestApp(t)
 	if rec := call(serveAPI(t, app), http.MethodGet, "/api/expiry", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("at home: %d, want 404 (nothing expires)", rec.Code)
+	}
+	if job := expiryJob(app); job != nil {
+		t.Errorf("at home: scheduled %q, want no expiry job", job.Expression())
 	}
 
 	app = newTestApp(t)
@@ -191,6 +268,9 @@ func TestPublicModeSaysHowLongGamesAreKept(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
 	if rec.Code != http.StatusOK || got.AfterFinishHours != 48 || got.IdleDays != 7 {
 		t.Errorf("public: %d %s", rec.Code, rec.Body)
+	}
+	if job := expiryJob(app); job == nil || job.Expression() != expirySchedule {
+		t.Errorf("public: job %v, want gameExpiry on %q", job, expirySchedule)
 	}
 	if days := app.Settings().Logs.MaxDays; days != logDays {
 		t.Errorf("logs kept %d days, want %d", days, logDays)
