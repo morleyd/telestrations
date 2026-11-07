@@ -52,6 +52,12 @@ func bindExpiry(se *core.ServeEvent) error {
 		} else if n > 0 {
 			app.Logger().Info("expiry: games deleted", "deleted", n)
 		}
+		// PocketBase's own log cleanup runs only at a few set hours a day,
+		// which a machine that stops when idle can sleep through, so the
+		// logs are cleared here too.
+		if err := app.DeleteOldLogs(time.Now().AddDate(0, 0, -logDays)); err != nil {
+			app.Logger().Error("expiry: deleting old logs failed", "error", err.Error())
+		}
 	}
 	app.Cron().MustAdd("gameExpiry", expirySchedule, expire)
 	// And once on starting: a host that stops the server while nobody plays
