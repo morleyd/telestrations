@@ -27,7 +27,9 @@ import (
 //     like the proxy, and each limit below would be shared by everyone.
 //   - An IPv6 visitor counts by their /64 (addressKey): one home connection
 //     is given a whole /64, and a client that moved around inside it would
-//     otherwise have a fresh allowance on every request.
+//     otherwise have a fresh allowance on every request. The code-guess limit
+//     always keys on it; the rate limits do behind a proxy header (see
+//     keyByAddress), and the request logs then record the /64 too.
 //   - Requests are rate limited per address, with PocketBase's own limiter
 //     (publicRateLimits). A whole party behind one home router shares an
 //     address, so the numbers are generous: they stop a script, not a game.

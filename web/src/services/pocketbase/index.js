@@ -209,7 +209,7 @@ export const pbService = {
     // errMsg says so. typed: the player just typed the code, so a 404 isn't
     // retried and a wrong code is answered at once (a public server also counts
     // wrong codes against the address: internal/game/limits.go). A code from
-    // the address or a game we're in keeps the retry.
+    // the page's URL, for a game we're already in, keeps the retry.
     async checkGameStatus(gameCode, { typed = false } = {}) {
       const resp = await call(async () =>
         gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }),

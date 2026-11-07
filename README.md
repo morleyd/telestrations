@@ -164,10 +164,12 @@ internet can't, so it runs in public mode, set from the environment:
 - `TRUSTED_PROXY_HEADER` names the header the proxy in front of the server puts
   each visitor's address in (`Fly-Client-IP` on Fly.io). Set it only behind
   such a proxy: anywhere else a visitor could write their own.
-- Limits, per visitor's address (an IPv6 address counts by its /64): requests
-  are rate limited (generously, as a whole party can share one home router),
-  and an address that tries many different game codes that don't exist is
-  turned away for ten minutes.
+- Limits, per visitor's address: requests are rate limited (generously, as a
+  whole party can share one home router), and an address that tries many
+  different game codes that don't exist is turned away for ten minutes. An
+  IPv6 address counts by its /64: always for the wrong codes, and behind
+  `TRUSTED_PROXY_HEADER` for the rate limits too, where the logs then show the
+  /64 rather than the full address.
 - `MAX_PLAYERS` (default 30) caps the players in a game, and `MAX_GAMES`
   (default 1000) the games on the server.
 - The client log only takes reports about a game that exists.
