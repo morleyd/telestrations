@@ -37,6 +37,12 @@ export default defineConfig({
     'process.env': {},
     'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId),
   },
+  build: {
+    // Vite 8's default target is Safari 16.4 and newer, which would leave a
+    // blank page on older iPhones, and people join games from whatever phone
+    // they have. This keeps the output at what Safari 14 can run.
+    target: ['es2020', 'safari14'],
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
