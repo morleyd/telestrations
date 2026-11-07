@@ -139,7 +139,7 @@ func TestGuessingCodesIsCutOff(t *testing.T) {
 	path := "/api/collections/games/records"
 
 	for i := range 30 {
-		if rec := fromIP(api, "198.51.100.7", "", path, "zz"+string(rune('a'+i%26))+"zz"); rec.Code != http.StatusOK {
+		if rec := fromIP(api, "198.51.100.7", "", path, fmt.Sprintf("zz%03d", i)); rec.Code != http.StatusOK {
 			t.Fatalf("wrong code %d: %d, want an empty list", i+1, rec.Code)
 		}
 	}
@@ -152,6 +152,29 @@ func TestGuessingCodesIsCutOff(t *testing.T) {
 	}
 }
 
+// Asking again about the same wrong code costs nothing more: a page retries,
+// and polls a game that has gone. Only a new wrong code counts, so a party's
+// typos don't lock it out of its own game; 30 different ones still do.
+func TestOnlyDifferentWrongCodesCount(t *testing.T) {
+	app := newTestApp(t)
+	api := servePublic(t, app, publicMode(false))
+	g := newLobby(t, app, "ann")
+	path := "/api/collections/games/records"
+
+	for range 3 {
+		for i := range 29 {
+			fromIP(api, "198.51.100.7", "", path, fmt.Sprintf("zz%03d", i))
+		}
+	}
+	if rec := fromIP(api, "198.51.100.7", "", path, g.code()); rec.Code != http.StatusOK {
+		t.Fatalf("after 29 wrong codes, each three times: %d, want 200", rec.Code)
+	}
+	fromIP(api, "198.51.100.7", "", path, "zz029")
+	if rec := fromIP(api, "198.51.100.7", "", path, g.code()); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("after the 30th different wrong code: %d, want 429", rec.Code)
+	}
+}
+
 // Behind a proxy, the visitor is the address in its header: without that,
 // every visitor would share the proxy's, and one guesser would lock everyone
 // out.
@@ -161,8 +184,8 @@ func TestBehindAProxyEachVisitorHasTheirOwnAllowance(t *testing.T) {
 	g := newLobby(t, app, "ann")
 	path := "/api/collections/games/records"
 
-	for range 30 {
-		fromIP(api, "203.0.113.1", "Fly-Client-IP", path, "qqqqq")
+	for i := range 30 {
+		fromIP(api, "203.0.113.1", "Fly-Client-IP", path, fmt.Sprintf("qq%03d", i))
 	}
 	if rec := fromIP(api, "203.0.113.1", "Fly-Client-IP", path, g.code()); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("the guesser: %d, want 429", rec.Code)

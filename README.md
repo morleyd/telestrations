@@ -166,8 +166,8 @@ internet can't, so it runs in public mode, set from the environment:
   such a proxy: anywhere else a visitor could write their own.
 - Limits, per visitor's address (an IPv6 address counts by its /64): requests
   are rate limited (generously, as a whole party can share one home router),
-  and an address that tries many game codes that don't exist is turned away
-  for ten minutes.
+  and an address that tries many different game codes that don't exist is
+  turned away for ten minutes.
 - `MAX_PLAYERS` (default 30) caps the players in a game, and `MAX_GAMES`
   (default 1000) the games on the server.
 - The client log only takes reports about a game that exists.
