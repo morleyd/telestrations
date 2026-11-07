@@ -330,3 +330,22 @@ func TestPublicClientLogNeedsARealGame(t *testing.T) {
 		t.Fatalf("logged %d entries about the game, want 1", n)
 	}
 }
+
+// A party behind one router shares an address, and each of its browsers
+// posts its log every couple of seconds while turns come in: the client log
+// takes 600 posts a minute from one address before it says no.
+func TestTheClientLogTakesAPartysPosts(t *testing.T) {
+	app := newTestApp(t)
+	api := servePublic(t, app, publicMode(false))
+	g := newLobby(t, app, "ann")
+	body, _ := json.Marshal(map[string]any{"game": g.code(), "gameId": g.game.Id, "entries": []map[string]any{}})
+
+	for i := range 600 {
+		if rec := postLog(api, "text/plain", body); rec.Code != http.StatusNoContent {
+			t.Fatalf("post %d: %d, want 204", i+1, rec.Code)
+		}
+	}
+	if rec := postLog(api, "text/plain", body); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("post 601 in a minute: %d, want 429", rec.Code)
+	}
+}

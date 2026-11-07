@@ -55,7 +55,7 @@ var publicRateLimits = []core.RateLimitRule{
 	{Label: "stories:create", MaxRequests: 60, Duration: 60},
 	{Label: "turns:create", MaxRequests: 300, Duration: 60},
 	{Label: "*:create", MaxRequests: 20, Duration: 5},
-	{Label: "POST /api/client-log", MaxRequests: 60, Duration: 60},
+	{Label: "POST /api/client-log", MaxRequests: 600, Duration: 60},
 	{Label: "/api/", MaxRequests: 300, Duration: 10},
 }
 
