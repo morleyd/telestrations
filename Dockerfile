@@ -28,6 +28,10 @@ RUN apk add --no-cache ca-certificates tzdata su-exec \
 	&& adduser -D -H -s /sbin/nologin doodledrift
 COPY --from=server /doodledrift /usr/local/bin/doodledrift
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# Public mode unless told otherwise, so the image run anywhere refuses to
+# start without the admin secrets rather than offering the setup link to the
+# first visitor (README: Public mode).
+ENV PUBLIC_MODE=1
 # The games live on a volume mounted here (fly.toml).
 VOLUME /pb_data
 EXPOSE 8080

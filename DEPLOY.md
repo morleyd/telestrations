@@ -7,8 +7,11 @@ little, but it does cost: Fly.io needs a payment card.
 
 What's in the repo:
 
-- `Dockerfile`: builds the web app and the server into one small image.
-  Fly builds it on its own machines, so you don't need Docker locally.
+- `Dockerfile`: builds the web app and the server into one small image,
+  which starts in public mode unless `PUBLIC_MODE` says otherwise. Fly
+  builds it on its own machines, so you don't need Docker locally.
+- `docker-entrypoint.sh`: starts the server in the image as its own user,
+  not root.
 - `fly.toml`: the machine, the volume, the health check, and the
   non-secret settings (public mode, Fly's client-address header).
 - `web/tests/e2e/hosted.spec.js`: checks a deployed server from a browser.
