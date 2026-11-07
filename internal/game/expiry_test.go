@@ -14,8 +14,9 @@ import (
 )
 
 // Expiry (expiry.go): a public server deletes a game keepAfterFinish after
-// it's over, or keepIdle after anything last happened in it. The tests run the
-// cleanup at a time in the future rather than waiting.
+// it's over, keepIdle after anything last happened in it, or, if nobody
+// started it, keepIdleLobby after that. The tests run the cleanup at a time in
+// the future rather than waiting.
 
 func later(d time.Duration) time.Time { return time.Now().Add(d) }
 
@@ -88,23 +89,22 @@ func TestAnEndedGameIsKept48HoursFromItsDeadline(t *testing.T) {
 	}
 }
 
-// A game still being played isn't finished, however long it's been, until
-// it's idle for a week.
+// A started game still being played isn't finished, however long it's been,
+// until it's idle for a week.
 func TestAGameInPlayIsKeptUntilAWeekIdle(t *testing.T) {
 	app := newTestApp(t)
 	endless := newGame(t, app, "ann", "ben").withRounds(t, 1, true)
 	endless.play(t, "ann", "ann")
 	unfinished := newGame(t, app, "cat", "dan")
 	unfinished.play(t, "cat", "cat")
-	lobby := newLobby(t, app, "eve")
 
 	if n := cleanUp(t, app, later(6*24*time.Hour)); n != 0 {
 		t.Fatalf("6 days on: %d deleted", n)
 	}
-	if n := cleanUp(t, app, later(8*24*time.Hour)); n != 3 {
-		t.Fatalf("8 days on: %d deleted, want all 3", n)
+	if n := cleanUp(t, app, later(8*24*time.Hour)); n != 2 {
+		t.Fatalf("8 days on: %d deleted, want both", n)
 	}
-	for _, g := range []*testGame{endless, unfinished, lobby} {
+	for _, g := range []*testGame{endless, unfinished} {
 		if exists(t, app, "games", g.game.Id) {
 			t.Errorf("game %s is still there", g.game.Id)
 		}
@@ -115,15 +115,67 @@ func TestAGameInPlayIsKeptUntilAWeekIdle(t *testing.T) {
 // isn't idle.
 func TestPresenceKeepsAGameAlive(t *testing.T) {
 	app := newTestApp(t)
-	g := newLobby(t, app, "ann")
-	soon := time.Now().Add(6 * 24 * time.Hour).UTC().Format("2006-01-02 15:04:05.000Z")
+	g := newGame(t, app, "ann")
+	seenAt(t, app, g, later(6*24*time.Hour))
+	if n := cleanUp(t, app, later(8*24*time.Hour)); n != 0 {
+		t.Fatalf("seen 2 days before: %d deleted", n)
+	}
+}
+
+// seenAt records that g's players' devices last checked in at at.
+func seenAt(t *testing.T, app core.App, g *testGame, at time.Time) {
+	t.Helper()
 	_, err := app.DB().NewQuery("UPDATE users SET seen_at = {:t} WHERE game_id = {:g}").
-		Bind(dbx.Params{"t": soon, "g": g.game.Id}).Execute()
+		Bind(dbx.Params{"t": at.UTC().Format("2006-01-02 15:04:05.000Z"), "g": g.game.Id}).Execute()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := cleanUp(t, app, later(8*24*time.Hour)); n != 0 {
-		t.Fatalf("seen 2 days before: %d deleted", n)
+}
+
+// A lobby nobody has started is kept an hour, not a week: one address could
+// otherwise fill the server's game limit with empty lobbies.
+func TestALobbyNobodyStartedIsKeptAnHour(t *testing.T) {
+	app := newTestApp(t)
+	g := newLobby(t, app, "ann")
+
+	if n := cleanUp(t, app, later(59*time.Minute)); n != 0 || !exists(t, app, "games", g.game.Id) {
+		t.Fatalf("59 min on: %d deleted", n)
+	}
+	if n := cleanUp(t, app, later(61*time.Minute)); n != 1 {
+		t.Fatalf("61 min on: %d deleted, want 1", n)
+	}
+	if exists(t, app, "games", g.game.Id) || rowCount(t, app, "users", g.game.Id) != 0 {
+		t.Error("the lobby is still there")
+	}
+}
+
+// A host whose page is open keeps checking in, so a lobby they're still
+// waiting in isn't idle however long they take to start it.
+func TestAHostCheckingInKeepsALobby(t *testing.T) {
+	app := newTestApp(t)
+	g := newLobby(t, app, "ann", "ben")
+	seenAt(t, app, g, later(50*time.Minute))
+
+	if n := cleanUp(t, app, later(100*time.Minute)); n != 0 {
+		t.Fatalf("50 min after the check-in: %d deleted", n)
+	}
+	if n := cleanUp(t, app, later(112*time.Minute)); n != 1 {
+		t.Fatalf("62 min after the check-in: %d deleted, want 1", n)
+	}
+}
+
+// The hour is for lobbies only: once the game has begun, it's kept as long as
+// any game in play.
+func TestAStartedGameIgnoresTheLobbyHour(t *testing.T) {
+	app := newTestApp(t)
+	g := newGame(t, app, "ann", "ben")
+	g.play(t, "ann", "ann")
+
+	if n := cleanUp(t, app, later(3*time.Hour)); n != 0 || !exists(t, app, "games", g.game.Id) {
+		t.Fatalf("3 h on: %d deleted", n)
+	}
+	if n := cleanUp(t, app, later(3*24*time.Hour)); n != 0 {
+		t.Fatalf("3 days on: %d deleted", n)
 	}
 }
 

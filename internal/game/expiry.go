@@ -18,7 +18,11 @@ import (
 //     (the last turn), or the host's End Game deadline has passed;
 //   - keepIdle after anything last happened in it, finished or not: a turn, a
 //     join, a player's device checking in. This is what clears an endless game
-//     nobody ended, or a lobby nobody started.
+//     nobody ended;
+//   - keepIdleLobby, for a game nobody has started, after anything last
+//     happened in it. A host whose page is open keeps checking in, so only a
+//     lobby left behind goes; without this, empty lobbies would sit on the
+//     server's game limit for a week.
 //
 // Both are worked out from the game's own records, so nothing has to keep a
 // timestamp up to date as the game goes. A job checks every 15 minutes, and
@@ -27,6 +31,7 @@ import (
 const (
 	keepAfterFinish = 48 * time.Hour
 	keepIdle        = 7 * 24 * time.Hour
+	keepIdleLobby   = time.Hour
 	logDays         = 2
 	expirySchedule  = "*/15 * * * *"
 )
@@ -87,8 +92,18 @@ func gameExpired(app core.App, gameID string, now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if now.Sub(last) > keepIdle {
+	idle := now.Sub(last)
+	if idle > keepIdle {
 		return true, nil
+	}
+	if idle > keepIdleLobby {
+		game, err := app.FindRecordById("games", gameID)
+		if err != nil {
+			return false, err
+		}
+		if !game.GetBool("isStarted") {
+			return true, nil
+		}
 	}
 	at, finished, err := finishedAt(app, gameID)
 	if err != nil {
