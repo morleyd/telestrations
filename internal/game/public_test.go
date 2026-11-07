@@ -3,9 +3,11 @@ package game
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -78,14 +80,24 @@ func publicMode(dashboard bool) Mode {
 	return Mode{Public: true, AdminEmail: testAdminEmail, AdminPassword: testAdminPassword, Dashboard: dashboard}
 }
 
-// servePublic is app's API in public mode, plus a stand-in for the
-// dashboard's route (apis.Serve adds the real one, which the test router
-// doesn't have).
-func servePublic(t *testing.T, app core.App, m Mode) http.Handler {
+// installer is the type of core.ServeEvent.InstallerFunc.
+type installer = func(app core.App, systemSuperuser *core.Record, baseURL string) error
+
+// serveIn is app's API set up by ConfigureServe for m, plus a stand-in for
+// the dashboard's route (apis.Serve adds the real one, which the test router
+// doesn't have). It also returns the installer ConfigureServe left, starting
+// from PocketBase's default as apis.Serve does.
+func serveIn(t *testing.T, app core.App, m Mode) (http.Handler, installer) {
 	t.Helper()
-	var err error
+	var (
+		err  error
+		inst installer
+	)
 	api := serve(t, app, func(se *core.ServeEvent) {
-		if err = ServePublic(se, m); err != nil {
+		se.InstallerFunc = apis.DefaultInstallerFunc
+		err = ConfigureServe(se, m)
+		inst = se.InstallerFunc
+		if err != nil {
 			return
 		}
 		se.Router.GET("/_/{path...}", func(e *core.RequestEvent) error {
@@ -96,7 +108,39 @@ func servePublic(t *testing.T, app core.App, m Mode) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return api, inst
+}
+
+func servePublic(t *testing.T, app core.App, m Mode) http.Handler {
+	t.Helper()
+	api, _ := serveIn(t, app, m)
 	return api
+}
+
+// main sets the server up through ConfigureServe alone, so this is what keeps
+// a public server from printing a setup link and serving the dashboard.
+func TestConfigureServe(t *testing.T) {
+	funcAddr := func(f installer) uintptr { return reflect.ValueOf(f).Pointer() }
+	tests := []struct {
+		name      string
+		mode      Mode
+		installer installer // nil: no setup link at all
+		dashboard int
+	}{
+		{name: "public", mode: publicMode(false), installer: nil, dashboard: http.StatusNotFound},
+		{name: "home", mode: Mode{}, installer: printInstallerLink, dashboard: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api, inst := serveIn(t, newTestApp(t), tt.mode)
+			if funcAddr(inst) != funcAddr(tt.installer) {
+				t.Errorf("installer = %p, want %p", inst, tt.installer)
+			}
+			if rec := call(api, http.MethodGet, "/_/", nil); rec.Code != tt.dashboard {
+				t.Errorf("GET /_/: %d, want %d", rec.Code, tt.dashboard)
+			}
+		})
+	}
 }
 
 func superusers(t *testing.T, app core.App) []*core.Record {

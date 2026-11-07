@@ -3,7 +3,9 @@ package game
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -76,6 +78,35 @@ func isOn(v string) bool {
 		return true
 	}
 	return false
+}
+
+// ConfigureServe sets the server up for m. Call it from OnServe, before the
+// game's own routes.
+func ConfigureServe(se *core.ServeEvent, m Mode) error {
+	// With no superuser yet, PocketBase's default installer opens the setup
+	// page in the machine's default browser. That fires on every fresh data
+	// dir (every E2E run), so print the link instead and never launch it.
+	se.InstallerFunc = printInstallerLink
+
+	// On the internet: the superuser from the environment, no setup link,
+	// and the dashboard hidden unless it's switched on.
+	if m.Public {
+		if err := ServePublic(se, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// printInstallerLink is apis.DefaultInstallerFunc minus the browser launch.
+func printInstallerLink(app core.App, systemSuperuser *core.Record, baseURL string) error {
+	token, err := systemSuperuser.NewStaticAuthToken(30 * time.Minute)
+	if err != nil {
+		return err
+	}
+	log.Printf("no superuser yet: create one at %s/_/#/pbinstal/%s (or run: superuser upsert EMAIL PASS)",
+		strings.TrimRight(baseURL, "/"), token)
+	return nil
 }
 
 // ServePublic sets up a server in public mode (see Mode): no setup link, the

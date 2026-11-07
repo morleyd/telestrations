@@ -6,8 +6,6 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/morleyd/telestrations/internal/game"
 	_ "github.com/morleyd/telestrations/internal/migrations"
@@ -48,17 +46,10 @@ func main() {
 	game.BindHooks(app)
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// With no superuser yet, PocketBase's default installer opens the setup
-		// page in the machine's default browser. That fires on every fresh data
-		// dir (every E2E run), so print the link instead and never launch it.
-		se.InstallerFunc = printInstallerLink
-
-		// On the internet: the superuser from the environment, no setup link,
-		// and the dashboard hidden unless it's switched on.
-		if mode.Public {
-			if err := game.ServePublic(se, mode); err != nil {
-				return err
-			}
+		// The setup link, and in public mode the superuser and the hidden
+		// dashboard (see game.Mode).
+		if err := game.ConfigureServe(se, mode); err != nil {
+			return err
 		}
 
 		game.BindRoutes(se)
@@ -79,15 +70,4 @@ func main() {
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// printInstallerLink is apis.DefaultInstallerFunc minus the browser launch.
-func printInstallerLink(app core.App, systemSuperuser *core.Record, baseURL string) error {
-	token, err := systemSuperuser.NewStaticAuthToken(30 * time.Minute)
-	if err != nil {
-		return err
-	}
-	log.Printf("no superuser yet: create one at %s/_/#/pbinstal/%s (or run: superuser upsert EMAIL PASS)",
-		strings.TrimRight(baseURL, "/"), token)
-	return nil
 }
