@@ -12,6 +12,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
+	"github.com/pocketbase/pocketbase/tools/router"
 )
 
 // Bots: players the server plays, so one visitor can play a whole game. The
@@ -80,8 +81,19 @@ func bindBotRoutes(se *core.ServeEvent) {
 }
 
 // addBots seats count more bots in gameID, up to maxBots in all, and reports
-// how many it added.
+// how many it added. Call it in a transaction: it checks the game and its
+// seats itself, because a bot is saved directly and skips the users create
+// guards (host.go, limits.go) that check them for a person.
 func addBots(app core.App, gameID string, count int) (int, error) {
+	// The route checked this before its transaction, but /begin may have
+	// seated everyone since.
+	game, err := app.FindRecordById("games", gameID)
+	if err != nil {
+		return 0, fmt.Errorf("find game %s: %w", gameID, err)
+	}
+	if game.GetBool("isStarted") {
+		return 0, router.NewBadRequestError(msgGameStarted, nil)
+	}
 	existing, err := app.FindRecordsByFilter("users", "game_id = {:g}", "", 0, 0, dbx.Params{"g": gameID})
 	if err != nil {
 		return 0, err
@@ -95,6 +107,12 @@ func addBots(app core.App, gameID string, count int) (int, error) {
 	}
 	if count < 1 || botsIn+count > maxBots {
 		return 0, refuse(codeTooManyBots, fmt.Sprintf("A game can have at most %d bots.", maxBots))
+	}
+	// On a public server bots take seats under its player cap like anyone
+	// else. A game with fewer seats left gets fewer bots, and a full one none:
+	// the game is still there for friends to join, so that isn't an error.
+	if limit := maxPlayers(app); limit > 0 {
+		count = min(count, max(limit-len(existing), 0))
 	}
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {

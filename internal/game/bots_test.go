@@ -93,6 +93,72 @@ func TestOnlyTheHostAddsBots(t *testing.T) {
 	}
 }
 
+// On a public server, bots take seats under MAX_PLAYERS like anyone else:
+// the game gets as many as there are seats left, and a full game none.
+func TestBotsTakeOnlyTheFreeSeats(t *testing.T) {
+	app := newTestApp(t)
+	api := servePublicAs(t, app, publicWith(func(m *Mode) { m.MaxPlayers = 4 }))
+	lobby := newLobby(t, app, "ann", "ben")
+	path := "/api/games/" + lobby.game.Id + "/bots"
+	host := lobby.players["ann"].Id
+
+	for _, tc := range []struct {
+		name         string
+		count, added int
+	}{
+		{"two seats left", 3, 2},
+		{"none left", 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := call(api, http.MethodPost, path, map[string]any{"host_id": host, "count": tc.count})
+			var got struct{ Added int }
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); rec.Code != http.StatusOK || err != nil || got.Added != tc.added {
+				t.Errorf("%d bots asked for: %d %s, want %d added", tc.count, rec.Code, rec.Body, tc.added)
+			}
+		})
+	}
+	if n := countBots(t, app, lobby.game.Id); n != 2 {
+		t.Errorf("%d bots, want 2: ann, ben and two bots fill 4 seats", n)
+	}
+}
+
+// At home there's no player cap, so nothing limits the bots but maxBots.
+func TestAtHomeBotsHaveNoSeatCap(t *testing.T) {
+	app := newTestApp(t)
+	serveAPI(t, app)
+	lobby := newLobby(t, app, "ann", "ben", "cat", "dan")
+	var added int
+	err := app.RunInTransaction(func(tx core.App) error {
+		var err error
+		added, err = addBots(tx, lobby.game.Id, maxBots)
+		return err
+	})
+	if err != nil || added != maxBots {
+		t.Errorf("added %d (%v), want %d", added, err, maxBots)
+	}
+}
+
+// The route checks the game hasn't started before its transaction; /begin
+// can land in between, so addBots checks again inside it.
+func TestBotsCantJoinAStartedGame(t *testing.T) {
+	app := newTestApp(t)
+	lobby := newLobby(t, app, "ann")
+	lobby.game.Set("isStarted", true)
+	if err := app.Save(lobby.game); err != nil {
+		t.Fatal(err)
+	}
+	err := app.RunInTransaction(func(tx core.App) error {
+		_, err := addBots(tx, lobby.game.Id, 2)
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), msgGameStarted) {
+		t.Errorf("addBots on a started game: %v, want %q", err, msgGameStarted)
+	}
+	if n := countBots(t, app, lobby.game.Id); n != 0 {
+		t.Errorf("%d bots seated in a started game", n)
+	}
+}
+
 func countBots(t *testing.T, app core.App, gameID string) int {
 	t.Helper()
 	var n int

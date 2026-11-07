@@ -75,8 +75,21 @@ const (
 	msgTooManyCodes = "Too many wrong game codes. Please wait a few minutes and try again."
 )
 
+// maxPlayersKey is where applyLimits leaves Mode.MaxPlayers in the app's
+// store, for the server's own writes that skip the users create guard below
+// (bots.go seats bots with app.Save).
+const maxPlayersKey = "game.maxPlayers"
+
+// maxPlayers is the public server's cap on a game's players, or 0 for none
+// (on a home network).
+func maxPlayers(app core.App) int {
+	n, _ := app.Store().Get(maxPlayersKey).(int)
+	return n
+}
+
 // applyLimits sets up the limits above on a public server.
 func applyLimits(se *core.ServeEvent, m Mode) error {
+	se.App.Store().Set(maxPlayersKey, m.MaxPlayers)
 	settings := se.App.Settings()
 	settings.TrustedProxy.Headers = nil
 	if m.ProxyHeader != "" {
