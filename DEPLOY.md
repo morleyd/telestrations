@@ -47,8 +47,11 @@ What's in the repo:
    fly deploy
    ```
 
-   The first build takes a few minutes. `fly logs` shows the server
-   starting: `public mode` with the limits it's using, and no setup link.
+   The first build takes a few minutes. `fly logs` shows PocketBase's
+   `Server started` line, and no setup link. The game's own messages (the
+   `public mode` line with the limits it's using, and what expiry deletes)
+   aren't there: PocketBase prints those to the console only with `--dev`,
+   so they're in the dashboard's logs (Day to day).
 
 ## Check it
 
@@ -62,13 +65,15 @@ What's in the repo:
   make -C web hosted URL=https://doodle-drift.fly.dev
   ```
 
-  The checks make three games from your address, well inside the rate limits.
+  The checks play two games from your address, well inside the rate limits.
 - Play a real game with two devices: your phone and a laptop, or a friend.
 
 ## Day to day
 
 - **Redeploy** after merging: `fly deploy`.
-- **Logs:** `fly logs`, or the dashboard (below).
+- **Logs:** `fly logs` has the server starting, and an error that stops
+  it. The game's own messages (public mode, expiry) are only in the
+  dashboard's logs (below).
 - **The PocketBase dashboard** is off (404) in public mode. To look at the
   logs or the data, turn it on, use it, and turn it off again (each change
   restarts the machine):
