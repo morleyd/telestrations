@@ -245,6 +245,32 @@ func TestUniqueGameCodesMigrationRecodesSharedCodes(t *testing.T) {
 	}
 }
 
+// Games already mid-Play-again when codes became the key need the next game's
+// code copied onto them, or their players can never reach it. A game with no
+// next game gets an empty code.
+func TestGameCodeAccessMigrationBackfillsTheNextGamesCode(t *testing.T) {
+	app := newTestApp(t)
+	revertThrough(t, app, "1784800000_game_code_access.go")
+	b := save(t, app, "games", map[string]any{"game_code": "bbbbb", "roundDuration": -1})
+	a := save(t, app, "games", map[string]any{"game_code": "aaaaa", "roundDuration": -1, "next_game": b.Id})
+	c := save(t, app, "games", map[string]any{"game_code": "ccccc", "roundDuration": -1})
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Up(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct {
+		game *core.Record
+		code string
+	}{{a, "bbbbb"}, {b, ""}, {c, ""}} {
+		game, err := app.FindRecordById("games", want.game.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := game.GetString("next_game_code"); got != want.code {
+			t.Errorf("game %s: next_game_code = %q, want %q", game.GetString("game_code"), got, want.code)
+		}
+	}
+}
+
 // Avatars an older page saved as markup, or anyone saved as anything but a
 // face's name, are cleared; faces and initials stay.
 func TestFaceAvatarsMigrationClearsTheRest(t *testing.T) {
