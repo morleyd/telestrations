@@ -27,26 +27,28 @@ the code.
   views, every write is checked against it inside a transaction, and races
   between players (two submits at once, a drop mid-turn, a join as the game
   starts) are tested by running them against each other over and over.
-- **One binary, home or internet.** It serves the whole game on a home
-  network with no setup, or on the internet in public mode: access by game
-  code only, rate limits, data deleted after 48 hours, and a strict
-  Content-Security-Policy.
+- **One binary, home or internet.** A game is reachable only with its code,
+  in every mode. It serves the whole game on a home network with no setup, or
+  on the internet in public mode: rate limits, games deleted 48 hours after
+  they end or once they sit idle (the public mode section has the details),
+  and a strict Content-Security-Policy.
 
 ## How it's built
 
 - **Server:** Go on [PocketBase](https://pocketbase.io) (SQLite, REST and
   realtime). The game's rules are record hooks and write guards
   (`internal/game`); whose turn it is comes from SQL views over the turns
-  (`internal/migrations`). Host controls, timed turns, End Game, Play again,
-  bots and expiry are all server-side.
+  (`internal/migrations`). Host controls, End Game, Play again, bots and
+  expiry are all server-side. The server checks a turn's timeout, but each
+  player's page starts it when their timer runs out.
 - **Web app:** Vue 3 and Vuetify, built with Vite and embedded in the binary.
   An MS-Paint-style drawing tool, live updates over server-sent events, and
   phone photos (HEIC) converted in the browser.
 - **Tests:** a Go harness that plays the real API (race soaks, model-based
-  random games, migrations run forward and back, an access test for every
-  route), a Playwright suite that plays whole games across browser windows,
-  and CI that also scans dependencies for known vulnerabilities and builds the
-  Docker image.
+  random games, migrations run forward and back, an access test for each of
+  the game's routes), a Playwright suite that plays whole games across browser
+  windows, and CI that also scans dependencies for known vulnerabilities and
+  builds the Docker image.
 - **Hosting:** a small Fly.io machine that stops when nobody's playing
   ([DEPLOY.md](DEPLOY.md)).
 
