@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/router"
@@ -21,6 +23,9 @@ import (
 //   - The visitor's address comes from the proxy in front of the server
 //     (Mode.ProxyHeader, e.g. Fly-Client-IP). Without it every visitor looks
 //     like the proxy, and each limit below would be shared by everyone.
+//   - An IPv6 visitor counts by their /64 (addressKey): one home connection
+//     is given a whole /64, and a client that moved around inside it would
+//     otherwise have a fresh allowance on every request.
 //   - Requests are rate limited per address, with PocketBase's own limiter
 //     (publicRateLimits). A whole party behind one home router shares an
 //     address, so the numbers are generous: they stop a script, not a game.
@@ -78,6 +83,14 @@ func applyLimits(se *core.ServeEvent, m Mode) error {
 		return err
 	}
 
+	if m.ProxyHeader != "" {
+		se.Router.Bind(&hook.Handler[*core.RequestEvent]{
+			Id: "gameAddressKey",
+			// Ahead of PocketBase's rate limiter, so it counts by the key too.
+			Priority: apis.DefaultRateLimitMiddlewarePriority - 1,
+			Func:     keyByAddress(m.ProxyHeader),
+		})
+	}
 	guesses := newCodeGuesses(30, 10*time.Minute)
 	se.Router.Bind(&hook.Handler[*core.RequestEvent]{
 		Id:   "gameCodeGuesses",
@@ -143,7 +156,7 @@ func (c *codeGuesses) middleware(e *core.RequestEvent) error {
 	if code == "" {
 		return e.Next()
 	}
-	ip := e.RealIP()
+	ip := addressKey(e.RealIP())
 	if c.blocked(ip) {
 		return refuseWith(http.StatusTooManyRequests, codeTooManyCodes, msgTooManyCodes)
 	}
@@ -189,6 +202,42 @@ func (c *codeGuesses) miss(ip string) bool {
 		}
 	}
 	return w.n == c.max
+}
+
+// addressKey is the key the per-address limits count ip under: an IPv6
+// address by its /64, the block one connection is given, and an IPv4 address
+// as it is. Anything that doesn't parse is its own key.
+func addressKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	a = a.Unmap() // an IPv4 address written as IPv6 is still that one address
+	if a.Is4() {
+		return a.String()
+	}
+	p, err := a.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.Addr().String()
+}
+
+// keyByAddress rewrites the proxy's address header (the trusted one, header)
+// to the visitor's addressKey, so that everything after it that asks
+// e.RealIP(), PocketBase's rate limiter included, counts a /64 as one
+// visitor. Without a proxy header there's nothing to rewrite: PocketBase's
+// limiter then counts the connection's own address (RemoteAddr), each IPv6
+// address apart, and only codeGuesses, which keys on addressKey itself,
+// counts the /64.
+func keyByAddress(header string) func(e *core.RequestEvent) error {
+	return func(e *core.RequestEvent) error {
+		// An IPv4 key is the address itself, so only IPv6 needs rewriting.
+		if ip := e.RealIP(); addressKey(ip) != ip {
+			e.Request.Header.Set(header, addressKey(ip))
+		}
+		return e.Next()
+	}
 }
 
 // clientLogForAGame drops a client log that isn't about an existing game:

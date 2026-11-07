@@ -2,6 +2,8 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -121,7 +123,7 @@ func fromIP(api http.Handler, ip, header, path, code string) *httptest.ResponseR
 	if header != "" {
 		req.Header.Set(header, ip)
 	} else {
-		req.RemoteAddr = ip + ":40000"
+		req.RemoteAddr = net.JoinHostPort(ip, "40000")
 	}
 	rec := httptest.NewRecorder()
 	api.ServeHTTP(rec, req)
@@ -167,6 +169,94 @@ func TestBehindAProxyEachVisitorHasTheirOwnAllowance(t *testing.T) {
 	}
 	if rec := fromIP(api, "203.0.113.2", "Fly-Client-IP", path, g.code()); rec.Code != http.StatusOK {
 		t.Errorf("another visitor through the same proxy: %d, want 200", rec.Code)
+	}
+}
+
+func TestAnAddressKeyIsTheSlash64OfAnIPv6Address(t *testing.T) {
+	for _, tc := range []struct{ ip, want string }{
+		{"198.51.100.7", "198.51.100.7"},
+		{"::ffff:198.51.100.7", "198.51.100.7"},
+		{"2001:db8:1:2:aaaa:bbbb:cccc:dddd", "2001:db8:1:2::"},
+		{"2001:0db8:0001:0002:0000:0000:0000:0001", "2001:db8:1:2::"},
+		{"2001:db8:1:3::1", "2001:db8:1:3::"},
+		{"fe80::1%eth0", "fe80::"},
+		{"", ""},
+		{"not an address", "not an address"},
+	} {
+		if got := addressKey(tc.ip); got != tc.want {
+			t.Errorf("addressKey(%q) = %q, want %q", tc.ip, got, tc.want)
+		}
+	}
+}
+
+// One home connection holds a whole IPv6 /64, so a guesser moving around in
+// it is still one guesser, with or without a proxy in front; the next /64 is
+// someone else.
+func TestGuessingCodesFromOneSlash64IsOneGuesser(t *testing.T) {
+	for _, header := range []string{"", "Fly-Client-IP"} {
+		t.Run("header="+header, func(t *testing.T) {
+			app := newTestApp(t)
+			api := servePublic(t, app, publicWith(func(m *Mode) { m.ProxyHeader = header }))
+			g := newLobby(t, app, "ann")
+			path := "/api/collections/games/records"
+
+			for i := range 30 {
+				ip := fmt.Sprintf("2001:db8:1:2::%x", i+1)
+				if rec := fromIP(api, ip, header, path, fmt.Sprintf("zz%03d", i)); rec.Code != http.StatusOK {
+					t.Fatalf("wrong code %d: %d, want an empty list", i+1, rec.Code)
+				}
+			}
+			if rec := fromIP(api, "2001:db8:1:2:ffff:ffff:ffff:ffff", header, path, g.code()); rec.Code != http.StatusTooManyRequests {
+				t.Errorf("another address in the same /64: %d, want 429", rec.Code)
+			}
+			if rec := fromIP(api, "2001:db8:1:3::1", header, path, g.code()); rec.Code != http.StatusOK {
+				t.Errorf("the next /64: %d, want 200", rec.Code)
+			}
+		})
+	}
+}
+
+// createGameFrom asks api for a new game from the address ip, given by the
+// proxy in header.
+func createGameFrom(api http.Handler, ip, header string) int {
+	req := httptest.NewRequest(http.MethodPost, gamesPath, strings.NewReader(`{"roundDuration":-1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(header, ip)
+	rec := httptest.NewRecorder()
+	api.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+// PocketBase's rate limiter counts a /64 behind the proxy as one visitor too,
+// and an IPv4 address as itself.
+func TestBehindAProxyTheRateLimitsCountASlash64AsOne(t *testing.T) {
+	const header = "Fly-Client-IP"
+	app := newTestApp(t)
+	api := servePublicAs(t, app, publicWith(func(m *Mode) { m.ProxyHeader = header }))
+
+	// games:create allows 10 a minute from one address.
+	for i := range 10 {
+		if code := createGameFrom(api, fmt.Sprintf("2001:db8:1:2::%x", i+1), header); code != http.StatusOK {
+			t.Fatalf("game %d: %d", i+1, code)
+		}
+	}
+	if code := createGameFrom(api, "2001:db8:1:2:ffff::1", header); code != http.StatusTooManyRequests {
+		t.Errorf("game 11 from the same /64: %d, want 429", code)
+	}
+	if code := createGameFrom(api, "2001:db8:1:3::1", header); code != http.StatusOK {
+		t.Errorf("a game from the next /64: %d, want 200", code)
+	}
+
+	for i := range 10 {
+		if code := createGameFrom(api, "203.0.113.1", header); code != http.StatusOK {
+			t.Fatalf("IPv4 game %d: %d", i+1, code)
+		}
+	}
+	if code := createGameFrom(api, "203.0.113.1", header); code != http.StatusTooManyRequests {
+		t.Errorf("IPv4 game 11: %d, want 429", code)
+	}
+	if code := createGameFrom(api, "203.0.113.2", header); code != http.StatusOK {
+		t.Errorf("a game from the next IPv4 address: %d, want 200", code)
 	}
 }
 
