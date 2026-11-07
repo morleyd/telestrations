@@ -39,6 +39,8 @@ readme-gif: setup
 	RECORD_GIF=1 npx playwright test readme-gif.spec.js --retries=0
 
 # Checks a deployed server (DEPLOY.md): make -C web hosted URL=https://...
+# Without URL the spec would skip every test and pass, so that's an error.
 .PHONY: hosted
 hosted: setup
+	@test -n "$(URL)" || { echo 'usage: make -C web hosted URL=https://...'; exit 1; }
 	HOSTED_URL=$(URL) npx playwright test hosted.spec.js --retries=0
