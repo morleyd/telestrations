@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -172,6 +173,56 @@ func TestOnlyDifferentWrongCodesCount(t *testing.T) {
 	fromIP(api, "198.51.100.7", "", path, "zz029")
 	if rec := fromIP(api, "198.51.100.7", "", path, g.code()); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("after the 30th different wrong code: %d, want 429", rec.Code)
+	}
+}
+
+// guessesAt is a codeGuesses on a clock the test moves (*now).
+func guessesAt(max int, window time.Duration, now *time.Time) *codeGuesses {
+	c := newCodeGuesses(max, window)
+	c.now = func() time.Time { return *now }
+	return c
+}
+
+// A block lasts its window, and then the address starts again from nothing.
+func TestACodeGuessBlockLiftsAfterItsWindow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	c := guessesAt(3, time.Minute, &now)
+	const ip = "198.51.100.7"
+
+	if c.miss(ip, "aaaaa") || c.miss(ip, "bbbbb") || c.blocked(ip) {
+		t.Fatal("blocked after two wrong codes of three")
+	}
+	if !c.miss(ip, "ccccc") || !c.blocked(ip) {
+		t.Fatal("not blocked after the third wrong code")
+	}
+	now = now.Add(time.Minute - time.Second)
+	if !c.blocked(ip) {
+		t.Fatal("the block lifted before its window ran out")
+	}
+	now = now.Add(time.Second)
+	if c.blocked(ip) {
+		t.Fatal("still blocked once the window ran out")
+	}
+	if c.miss(ip, "ddddd") || c.miss(ip, "eeeee") || c.blocked(ip) {
+		t.Fatal("the next window didn't count from nothing")
+	}
+}
+
+// The windows that have run out are forgotten once there are more than
+// 10000, so addresses that come and go can't grow the map without end.
+func TestCodeGuessesForgetOldWindows(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	c := guessesAt(30, time.Minute, &now)
+	for i := range 10001 {
+		c.miss(fmt.Sprintf("10.%d.%d.%d", i>>16, i>>8&255, i&255), "zzzzz")
+	}
+	now = now.Add(30 * time.Second)
+	c.miss("198.51.100.7", "zzzzz") // half way through its window
+	now = now.Add(30 * time.Second)
+	c.miss("198.51.100.8", "zzzzz")
+
+	if len(c.misses) != 2 || c.misses["198.51.100.7"] == nil || c.misses["198.51.100.8"] == nil {
+		t.Fatalf("%d windows kept, want the 2 still running", len(c.misses))
 	}
 }
 
