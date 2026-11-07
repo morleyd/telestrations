@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -205,6 +206,32 @@ func TestACodeCantWriteIntoAnotherGame(t *testing.T) {
 		map[string]any{"starter_id": other.players["cat"].Id, "game_id": mine.game.Id})
 	if rec.Code == http.StatusOK {
 		t.Error("a story for another game's player went into mine")
+	}
+	// A story that names the other game and a player of it, sent with my code or
+	// no code at all, is refused by the code clause alone. The player is new, so
+	// the starter-in-game check and the one story per starter and game both
+	// allow it.
+	eve := save(t, app, "users", map[string]any{"username": "eve", "game_id": other.game.Id, "position": 2})
+	storiesInOther := func() int {
+		t.Helper()
+		n, err := app.CountRecords("stories", dbx.HashExp{"game_id": other.game.Id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return int(n)
+	}
+	before := storiesInOther()
+	intoOther := map[string]any{"starter_id": eve.Id, "game_id": other.game.Id}
+	for name, code := range map[string]string{"mine's code": mine.code(), "no code": ""} {
+		if rec := callWithCode(api, http.MethodPost, "/api/collections/stories/records", code, intoOther); rec.Code == http.StatusOK {
+			t.Errorf("a story for the other game went in with %s", name)
+		}
+	}
+	if n := storiesInOther(); n != before {
+		t.Errorf("the other game has %d stories, want its %d unchanged", n, before)
+	}
+	if rec := callWithCode(api, http.MethodPost, "/api/collections/stories/records", other.code(), intoOther); rec.Code != http.StatusOK {
+		t.Errorf("the same story with its own game's code: %d %s", rec.Code, rec.Body)
 	}
 	turn := other.nextTurn(t, "cat", "cat")
 	turn["game_id"] = mine.game.Id
