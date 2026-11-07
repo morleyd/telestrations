@@ -3,6 +3,7 @@ package game
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"hash/maphash"
 	"io"
 	"net/http"
@@ -128,6 +129,24 @@ func applyLimits(se *core.ServeEvent, m Mode) error {
 		}
 		return e.Next()
 	})
+	return nil
+}
+
+// resetLimits turns off, at home, what applyLimits saved in the data
+// directory: the rate limits and the trusted proxy header. Settings live in
+// pb_data, so a data directory that once ran in public mode would otherwise
+// keep rate limiting a home party, all on one address, and keep trusting a
+// header anyone on the network can write.
+func resetLimits(app core.App) error {
+	settings := app.Settings()
+	if !settings.RateLimits.Enabled && len(settings.TrustedProxy.Headers) == 0 {
+		return nil
+	}
+	settings.RateLimits.Enabled = false
+	settings.TrustedProxy.Headers = nil
+	if err := app.Save(settings); err != nil {
+		return fmt.Errorf("reset the public limits: %w", err)
+	}
 	return nil
 }
 

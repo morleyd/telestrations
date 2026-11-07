@@ -349,3 +349,30 @@ func TestTheClientLogTakesAPartysPosts(t *testing.T) {
 		t.Fatalf("post 601 in a minute: %d, want 429", rec.Code)
 	}
 }
+
+// The limits are saved in the data directory, so a server started at home on
+// one that ran in public mode turns them off again.
+func TestAtHomeTheSavedLimitsAreTurnedOff(t *testing.T) {
+	app := newTestApp(t)
+	servePublic(t, app, publicWith(func(m *Mode) { m.ProxyHeader = "Fly-Client-IP" }))
+	if err := app.ReloadSettings(); err != nil {
+		t.Fatal(err)
+	}
+	if s := app.Settings(); !s.RateLimits.Enabled || len(s.TrustedProxy.Headers) == 0 {
+		t.Fatalf("public mode saved rate limits %v, proxy headers %v", s.RateLimits.Enabled, s.TrustedProxy.Headers)
+	}
+
+	// The same data dir, started at home.
+	if err := ConfigureServe(&core.ServeEvent{App: app}, Mode{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.ReloadSettings(); err != nil {
+		t.Fatal(err)
+	}
+	if s := app.Settings(); s.RateLimits.Enabled || len(s.TrustedProxy.Headers) != 0 {
+		t.Errorf("at home: rate limits %v, proxy headers %v, want both off", s.RateLimits.Enabled, s.TrustedProxy.Headers)
+	}
+	if err := resetLimits(app); err != nil {
+		t.Errorf("again, with nothing to turn off: %v", err)
+	}
+}

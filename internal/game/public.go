@@ -121,11 +121,10 @@ func ConfigureServe(se *core.ServeEvent, m Mode) error {
 	// On the internet: the superuser from the environment, no setup link,
 	// and the dashboard hidden unless it's switched on.
 	if m.Public {
-		if err := ServePublic(se, m); err != nil {
-			return err
-		}
+		return ServePublic(se, m)
 	}
-	return nil
+	// At home, nothing a public run saved into the settings still applies.
+	return resetLimits(se.App)
 }
 
 // printInstallerLink is apis.DefaultInstallerFunc minus the browser launch.
