@@ -206,13 +206,14 @@ export const pbService = {
     rematch: (gameId, hostId, { roundDuration, rounds, endless }) => call(() =>
       post(`/api/games/${gameId}/rematch`, { host_id: hostId, round_duration: roundDuration, rounds, endless })),
     // The game with this code (see gameStatus). notFound: there's none, and
-    // errMsg says so. A 404 isn't retried: the code is often typed, and a wrong
-    // one should be answered at once, not after the retries. (A public server
-    // also counts wrong codes against the address: internal/game/limits.go.)
-    async checkGameStatus(gameCode) {
+    // errMsg says so. typed: the player just typed the code, so a 404 isn't
+    // retried and a wrong code is answered at once (a public server also counts
+    // wrong codes against the address: internal/game/limits.go). A code from
+    // the address or a game we're in keeps the retry.
+    async checkGameStatus(gameCode, { typed = false } = {}) {
       const resp = await call(async () =>
         gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }),
-          { headers: gameHeaders(gameCode) }, { retryNotFound: false })))
+          { headers: gameHeaders(gameCode) }, { retryNotFound: !typed })))
       return resp.notFound ? { ...resp, errMsg: "Invalid Game Code. Try again or create a new game." } : resp
     },
   },
