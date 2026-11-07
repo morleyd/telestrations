@@ -13,6 +13,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/router"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // Bots: players the server plays, so one visitor can play a whole game. The
@@ -201,7 +202,7 @@ func playGameBots(app core.App, gameID string, now time.Time) error {
 	// Here, as far as the waiting screen can tell.
 	_, err = app.DB().NewQuery(`UPDATE users SET seen_at = {:t}, working_on = ''
 		WHERE game_id = {:g} AND is_bot = 1`).
-		Bind(dbx.Params{"t": now.UTC().Format("2006-01-02 15:04:05.000Z"), "g": gameID}).Execute()
+		Bind(dbx.Params{"t": now.UTC().Format(types.DefaultDateLayout), "g": gameID}).Execute()
 	if err != nil {
 		return err
 	}
