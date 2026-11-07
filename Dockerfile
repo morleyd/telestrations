@@ -22,9 +22,14 @@ COPY --from=web /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /doodledrift ./cmd/doodledrift
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata
+# The server runs as doodledrift, not root: docker-entrypoint.sh gives it the
+# data directory and drops to it with su-exec.
+RUN apk add --no-cache ca-certificates tzdata su-exec \
+	&& adduser -D -H -s /sbin/nologin doodledrift
 COPY --from=server /doodledrift /usr/local/bin/doodledrift
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # The games live on a volume mounted here (fly.toml).
 VOLUME /pb_data
 EXPOSE 8080
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["doodledrift", "serve", "--http=0.0.0.0:8080", "--dir=/pb_data"]

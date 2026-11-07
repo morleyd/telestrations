@@ -134,6 +134,8 @@ jobs:
           for i in $(seq 1 30); do curl -fs http://127.0.0.1:8080/health && break; sleep 1; done
           curl -fs http://127.0.0.1:8080/ | grep -q "<title>Doodle Drift</title>"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/_/)" = 404
+          # The server runs as its own user, not root (docker-entrypoint.sh).
+          test "$(docker exec dd stat -c %U /proc/1)" = doodledrift
       - name: Its logs
         if: ${{ !cancelled() }}
         run: docker logs dd
