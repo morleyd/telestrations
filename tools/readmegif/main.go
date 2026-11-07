@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
@@ -30,34 +31,59 @@ func main() {
 	width := flag.Int("width", 760, "the GIF's width in pixels")
 	flag.Parse()
 
-	data, err := os.ReadFile(filepath.Join(*dir, "frames.json"))
+	n, err := run(*dir, *out, *width)
 	if err != nil {
-		log.Fatalf("read the frames list (record them first): %v", err)
+		log.Fatal(err)
+	}
+	log.Printf("wrote %s: %d frames", *out, n)
+}
+
+// run encodes the frames in dir as the GIF out, and says how many it wrote.
+// The GIF is committed, so a run that fails must leave the one already there
+// alone: it's encoded to a temporary file beside out and only renamed over it
+// once it's complete.
+func run(dir, out string, width int) (int, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "frames.json"))
+	if err != nil {
+		return 0, fmt.Errorf("read the frames list (record them first): %w", err)
 	}
 	var frames []frame
 	if err := json.Unmarshal(data, &frames); err != nil {
-		log.Fatal(err)
+		return 0, err
+	}
+	if len(frames) == 0 {
+		return 0, fmt.Errorf("%s lists no frames", filepath.Join(dir, "frames.json"))
 	}
 
 	anim := &gif.GIF{}
 	for _, f := range frames {
-		img, err := readPNG(filepath.Join(*dir, f.File))
+		img, err := readPNG(filepath.Join(dir, f.File))
 		if err != nil {
-			log.Fatal(err)
+			return 0, err
 		}
-		small := scale(img, *width)
-		anim.Image = append(anim.Image, quantize(small))
+		anim.Image = append(anim.Image, quantize(scale(img, width)))
 		anim.Delay = append(anim.Delay, f.MS/10) // hundredths of a second
 	}
-	file, err := os.Create(*out)
+
+	tmp, err := os.CreateTemp(filepath.Dir(out), ".readmegif-*.gif")
 	if err != nil {
-		log.Fatal(err)
+		return 0, err
 	}
-	defer file.Close()
-	if err := gif.EncodeAll(file, anim); err != nil {
-		log.Fatal(err)
+	defer os.Remove(tmp.Name()) // a no-op once it has been renamed
+	if err := gif.EncodeAll(tmp, anim); err != nil {
+		tmp.Close()
+		return 0, err
 	}
-	log.Printf("wrote %s: %d frames", *out, len(frames))
+	if err := tmp.Close(); err != nil {
+		return 0, err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return 0, err
+	}
+	if err := os.Rename(tmp.Name(), out); err != nil {
+		return 0, err
+	}
+	return len(frames), nil
 }
 
 func readPNG(path string) (image.Image, error) {
