@@ -285,10 +285,9 @@ func clientLogForAGame(e *core.RequestEvent) error {
 		return e.BadRequestError("Invalid log payload.", err)
 	}
 	e.Request.Body = io.NopCloser(bytes.NewReader(data))
-	body := struct {
-		Game   string `json:"game"`
-		GameID string `json:"gameId"`
-	}{}
+	var body clientLogGame
+	// A body that doesn't parse names no game, and is dropped below like any
+	// other; the log route would refuse it anyway.
 	_ = json.Unmarshal(data, &body)
 	var n int
 	err = e.App.DB().NewQuery("SELECT COUNT(*) FROM games WHERE id = {:id} AND game_code = {:c}").

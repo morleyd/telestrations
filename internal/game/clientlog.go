@@ -18,16 +18,22 @@ type clientLogEntry struct {
 	Attrs map[string]any `json:"attrs"`
 }
 
+// clientLogGame is the game a client log is about. handleClientLog logs it,
+// and clientLogForAGame (limits.go) checks it's a real one.
+type clientLogGame struct {
+	Game   string `json:"game"`
+	GameID string `json:"gameId"`
+}
+
 const maxClientLogBytes = 256 << 10
 const maxClientLogEntries = 200
 
 func handleClientLog(e *core.RequestEvent) error {
 	body := struct {
+		clientLogGame
 		Session  string           `json:"session"`
 		Browser  string           `json:"browser"`
 		UA       string           `json:"ua"`
-		Game     string           `json:"game"`
-		GameID   string           `json:"gameId"`
 		Username string           `json:"username"`
 		UserID   string           `json:"userId"`
 		Entries  []clientLogEntry `json:"entries"`

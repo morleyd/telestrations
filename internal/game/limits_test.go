@@ -366,7 +366,7 @@ func TestPublicClientLogNeedsARealGame(t *testing.T) {
 		})
 		return body
 	}
-	for _, b := range [][]byte{batch("", ""), batch("zzzzz", g.game.Id), batch(g.code(), "nosuchgame")} {
+	for _, b := range [][]byte{batch("", ""), batch("zzzzz", g.game.Id), batch(g.code(), "nosuchgame"), []byte("{not json")} {
 		if rec := postLog(api, "text/plain", b); rec.Code != http.StatusNoContent {
 			t.Fatalf("status %d", rec.Code)
 		}
