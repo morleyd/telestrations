@@ -25,7 +25,10 @@ import (
 //   - No CORS: PocketBase allows any origin by default, but the web app is
 //     served from the same address as the API, so nothing else needs it.
 //
-// The dashboard (/_/) keeps PocketBase's own policy, which its UI needs.
+// The dashboard (/_/) keeps PocketBase's own policy, which its UI needs. So do
+// uploaded files (/api/files/): PocketBase gives them a sandboxed policy
+// unless one is already set, and a stranger's upload should get that, not the
+// app's script permissions.
 
 const contentSecurityPolicy = "default-src 'self'; " +
 	"script-src 'self'; " +
@@ -51,7 +54,7 @@ func bindSecurityHeaders(se *core.ServeEvent) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "same-origin")
-			if p := e.Request.URL.Path; p != "/_" && !strings.HasPrefix(p, "/_/") {
+			if p := e.Request.URL.Path; p != "/_" && !strings.HasPrefix(p, "/_/") && !strings.HasPrefix(p, "/api/files/") {
 				h.Set("Content-Security-Policy", contentSecurityPolicy)
 			}
 			return e.Next()

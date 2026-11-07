@@ -80,6 +80,32 @@ func TestTheDashboardKeepsItsOwnPolicy(t *testing.T) {
 	}
 }
 
+// Uploaded drawings keep PocketBase's sandboxed policy, which only applies when
+// no other policy is set; the other headers still cover them. (PocketBase
+// itself drops X-Frame-Options from file responses so they can be embedded.)
+func TestAFileKeepsPocketBasesSandboxPolicy(t *testing.T) {
+	app := newTestApp(t)
+	api := serveLikeServe(t, app, true)
+	g := newGame(t, app, "ann", "ben")
+	g.play(t, "ann", "ann")
+	turn := g.drawWithFile(t, "ann", "ben")
+
+	rec := get(api, "/api/files/turns/"+turn.Id+"/"+turn.GetString("drawing"), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("drawing: %d", rec.Code)
+	}
+	h := rec.Header()
+	if csp := h.Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") || strings.Contains(csp, "script-src 'self'") {
+		t.Errorf("file CSP = %q, want PocketBase's sandbox policy, not the game's", csp)
+	}
+	if got := h.Get("Strict-Transport-Security"); got == "" {
+		t.Error("a file response lost HSTS")
+	}
+	if got := h.Get("Referrer-Policy"); got != "same-origin" {
+		t.Errorf("a file response's Referrer-Policy = %q, want same-origin", got)
+	}
+}
+
 func TestAtHomeTheHeadersAreAsBefore(t *testing.T) {
 	api := serveLikeServe(t, newTestApp(t), false)
 	h := get(api, "/health", map[string]string{"Origin": "http://192.168.1.20:3000"}).Header()
