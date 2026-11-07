@@ -62,7 +62,7 @@ test('record the README GIF', async ({ page }) => {
     } else if (state === 'draw') {
       await page.waitForTimeout(400)
       await frame(1600)
-      await sketch(page, frame, await page.locator('.drawing-prompt-text').innerText().catch(() => ''))
+      await sketch(page, frame, await page.locator('.drawing-prompt-text').innerText())
       await Promise.all([
         turnCreated(page),
         page.locator('.v-window-item--active').getByRole('button', { name: 'Submit' }).click(),
@@ -76,6 +76,10 @@ test('record the README GIF', async ({ page }) => {
       await page.waitForTimeout(400)
     }
   }
+
+  // Dana is done once her own turns are, but the last turns of her story are
+  // the bots', so the review opens only when the whole game is done.
+  await expect(page.getByText('Game done')).toBeVisible({ timeout: 60_000 })
 
   // The review: Dana's own story, start to finish.
   await page.waitForTimeout(800)
@@ -91,7 +95,9 @@ test('record the README GIF', async ({ page }) => {
 })
 
 // A guess at a bot's doodle, close but not quite: the doodle's name is in its
-// file's name (see internal/game/doodles.go).
+// file's name. internal/game/doodles.go is the source of truth for the doodles
+// and their guesses; a doodle added there needs an entry here, a sketch and
+// keywords below, and the recording fails until it has them.
 const NEAR_MISSES = {
   sun: 'a fried egg', house: 'a little barn', tree: 'a giant broccoli', cat: 'a grumpy owl',
   fish: 'a goldfish', car: 'a toy truck', flower: 'a daisy', star: 'a starfish',
@@ -99,16 +105,18 @@ const NEAR_MISSES = {
 }
 
 async function guessFor(page) {
-  const src = await page.locator('.v-img img').first().getAttribute('src').catch(() => '')
-  const name = /\/bot_([a-z]+)_/.exec(src || '')?.[1]
-  return NEAR_MISSES[name] || 'something lovely'
+  const src = await page.locator('.v-img img').first().getAttribute('src')
+  const name = /\/bot_([a-z]+)_/.exec(src ?? '')?.[1]
+  if (!NEAR_MISSES[name]) throw new Error(`no near miss for the drawing at ${src}`)
+  return NEAR_MISSES[name]
 }
 
 const circle = (cx, cy, rx, ry, n = 28) =>
   Array.from({ length: n + 1 }, (_, i) => [cx + rx * Math.cos((i / n) * 2 * Math.PI), cy + ry * Math.sin((i / n) * 2 * Math.PI)])
 
 // What a person might sketch for each thing a bot asks for, in strokes on a
-// canvas 1 wide and 1 high. Each is two halves, with a frame after each.
+// canvas 1 wide and 1 high. Each is two halves (the second may be empty),
+// with a frame after each half that has strokes.
 const SKETCHES = {
   sun: [[circle(0.5, 0.5, 0.12, 0.18)],
     Array.from({ length: 8 }, (_, i) => {
@@ -141,14 +149,17 @@ const SKETCHES = {
     [[[0.51, 0.22], [0.66, 0.6], [0.51, 0.6]], [[0.2, 0.85], [0.3, 0.82], [0.4, 0.85], [0.5, 0.82], [0.6, 0.85], [0.7, 0.82], [0.8, 0.85]]]],
   balloon: [[circle(0.5, 0.38, 0.13, 0.24)], [[[0.5, 0.62], [0.47, 0.72], [0.53, 0.82], [0.49, 0.92]]]],
 }
+// Which sketch a prompt gets: the first whose pattern matches, so a word that
+// holds another's ("starfish") needs its owner listed first. Every prompt a
+// bot can set (a doodle's guesses in doodles.go) has to match one.
 const KEYWORDS = {
   sun: /sun|lemon|egg/, house: /house|home|barn/, tree: /tree|broccoli|oak/, cat: /cat|kitten|owl/,
-  fish: /fish|whale|shark/, car: /car|truck|taxi/, flower: /flower|daisy|spring/, star: /star|sticker/,
+  star: /star|sticker/, fish: /fish|whale|shark/, car: /car|truck|taxi/, flower: /flower|daisy|spring/,
   smiley: /smil|happ|emoji|face/, cloud: /cloud|storm|rain|sheep/, boat: /boat|ship|sea/, balloon: /balloon|party|lollipop/,
 }
 
 // sketch draws what prompt asks for on the canvas the way a person would, a
-// few strokes at a time, keeping a frame after each half.
+// few strokes at a time, keeping a frame after each half that has strokes.
 async function sketch(page, frame, prompt) {
   const box = await page.locator('canvas.paint-canvas').boundingBox()
   const at = (fx, fy) => [box.x + fx * box.width, box.y + fy * box.height]
@@ -158,11 +169,14 @@ async function sketch(page, frame, prompt) {
     for (const p of points.slice(1)) await page.mouse.move(...at(...p), { steps: 3 })
     await page.mouse.up()
   }
-  const name = Object.keys(KEYWORDS).find((k) => KEYWORDS[k].test(prompt.toLowerCase())) || 'smiley'
+  const name = Object.keys(KEYWORDS).find((k) => KEYWORDS[k].test(prompt.toLowerCase()))
+  if (!name) throw new Error(`no sketch for the prompt "${prompt}"`)
   await page.keyboard.press('3') // a thicker brush
   const [first, second] = SKETCHES[name]
   for (const s of first) await stroke(s)
-  await frame(500)
-  for (const s of second) await stroke(s)
+  if (second.length) {
+    await frame(500)
+    for (const s of second) await stroke(s)
+  }
   await frame(1400)
 }
