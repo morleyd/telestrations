@@ -145,7 +145,9 @@ gets a "⏱ *name* ran out of time" slide.
 On a home network the game trusts the people in the room. A server on the
 internet can't, so it runs in public mode, set from the environment:
 
-- `PUBLIC_MODE=1` turns it on.
+- `PUBLIC_MODE=1` (or `true`, `yes`, `on`) turns it on; `0`, `false`, `no`,
+  `off` or unset leaves it off. Any other value (a typo, say) stops the server
+  rather than starting it in home mode.
 - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 20 characters) are the only
   superuser. The server won't start without them; it creates or updates that
   superuser on every start and removes any other. It prints no setup link.

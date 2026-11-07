@@ -14,7 +14,10 @@ import (
 // game on the Wi-Fi trusts the people in the room; a public one can't, so the
 // stricter settings switch on together, from the environment:
 //
-//   - PUBLIC_MODE=1 turns it on.
+//   - PUBLIC_MODE=1 turns it on (so do true, yes and on), and 0, false, no,
+//     off or nothing leave it off. Any other value stops the server: a typo
+//     would otherwise start home mode, setup link and dashboard open, on the
+//     internet.
 //   - ADMIN_EMAIL and ADMIN_PASSWORD are the only superuser. The server won't
 //     start in public mode without them, makes or updates that superuser on
 //     every start, and removes any other (a copied pb_data's, say). There's no
@@ -38,14 +41,22 @@ type Mode struct {
 // guessing it hopeless.
 const minAdminPassword = 20
 
-// ModeFromEnv reads the mode from the environment (getenv is os.Getenv), and
-// refuses a public mode without a usable superuser.
+// ModeFromEnv reads the mode from the environment (getenv is os.Getenv). It
+// refuses a PUBLIC_MODE it can't read, and a public mode without a usable
+// superuser.
 func ModeFromEnv(getenv func(string) string) (Mode, error) {
 	m := Mode{
-		Public:        isOn(getenv("PUBLIC_MODE")),
 		AdminEmail:    strings.TrimSpace(getenv("ADMIN_EMAIL")),
 		AdminPassword: getenv("ADMIN_PASSWORD"),
 		Dashboard:     isOn(getenv("ADMIN_DASHBOARD")),
+	}
+	public := getenv("PUBLIC_MODE")
+	switch strings.ToLower(strings.TrimSpace(public)) {
+	case "1", "true", "yes", "on":
+		m.Public = true
+	case "", "0", "false", "no", "off":
+	default:
+		return m, fmt.Errorf("PUBLIC_MODE=%q: want 1, true, yes or on for public mode, or 0, false, no, off or unset for home", public)
 	}
 	if !m.Public {
 		return m, nil

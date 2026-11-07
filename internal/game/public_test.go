@@ -38,6 +38,11 @@ func TestModeFromEnv(t *testing.T) {
 	}{
 		{name: "home network by default", vars: map[string]string{}},
 		{name: "home network needs no admin", vars: map[string]string{"PUBLIC_MODE": "0"}},
+		{name: "off is home", vars: map[string]string{"PUBLIC_MODE": "off"}},
+		{name: "TRUE is public", vars: with("PUBLIC_MODE", " TRUE "), public: true},
+		// A typo stops the server rather than starting it in home mode.
+		{name: "enabled is a mistake", vars: with("PUBLIC_MODE", "enabled"), wantErr: "PUBLIC_MODE"},
+		{name: "y is a mistake", vars: with("PUBLIC_MODE", "y"), wantErr: "PUBLIC_MODE"},
 		{name: "public", vars: good, public: true},
 		{name: "public without an email", vars: with("ADMIN_EMAIL", ""), public: true, wantErr: "ADMIN_EMAIL"},
 		{name: "public with a short password", vars: with("ADMIN_PASSWORD", "asdfasdfasdf"), public: true, wantErr: "ADMIN_PASSWORD"},
