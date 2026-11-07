@@ -74,6 +74,12 @@ import { pb, pbService, gameHeaders } from '@/services/pocketbase'
 import { log } from '@/services/log'
 import { copyText } from '@/services/clipboard'
 import { oneAtATime } from '@/services/oneAtATime'
+
+// A public server deletes a lobby nobody started after an hour with nothing
+// happening in it (internal/game/expiry.go). A device waiting here says so now
+// and then, which keeps the lobby while people wait in it.
+const LOBBY_PRESENCE_MS = 5 * 60 * 1000
+
 export default {
   data() {
     return {
@@ -123,13 +129,24 @@ export default {
 
     await this.resolveUser()
     await this.refreshRoster()
+    if (this.left) return
+    this.reportLobbyPresence()
+    this.presenceTimer = setInterval(() => this.reportLobbyPresence(), LOBBY_PRESENCE_MS)
   },
   unmounted() {
+    this.left = true
+    clearInterval(this.presenceTimer)
     pb.collection('users').unsubscribe();
     pb.collection('games').unsubscribe();
     pb.realtime.unsubscribe('PB_CONNECT');
   },
   methods: {
+    // Best effort: a failed report is only a missed beat. Only a tab with a
+    // seat in this game has anything to report.
+    reportLobbyPresence() {
+      const userId = this.userStore.userId
+      if (userId && this.userStore.gameId === this.gameId) pbService.games.reportPresence(this.gameId, userId, "")
+    },
     // Work out who this tab is in *this* game. The stored user outlives a game
     // (sessionStorage), so following a new game's link from the last game's
     // review page arrives with a user that belongs to the old game. Only a user

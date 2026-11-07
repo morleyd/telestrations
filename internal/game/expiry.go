@@ -20,11 +20,12 @@ import (
 //     join, a player's device checking in. This is what clears an endless game
 //     nobody ended;
 //   - keepIdleLobby, for a game nobody has started, after anything last
-//     happened in it. A host whose page is open keeps checking in, so only a
-//     lobby left behind goes; without this, empty lobbies would sit on the
-//     server's game limit for a week.
+//     happened in it. A device waiting in the lobby checks in every few
+//     minutes (the waiting room's presence reports), so only a lobby left
+//     behind goes; without this, empty lobbies would sit on the server's game
+//     limit for a week.
 //
-// Both are worked out from the game's own records, so nothing has to keep a
+// All of these are worked out from the game's own records, so nothing has to keep a
 // timestamp up to date as the game goes. A job checks every 15 minutes, and
 // the server's logs (which hold players' names and addresses) are kept for
 // logDays. Home mode keeps everything, as before.
@@ -72,18 +73,34 @@ func deleteExpiredGames(app core.App, now time.Time) (int, error) {
 	n := 0
 	var errs []error
 	for _, id := range ids {
-		expired, err := gameExpired(app, id, now)
-		if err == nil && expired {
-			err = deleteGameRecords(app, id)
-			if err == nil {
-				n++
-			}
+		deleted, err := expireGame(app, id, now)
+		if deleted {
+			n++
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("game %s: %w", id, err))
 		}
 	}
 	return n, errors.Join(errs...)
+}
+
+// expireGame deletes gameID if it's past keeping at now, deciding inside the
+// delete's own transaction: a lobby that's started (or a game that's moved on)
+// while the job runs is kept, not deleted on what was read a moment before.
+func expireGame(app core.App, gameID string, now time.Time) (bool, error) {
+	deleted := false
+	err := app.RunInTransaction(func(tx core.App) error {
+		expired, err := gameExpired(tx, gameID, now)
+		if err != nil || !expired {
+			return err
+		}
+		if err := deleteGameRecords(tx, gameID); err != nil {
+			return err
+		}
+		deleted = true
+		return nil
+	})
+	return deleted && err == nil, err
 }
 
 // gameExpired reports whether gameID is past keeping at now (see Expiry).

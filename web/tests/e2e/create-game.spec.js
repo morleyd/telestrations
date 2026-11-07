@@ -27,3 +27,12 @@ test('host creates an untimed game and reaches the waiting room', async ({ page 
   expect(code).toMatch(/^[a-zA-Z]{5}$/)
   await expect(page.getByText('Welcome soloist!')).toBeVisible()
 })
+
+// A public server deletes a lobby nobody started after an hour with nothing
+// happening in it; the waiting room reports the host is still there, which is
+// what keeps a lobby people are waiting in.
+test('the waiting room reports the host is there', async ({ page }) => {
+  const report = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/presence'))
+  await createGame(page)
+  await report
+})

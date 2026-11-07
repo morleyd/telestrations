@@ -149,18 +149,32 @@ func TestALobbyNobodyStartedIsKeptAnHour(t *testing.T) {
 	}
 }
 
-// A host whose page is open keeps checking in, so a lobby they're still
+// The waiting room reports in every few minutes, so a lobby people are still
 // waiting in isn't idle however long they take to start it.
 func TestAHostCheckingInKeepsALobby(t *testing.T) {
 	app := newTestApp(t)
+	api := serveAPI(t, app)
 	g := newLobby(t, app, "ann", "ben")
-	seenAt(t, app, g, later(50*time.Minute))
-
-	if n := cleanUp(t, app, later(100*time.Minute)); n != 0 {
-		t.Fatalf("50 min after the check-in: %d deleted", n)
+	// Everything in the lobby happened two hours ago...
+	old := later(-2 * time.Hour).UTC().Format("2006-01-02 15:04:05.000Z")
+	for _, q := range []string{
+		"UPDATE games SET created = {:t}, updated = {:t} WHERE id = {:g}",
+		"UPDATE users SET created = {:t}, updated = {:t} WHERE game_id = {:g}",
+	} {
+		if _, err := app.DB().NewQuery(q).Bind(dbx.Params{"t": old, "g": g.game.Id}).Execute(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if n := cleanUp(t, app, later(112*time.Minute)); n != 1 {
-		t.Fatalf("62 min after the check-in: %d deleted, want 1", n)
+	// ...but the host's waiting-room page reports in, as it does every few minutes.
+	if code := g.presence(api, "ann", ""); code != http.StatusNoContent {
+		t.Fatalf("presence in the lobby: %d", code)
+	}
+
+	if n := cleanUp(t, app, later(50*time.Minute)); n != 0 {
+		t.Fatalf("50 min after the report: %d deleted", n)
+	}
+	if n := cleanUp(t, app, later(62*time.Minute)); n != 1 {
+		t.Fatalf("62 min after the report: %d deleted, want 1", n)
 	}
 }
 
@@ -326,5 +340,21 @@ func TestPublicModeSaysHowLongGamesAreKept(t *testing.T) {
 	}
 	if days := app.Settings().Logs.MaxDays; days != logDays {
 		t.Errorf("logs kept %d days, want %d", days, logDays)
+	}
+}
+
+// The job decides inside the delete's own transaction, so a game that's moved
+// on since the job listed it (a lobby just started, a turn just taken) is
+// judged on what it is now and kept.
+func TestExpiryDecidesInsideTheDelete(t *testing.T) {
+	app := newTestApp(t)
+	g := newLobby(t, app, "ann")
+	deleted, err := expireGame(app, g.game.Id, time.Now())
+	if err != nil || deleted || !exists(t, app, "games", g.game.Id) {
+		t.Fatalf("a live lobby: deleted %v (%v)", deleted, err)
+	}
+	deleted, err = expireGame(app, g.game.Id, later(2*time.Hour))
+	if err != nil || !deleted || exists(t, app, "games", g.game.Id) {
+		t.Fatalf("an hour idle: deleted %v (%v)", deleted, err)
 	}
 }
