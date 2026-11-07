@@ -6,12 +6,14 @@ import (
 	"image/png"
 	"math/rand/v2"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // Bots (bots.go, doodles.go): players the server plays.
@@ -276,6 +278,33 @@ func TestBotsPlayAWholeGameWithAPerson(t *testing.T) {
 			}
 		}
 	}
+
+	// A bot's guess at a bot's doodle comes from the doodle's stored file.
+	botToBot := 0
+	for story, list := range byStory {
+		for i := 1; i < len(list); i++ {
+			prev, guess := list[i-1], list[i]
+			if !prev.GetBool("is_drawing") || isPerson(g, prev) || isPerson(g, guess) {
+				continue
+			}
+			botToBot++
+			d, ok := doodleNamed(prev.GetString("drawing"))
+			if !ok {
+				t.Errorf("story %s, turn %d: a bot's doodle stored as %q, not one a bot can name", story, i-1, prev.GetString("drawing"))
+				continue
+			}
+			if !slices.Contains(d.guesses, guess.GetString("prompt")) {
+				t.Errorf("story %s, turn %d: guessed %q at a %s", story, i, guess.GetString("prompt"), d.name)
+			}
+		}
+	}
+	if botToBot == 0 {
+		t.Error("no bot guessed at a bot's doodle")
+	}
+}
+
+func isPerson(g *testGame, turn *core.Record) bool {
+	return turn.GetString("user_id") == g.players["ann"].Id
 }
 
 // A bot's guess at another bot's doodle is one of that doodle's guesses.
@@ -329,5 +358,161 @@ func TestPlayAgainKeepsTheBots(t *testing.T) {
 	next := rematchedGame(t, app, g.rematch(api, g.players["ann"], map[string]any{}))
 	if n := countBots(t, app, next.Id); n != 2 {
 		t.Errorf("%d bots in the new game, want 2", n)
+	}
+}
+
+// botBeforeABot is the bot in g (a botGame) seated just before another bot,
+// and the story it started, once the bots have opened theirs: after the bot's
+// word, that story goes to a bot. Everyone in a botGame can join in the same
+// millisecond, so /begin's seating varies from run to run.
+func (g *testGame) botBeforeABot(t *testing.T) (storyID, botID string) {
+	t.Helper()
+	seated, err := g.app.FindRecordsByFilter("users", "game_id = {:g}", "position", 0, 0, dbx.Params{"g": g.game.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, u := range seated {
+		if u.GetBool("is_bot") && seated[(i+1)%len(seated)].GetBool("is_bot") {
+			story, err := g.app.FindFirstRecordByFilter("stories", "starter_id = {:u}", dbx.Params{"u": u.Id})
+			if err != nil {
+				t.Fatalf("%s's story: %v", u.GetString("username"), err)
+			}
+			return story.Id, u.Id
+		}
+	}
+	t.Fatal("no bot is seated before another")
+	return "", ""
+}
+
+func countTurns(t *testing.T, app core.App, storyID string) int {
+	t.Helper()
+	var n int
+	err := app.DB().NewQuery("SELECT COUNT(*) FROM turns WHERE story_id = {:s}").
+		Bind(dbx.Params{"s": storyID}).Row(&n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestABotsPauseIsThreeToSevenSecondsAndTheSameEachTime(t *testing.T) {
+	for _, story := range []string{"", "a", "x7k2p9q1zz", "abcdefghijklmno"} {
+		for index := range 20 {
+			p := botPause(story, index)
+			if p < 3*time.Second || p >= 7*time.Second {
+				t.Errorf("botPause(%q, %d) = %v, want [3s, 7s)", story, index, p)
+			}
+			if again := botPause(story, index); again != p {
+				t.Errorf("botPause(%q, %d): %v, then %v", story, index, p, again)
+			}
+		}
+	}
+}
+
+// A bot's later turn waits on the turn before it, not on the story's start:
+// otherwise a story of bots would be played all at once.
+func TestABotWaitsAfterTheTurnBefore(t *testing.T) {
+	app := newTestApp(t)
+	g := botGame(t, app, serveAPI(t, app), 2)
+	if err := playBots(app, time.Now()); err != nil { // the bots open their stories
+		t.Fatal(err)
+	}
+	story, bot := g.botBeforeABot(t)
+	// The story started long ago, so only the turn before can hold the next one.
+	_, err := app.DB().NewQuery("UPDATE stories SET created = {:t} WHERE id = {:s}").
+		Bind(dbx.Params{"t": time.Now().Add(-time.Hour).UTC().Format(types.DefaultDateLayout), "s": story}).Execute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := botTurn(app, story, bot); err != nil {
+		t.Fatal(err)
+	}
+	s, err := loadStory(app, story)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev, err := app.FindRecordById("turns", s.PrevTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := prev.GetDateTime("created").Time()
+
+	if err := playBots(app, at.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if n := countTurns(t, app, story); n != 1 {
+		t.Errorf("2s after the bot's word: %d turns, want 1", n)
+	}
+	if err := playBots(app, at.Add(8*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if n := countTurns(t, app, story); n != 2 {
+		t.Errorf("8s after the bot's word: %d turns, want 2", n)
+	}
+}
+
+// Bots play while a person's device has checked in within botsWaitFor, even
+// when the game itself has been quiet longer.
+func TestBotsPlayWhileAPersonIsSeen(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		after   time.Duration
+		stories int
+	}{
+		{"seen 9 minutes ago", 9 * time.Minute, 3},
+		{"seen 11 minutes ago", 11 * time.Minute, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newTestApp(t)
+			api := serveAPI(t, app)
+			g := botGame(t, app, api, 2)
+			// Everything else about the game is old news.
+			old := time.Now().Add(-time.Hour).UTC().Format(types.DefaultDateLayout)
+			for _, q := range []string{
+				"UPDATE games SET updated = {:t} WHERE id = {:g}",
+				"UPDATE users SET created = {:t} WHERE game_id = {:g}",
+			} {
+				if _, err := app.DB().NewQuery(q).Bind(dbx.Params{"t": old, "g": g.game.Id}).Execute(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ann := g.players["ann"]
+			rec := call(api, http.MethodPost, "/api/games/"+g.game.Id+"/players/"+ann.Id+"/presence", map[string]any{"working_on": ""})
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("presence: %d %s", rec.Code, rec.Body)
+			}
+			seen, err := app.FindRecordById("users", ann.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := playBots(app, seen.GetDateTime("seen_at").Time().Add(tc.after)); err != nil {
+				t.Fatal(err)
+			}
+			var n int
+			_ = app.DB().NewQuery("SELECT COUNT(*) FROM stories WHERE game_id = {:g}").Bind(dbx.Params{"g": g.game.Id}).Row(&n)
+			if n != tc.stories {
+				t.Errorf("%d stories, want %d", n, tc.stories)
+			}
+		})
+	}
+}
+
+// A story that moved on without the bot (the host skipped it) isn't the
+// bot's to play any more.
+func TestABotLeavesAStoryThatMovedOn(t *testing.T) {
+	app := newTestApp(t)
+	g := botGame(t, app, serveAPI(t, app), 2)
+	if err := playBots(app, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	story, bot := g.botBeforeABot(t)
+	if err := skipTurn(app, story, bot, "host skip", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := botTurn(app, story, bot); err != nil {
+		t.Fatal(err)
+	}
+	if n := countTurns(t, app, story); n != 1 {
+		t.Errorf("%d turns, want only the skip", n)
 	}
 }
