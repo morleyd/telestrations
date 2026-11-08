@@ -7,7 +7,8 @@
           <AvatarSelector :username="username" :avatar="avatar" :color="color" @submit="onAvatarSelect" />
         </v-col>
         <v-col>
-          <v-text-field v-model="username" label="Username" @keyup.enter="onSubmit"
+          <!-- The server's limit too (migration 1784810000) -->
+          <v-text-field v-model="username" label="Username" @keyup.enter="onSubmit" maxlength="24"
             :rules="[v => !!v?.trim() || 'Name cannot be empty!']" />
         </v-col>
       </v-row>

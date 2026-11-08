@@ -161,8 +161,23 @@ internet can't, so it runs in public mode, set from the environment:
   superuser on every start and removes any other. It prints no setup link.
 - `ADMIN_DASHBOARD=1` serves the dashboard (`/_/`) and lets the superuser sign
   in. Without it, both answer 404. Turn it on to read the logs, then off again.
+- `TRUSTED_PROXY_HEADER` names the header the proxy in front of the server puts
+  each visitor's address in (`Fly-Client-IP` on Fly.io). Set it only behind
+  such a proxy: anywhere else a visitor could write their own.
+- Limits, per visitor's address: requests are rate limited (generously, as a
+  whole party can share one home router), and an address that tries many
+  different game codes that don't exist is turned away for ten minutes. An
+  IPv6 address counts by its /64: always for the wrong codes, and behind
+  `TRUSTED_PROXY_HEADER` for the rate limits too, where the logs then show the
+  /64 rather than the full address.
+- `MAX_PLAYERS` (default 30) caps the players in a game, and `MAX_GAMES`
+  (default 1000) the games on the server.
+- The client log only takes reports about a game that exists.
 
-Without `PUBLIC_MODE`, none of this applies. The plan for hosting the game is
+Everywhere, public or not, a name is at most 24 characters and a word or guess
+at most 200.
+
+Without `PUBLIC_MODE`, none of this applies but those text limits. The plan for hosting the game is
 in [docs/hosting-plan.md](docs/hosting-plan.md).
 
 ## Development

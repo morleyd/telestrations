@@ -61,11 +61,13 @@ async function retry(fn, isRetryable, { tries = 3, delayMs = 150 } = {}) {
 // is now capped at a single read connection; see main.go). This is kept as cheap
 // defense in depth: a transient blip can still make one lookup for a record we
 // know exists come back empty, and a couple of quick retries ride over it. A
-// genuinely missing code still throws after the last attempt (~0.5s later).
-function getFirstListItemRetry(collection, filter, options = {}) {
+// genuinely missing record still throws after the last attempt (~0.5s later).
+// A lookup that may well find nothing (a typed game code) passes
+// retryNotFound: false, and only a failure to get an answer is retried.
+function getFirstListItemRetry(collection, filter, options = {}, { retryNotFound = true } = {}) {
   return retry(
     () => pb.collection(collection).getFirstListItem(filter, { ...options, requestKey: null }),
-    (err) => !err?.status || err.status === 404,
+    (err) => !err?.status || (retryNotFound && err.status === 404),
   )
 }
 
@@ -204,11 +206,14 @@ export const pbService = {
     rematch: (gameId, hostId, { roundDuration, rounds, endless }) => call(() =>
       post(`/api/games/${gameId}/rematch`, { host_id: hostId, round_duration: roundDuration, rounds, endless })),
     // The game with this code (see gameStatus). notFound: there's none, and
-    // errMsg says so.
-    async checkGameStatus(gameCode) {
+    // errMsg says so. typed: the player just typed the code, so a 404 isn't
+    // retried and a wrong code is answered at once (a public server also counts
+    // wrong codes against the address: internal/game/limits.go). A code from
+    // the page's URL, for a game we're already in, keeps the retry.
+    async checkGameStatus(gameCode, { typed = false } = {}) {
       const resp = await call(async () =>
         gameStatus(await getFirstListItemRetry('games', pb.filter("game_code = {:gameCode}", { gameCode }),
-          { headers: gameHeaders(gameCode) })))
+          { headers: gameHeaders(gameCode) }, { retryNotFound: !typed })))
       return resp.notFound ? { ...resp, errMsg: "Invalid Game Code. Try again or create a new game." } : resp
     },
   },

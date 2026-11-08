@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,10 @@ import (
 //   - ADMIN_DASHBOARD=1 serves the dashboard (/_/) and lets the superuser sign
 //     in. Without it both answer 404, so there's nothing to guess a password
 //     against. Turn it on to look at the logs, then off again.
+//   - The limits (see limits.go): TRUSTED_PROXY_HEADER names the header the
+//     proxy in front puts the visitor's address in (Fly-Client-IP on
+//     Fly.io); MAX_PLAYERS (default 30) caps a game's players, and MAX_GAMES
+//     (default 1000) the games on the server.
 //
 // Without PUBLIC_MODE nothing here applies, and the server is set up as for
 // `make run`.
@@ -36,6 +41,9 @@ type Mode struct {
 	AdminEmail    string
 	AdminPassword string
 	Dashboard     bool
+	ProxyHeader   string
+	MaxPlayers    int
+	MaxGames      int
 }
 
 // minAdminPassword is the shortest ADMIN_PASSWORD public mode accepts. Signing
@@ -51,6 +59,7 @@ func ModeFromEnv(getenv func(string) string) (Mode, error) {
 		AdminEmail:    strings.TrimSpace(getenv("ADMIN_EMAIL")),
 		AdminPassword: getenv("ADMIN_PASSWORD"),
 		Dashboard:     isOn(getenv("ADMIN_DASHBOARD")),
+		ProxyHeader:   strings.TrimSpace(getenv("TRUSTED_PROXY_HEADER")),
 	}
 	public := getenv("PUBLIC_MODE")
 	switch strings.ToLower(strings.TrimSpace(public)) {
@@ -69,7 +78,28 @@ func ModeFromEnv(getenv func(string) string) (Mode, error) {
 	if len(m.AdminPassword) < minAdminPassword {
 		return m, fmt.Errorf("public mode needs ADMIN_PASSWORD, at least %d characters", minAdminPassword)
 	}
+	var err error
+	if m.MaxPlayers, err = positiveInt(getenv, "MAX_PLAYERS", defaultMaxPlayers); err != nil {
+		return m, err
+	}
+	if m.MaxGames, err = positiveInt(getenv, "MAX_GAMES", defaultMaxGames); err != nil {
+		return m, err
+	}
 	return m, nil
+}
+
+// positiveInt is the environment variable name as a whole number above zero,
+// or fallback if it's unset.
+func positiveInt(getenv func(string) string, name string, fallback int) (int, error) {
+	v := strings.TrimSpace(getenv(name))
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a whole number above zero, not %q", name, v)
+	}
+	return n, nil
 }
 
 func isOn(v string) bool {
@@ -91,11 +121,10 @@ func ConfigureServe(se *core.ServeEvent, m Mode) error {
 	// On the internet: the superuser from the environment, no setup link,
 	// and the dashboard hidden unless it's switched on.
 	if m.Public {
-		if err := ServePublic(se, m); err != nil {
-			return err
-		}
+		return ServePublic(se, m)
 	}
-	return nil
+	// At home, nothing a public run saved into the settings still applies.
+	return resetLimits(se.App)
 }
 
 // printInstallerLink is apis.DefaultInstallerFunc minus the browser launch.
@@ -119,12 +148,18 @@ func ServePublic(se *core.ServeEvent, m Mode) error {
 	}
 	if !m.Dashboard {
 		se.Router.Bind(&hook.Handler[*core.RequestEvent]{
-			Id:       "gameHideAdmin",
-			Priority: -1000, // ahead of every other middleware: nothing about it should show
+			Id: "gameHideAdmin",
+			// Ahead of every other middleware, the rate limiter (-1000) included:
+			// nothing about it should show.
+			Priority: -1001,
 			Func:     hideAdmin,
 		})
 	}
-	se.App.Logger().Info("public mode", "dashboard", m.Dashboard)
+	if err := applyLimits(se, m); err != nil {
+		return fmt.Errorf("public mode: %w", err)
+	}
+	se.App.Logger().Info("public mode", "dashboard", m.Dashboard, "proxy_header", m.ProxyHeader,
+		"max_players", m.MaxPlayers, "max_games", m.MaxGames)
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -293,6 +294,34 @@ func TestFaceAvatarsMigrationClearsTheRest(t *testing.T) {
 		}
 		if got := user.GetString("avatar"); got != want {
 			t.Errorf("%s's avatar after the migration: %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Names saved before names had a limit are cut to 24 characters: characters,
+// not bytes, so a cut name is still whole UTF-8, and its player's record
+// saves again (a rename, a new look) under the new limit.
+func TestTextLimitsMigrationCutsLongNames(t *testing.T) {
+	app := newTestApp(t)
+	revertThrough(t, app, "1784810000_text_limits.go")
+	long, accented := strings.Repeat("n", 40), strings.Repeat("é", 30)
+	lobby := newLobby(t, app, long, accented, "short")
+	if _, err := core.NewMigrationsRunner(app, core.AppMigrations).Up(); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		long: strings.Repeat("n", 24), accented: strings.Repeat("é", 24), "short": "short",
+	} {
+		user, err := app.FindRecordById("users", lobby.players[name].Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := user.GetString("username")
+		if got != want || !utf8.ValidString(got) {
+			t.Errorf("%.8s… after the migration: %q, want %q", name, got, want)
+		}
+		if err := app.Save(user); err != nil {
+			t.Errorf("%.8s… saved again: %v", name, err)
 		}
 	}
 }

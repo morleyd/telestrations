@@ -91,7 +91,7 @@ export default {
         return
       }
 
-      const { data: game, errMsg } = await pbService.games.checkGameStatus(this.gameCode)
+      const { data: game, errMsg } = await pbService.games.checkGameStatus(this.gameCode, { typed: true })
       if (errMsg) {
         this.$emit("snack", errMsg, "error")
         return
