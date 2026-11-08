@@ -21,7 +21,7 @@ LAN ?=
 WEB := $(MAKE) --no-print-directory -C web
 
 .DEFAULT_GOAL := build
-.PHONY: help deps frontend build run lan-url dev-server dev-web test test-race e2e lint fmt clean
+.PHONY: help deps frontend build run lan-url dev-server dev-web test test-race e2e readme-gif lint fmt clean
 
 help: ## List the targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-11s %s\n", $$1, $$2}'
@@ -65,14 +65,18 @@ test-race: ## Go tests under the race detector, as CI runs them
 e2e: ## Browser tests (Playwright; on NixOS use web/run-e2e.sh)
 	$(WEB) e2e
 
+readme-gif: ## Re-record docs/demo.gif: a four-player game, in browsers
+	$(WEB) readme-gif
+	go run ./tools/readmegif -frames web/test-results/readme-gif -out docs/demo.gif
+
 lint: ## gofmt, go vet and ESLint, as CI runs them
-	@unformatted=$$(gofmt -l cmd internal web/embed.go); \
+	@unformatted=$$(gofmt -l cmd internal tools web/embed.go); \
 		if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
 	go vet ./...
 	$(WEB) check
 
 fmt: ## Format the Go code
-	gofmt -w cmd internal web/embed.go
+	gofmt -w cmd internal tools web/embed.go
 
 clean: ## Remove the binary and the web build
 	rm -rf bin web/dist/assets web/dist/index.html web/dist/version.json
