@@ -179,6 +179,9 @@ internet can't, so it runs in public mode, set from the environment:
   with nothing happening (a host who still has the page open counts as
   something happening). The review page says so. Logs, which hold
   players' names and addresses, are kept for 2 days.
+- Security headers: HSTS, a Content-Security-Policy that loads only what the
+  site ships, no framing by other sites, and a referrer that stays on the
+  site. No other site's page may call the API (no CORS).
 
 Everywhere, public or not, a name is at most 24 characters and a word or guess
 at most 200.
