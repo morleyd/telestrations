@@ -173,6 +173,12 @@ internet can't, so it runs in public mode, set from the environment:
 - `MAX_PLAYERS` (default 30) caps the players in a game, and `MAX_GAMES`
   (default 1000) the games on the server.
 - The client log only takes reports about a game that exists.
+- Games are deleted, drawings and all, 48 hours after they end (every story
+  has gone all the way round, or the host's End Game ran out), after 7 days
+  with nothing happening in them, or, for a game nobody started, after an hour
+  with nothing happening (a host who still has the page open counts as
+  something happening). The review page says so. Logs, which hold
+  players' names and addresses, are kept for 2 days.
 
 Everywhere, public or not, a name is at most 24 characters and a word or guess
 at most 200.

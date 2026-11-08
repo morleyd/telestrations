@@ -205,6 +205,9 @@ export const pbService = {
     // play. roundDuration is in seconds (-1 untimed). Answers { game_id, game_code }.
     rematch: (gameId, hostId, { roundDuration, rounds, endless }) => call(() =>
       post(`/api/games/${gameId}/rematch`, { host_id: hostId, round_duration: roundDuration, rounds, endless })),
+    // How long a finished game's stories are kept, in hours, on a public
+    // server; notFound on one that keeps them (see internal/game/expiry.go).
+    expiry: () => call(async () => (await pb.send('/api/expiry', { requestKey: null })).after_finish_hours),
     // The game with this code (see gameStatus). notFound: there's none, and
     // errMsg says so. typed: the player just typed the code, so a 404 isn't
     // retried and a wrong code is answered at once (a public server also counts

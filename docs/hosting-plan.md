@@ -48,8 +48,8 @@ turn alerts (browser notifications).
 - **Dashboard:** off in public mode unless an env var turns it on.
 - **Data lifetime:** a game is deleted 48 hours after it completes (every
   story has gone all the way round, or the host's End Game countdown has run
-  out), or after 7 days without activity. Logs are kept for 2 days in public
-  mode.
+  out), or after 7 days without activity (an hour, for a game nobody
+  started). Logs are kept for 2 days in public mode.
 - **Text limits:** names up to 24 characters, prompts and guesses up to 200.
 - **Players per game:** up to 30 by default, adjustable by env var.
 - **Rate limits:** proposed in the limits PR.

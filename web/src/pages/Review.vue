@@ -44,6 +44,9 @@
           :loading="downloading == 'all'" :disabled="Boolean(downloading)" @click="downloadAll">
           Download all stories
         </v-btn>
+        <p v-if="users.length && keepHours" class="text-caption text-medium-emphasis mb-2">
+          Stories are deleted {{ keepHours }} hours after the game ends. Download any you want to keep.
+        </p>
         <v-row v-for="(item, index) in users" no-gutters :key="index">
           <div class="user-item wrap" @click="onUserClick(item.starter_user_id)">
             <AvatarIcon :user="userMap[item.starter_user_id]" />
@@ -224,6 +227,9 @@ export default {
       progressLoaded: false,
       // The download being made: "story", "all", or "".
       downloading: "",
+      // How many hours after the game ends its stories are deleted, or 0 on a
+      // server that keeps them.
+      keepHours: 0,
       // What this player picked for the main area (see MAIN_VIEWS), or "" for
       // the default (see mainView).
       pickedView: "",
@@ -339,6 +345,7 @@ export default {
     })
     this.refresh()
     this.readGame()
+    pbService.games.expiry().then(({ data }) => { this.keepHours = data || 0 })
   },
   unmounted() {
     // readGame()'s read may still be on its way; this stops it subscribing to
