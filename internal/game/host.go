@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/morleyd/telestrations/web"
+	"github.com/morleyd/doodle-drift/web"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"

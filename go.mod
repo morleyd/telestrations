@@ -1,4 +1,4 @@
-module github.com/morleyd/telestrations
+module github.com/morleyd/doodle-drift
 
 go 1.27.0
 

@@ -48,11 +48,14 @@
 <script>
 import { PALETTE, PALETTE_HEX } from "@/services/paint/palette";
 
-const RECENTS_KEY = "telestrations.paint.recentColors"
+const RECENTS_KEY = "doodle-drift.paint.recentColors"
+// Where they were kept before the game was renamed: read if there's nothing
+// under the new key yet, so nobody loses theirs.
+const OLD_RECENTS_KEY = "telestrations.paint.recentColors"
 
 function loadRecents() {
   try {
-    const saved = JSON.parse(localStorage.getItem(RECENTS_KEY) || "[]")
+    const saved = JSON.parse(localStorage.getItem(RECENTS_KEY) || localStorage.getItem(OLD_RECENTS_KEY) || "[]")
     return Array.isArray(saved) ? saved.filter((h) => /^#[0-9A-F]{6}$/.test(h)).slice(0, 4) : []
   } catch {
     return []

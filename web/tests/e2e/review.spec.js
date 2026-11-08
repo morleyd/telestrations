@@ -534,7 +534,7 @@ test('any player can download a story, or every story in the game', async ({ bro
       page.waitForEvent('download'),
       visible('.v-window-item').getByRole('button', { name: 'Download this story' }).click(),
     ])
-    expect(story.suggestedFilename()).toMatch(new RegExp(`^telestrations-[a-z]{5}-${player.name}\\.png$`))
+    expect(story.suggestedFilename()).toMatch(new RegExp(`^doodle-drift-[a-z]{5}-${player.name}\\.png$`))
     expect(pngSize(await readFile(await story.path())).width).toBe(800)
 
     // Next wraps round to the opening word.
@@ -546,7 +546,7 @@ test('any player can download a story, or every story in the game', async ({ bro
       page.waitForEvent('download'),
       page.locator('#chat-scroll').getByRole('button', { name: 'Download all stories' }).click(),
     ])
-    expect(all.suggestedFilename()).toMatch(/^telestrations-[a-z]{5}\.zip$/)
+    expect(all.suggestedFilename()).toMatch(/^doodle-drift-[a-z]{5}\.zip$/)
     const files = unzipSync(new Uint8Array(await readFile(await all.path())))
     expect(Object.keys(files).sort()).toEqual(seats.map((s) => `${s.name}.png`).sort())
     for (const bytes of Object.values(files)) expect(pngSize(bytes).width).toBe(800)

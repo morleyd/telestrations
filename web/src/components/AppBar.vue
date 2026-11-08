@@ -5,9 +5,9 @@
   <v-app-bar color="primary" flat density="compact" class="app-bar">
     <div class="app-bar-brand d-flex align-center cursor-pointer" @click="$router.push({ name: 'Home' })">
       <span class="app-bar-logo mx-2">
-        <v-img width="26" height="34" src="@/assets/logo.svg" />
+        <v-img width="26" height="35" src="@/assets/logo.svg" />
       </span>
-      <v-toolbar-title class="app-bar-title">Telestrations</v-toolbar-title>
+      <v-toolbar-title class="app-bar-title">Doodle Drift</v-toolbar-title>
     </div>
     <v-spacer />
     <!-- What a page adds for its own controls (TakeTurn: the notebooks) -->

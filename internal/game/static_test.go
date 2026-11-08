@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/morleyd/telestrations/web"
+	"github.com/morleyd/doodle-drift/web"
 	"github.com/pocketbase/pocketbase/core"
 )
 

@@ -1,4 +1,4 @@
-# Telestrations game simulator / soak test
+# Doodle Drift game simulator / soak test
 
 `sim.mjs` drives complete games through the real backend and checks that the
 turn rotation never misroutes, drops, duplicates, or strands a player. It was
@@ -23,7 +23,7 @@ validated.
 Start the server (from the repo root):
 
 ```sh
-go run ./cmd/telestrations serve --http=127.0.0.1:8090
+go run ./cmd/doodledrift serve --http=127.0.0.1:8090
 ```
 
 Then run the simulator against it:

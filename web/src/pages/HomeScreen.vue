@@ -6,7 +6,7 @@
     <div class="text-center">
       <div class="hand home-welcome">Welcome to</div>
 
-      <h1 class="text-h2"><span class="highlight">Telestrations!</span></h1>
+      <h1 class="text-h2"><span class="highlight">Doodle Drift!</span></h1>
     </div>
 
     <v-card class="pa-4 ma-4 sketch-card" height="176px" width="900" max-width="calc(100vw - 32px)">

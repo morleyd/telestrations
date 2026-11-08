@@ -3,7 +3,7 @@ package migrations
 import (
 	"fmt"
 
-	"github.com/morleyd/telestrations/web"
+	"github.com/morleyd/doodle-drift/web"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	m "github.com/pocketbase/pocketbase/migrations"

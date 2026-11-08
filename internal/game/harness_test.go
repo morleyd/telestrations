@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/morleyd/telestrations/internal/migrations" // the schema newTestApp builds
+	_ "github.com/morleyd/doodle-drift/internal/migrations" // the schema newTestApp builds
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
