@@ -1,6 +1,8 @@
 <template>
   <v-card class="overflow-y-auto pb-16 align-content-space-evenly" height="100vh" width="100vw" color="transparent"
     flat style="justify-items: center; display: grid;">
+    <v-img class="my-4 home-logo" min-width="150" min-height="150" src="@/assets/logo.svg" />
+
     <div class="text-center">
       <div class="hand home-welcome">Welcome to</div>
 
@@ -152,6 +154,10 @@ export default {
 }
 </script>
 <style scoped>
+.home-logo {
+  transform: rotate(-4deg);
+}
+
 .home-welcome {
   font-size: 1.6rem;
   line-height: 1.2;
