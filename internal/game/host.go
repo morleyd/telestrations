@@ -31,9 +31,10 @@ import (
 // story that reaches them for the rest of the game.
 //
 // Like the rest of the game there are no accounts: the host proves who they
-// are by sending their user id. That id isn't a secret (the roster is public,
-// and so are the collections' API rules), so these checks keep honest clients
-// on the rails; they don't stop a determined player on your network.
+// are by sending their user id. Only the game's own players can read the
+// roster (it takes the game's code, see access.go), but to them that id isn't
+// a secret, so these checks keep honest clients on the rails; they don't stop
+// a determined player in the same game.
 
 // Client-visible messages. Clients act on the refusal codes below, not on the
 // wording, so these can be reworded freely.
@@ -413,12 +414,13 @@ FROM turns WHERE game_id = {:g} GROUP BY user_id`).
 	return out, nil
 }
 
-// requireHost checks that hostID is the host of the started game gameID and
-// returns the target player (which must be in the same game).
+// requireHost checks that the request carries the code of the started game
+// gameID, that hostID is its host, and returns the target player (which must
+// be in the same game).
 func requireHost(e *core.RequestEvent, gameID, hostID, userID string) (*core.Record, error) {
-	game, err := e.App.FindRecordById("games", gameID)
+	game, err := requireGameCode(e, gameID)
 	if err != nil {
-		return nil, e.NotFoundError("Game not found.", nil)
+		return nil, err
 	}
 	if !game.GetBool("isStarted") {
 		return nil, e.BadRequestError("The game hasn't started yet.", nil)
@@ -436,7 +438,11 @@ func requireHost(e *core.RequestEvent, gameID, hostID, userID string) (*core.Rec
 
 func bindHostRoutes(se *core.ServeEvent) {
 	se.Router.GET("/api/games/{gameId}/players", func(e *core.RequestEvent) error {
-		players, err := gamePlayers(e.App, e.Request.PathValue("gameId"))
+		gameID := e.Request.PathValue("gameId")
+		if _, err := requireGameCode(e, gameID); err != nil {
+			return err
+		}
+		players, err := gamePlayers(e.App, gameID)
 		if err != nil {
 			return err
 		}
@@ -590,12 +596,16 @@ func bindHostRoutes(se *core.ServeEvent) {
 		storyID := e.Request.PathValue("storyId")
 		story, err := e.App.FindRecordById("stories", storyID)
 		if err != nil {
-			return e.NotFoundError("Story not found.", nil)
+			return e.NotFoundError(msgNoGame, nil)
+		}
+		game, err := requireGameCode(e, story.GetString("game_id"))
+		if err != nil {
+			return err
 		}
 		// Untimed games show no timer (CountdownTimer runs only for a positive
 		// duration), so a timeout there can only be someone skipping another
 		// player's turn.
-		if game, err := e.App.FindRecordById("games", story.GetString("game_id")); err != nil || game.GetFloat("roundDuration") <= 0 {
+		if game.GetFloat("roundDuration") <= 0 {
 			return e.BadRequestError("This game has no round timer.", nil)
 		}
 		if isDropped(e.App, body.UserID) {
@@ -699,7 +709,10 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 		seating = append(seating, u.GetString("username"))
 	}
 
+	// The old game's players find the new one by its code (the old game's
+	// readers can see this; nobody else can).
 	game.Set("next_game", next.Id)
+	game.Set("next_game_code", code)
 	if err := tx.Save(game); err != nil {
 		return nil, err
 	}
@@ -707,26 +720,6 @@ func startRematch(tx core.App, game *core.Record, roundDuration, rounds int, end
 		"game_id", next.Id, "seating", seating, "rounds", next.GetInt("rounds"), "endless", endless,
 		"round_duration", next.GetInt("roundDuration"))
 	return next, nil
-}
-
-// newGameCode is a game code nobody's using: five lowercase letters.
-func newGameCode(app core.App) (string, error) {
-	const letters = "abcdefghijklmnopqrstuvwxyz"
-	for range 20 {
-		b := make([]byte, 5)
-		for i := range b {
-			b[i] = letters[rand.Intn(len(letters))]
-		}
-		code := string(b)
-		_, err := app.FindFirstRecordByFilter("games", "game_code = {:c}", dbx.Params{"c": code})
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			return code, nil
-		case err != nil:
-			return "", err
-		}
-	}
-	return "", errors.New("no free game code")
 }
 
 // endCountdown is how long End Game gives players to finish the turn they're on.
@@ -873,6 +866,7 @@ func bindTurnGuards(app core.App) {
 		e.Record.Set("isStarted", false)
 		e.Record.Set("ends_at", "")
 		e.Record.Set("next_game", "")
+		e.Record.Set("next_game_code", "")
 		return e.Next()
 	})
 	// Read inside the write, like a player's server fields below: writing back
@@ -883,7 +877,7 @@ func bindTurnGuards(app core.App) {
 		if err != nil {
 			return e.NotFoundError("", err)
 		}
-		for _, field := range []string{"game_code", "isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game"} {
+		for _, field := range []string{"game_code", "isStarted", "ends_at", "rounds", "endless", "roundDuration", "next_game", "next_game_code"} {
 			e.Record.Set(field, current.Get(field))
 		}
 		return e.Next()

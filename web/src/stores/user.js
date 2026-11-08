@@ -1,6 +1,6 @@
 // Utilities
 import { defineStore } from 'pinia'
-import { pbService } from '@/services/pocketbase'
+import { pbService, setGameCode } from '@/services/pocketbase'
 
 export const useUserStore = defineStore('user', {
   // Per tab, so two tabs can be two players. Reached only inside getItem and
@@ -40,6 +40,8 @@ export const useUserStore = defineStore('user', {
       if (game.errMsg) {
         return game
       }
+      // Joining it takes its code
+      setGameCode(game.data.game_code)
       const resp = await this.newUser(username, avatar, color, game.data.id, true)
       return { ...resp, gameCode: game.data.game_code }
     },

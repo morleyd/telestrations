@@ -179,11 +179,10 @@ func TestBeginRacingALateJoin(t *testing.T) {
 	joined := 0
 	soakGames(t, soakRounds, func(round int, app core.App, api http.Handler) {
 		g := newLobby(t, app, "ann", "ben")
-		order := []string{g.players["ann"].Id, g.players["ben"].Id}
 		var begin, join *httptest.ResponseRecorder
 		together(
 			func() {
-				begin = call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", map[string]any{"order": order})
+				begin = call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", g.beginBody("ann", "ben"))
 			},
 			func() {
 				join = call(api, http.MethodPost, "/api/collections/users/records", map[string]any{
@@ -216,7 +215,7 @@ func TestBeginRacingALeave(t *testing.T) {
 		g := newLobby(t, app, "ann", "ben", "cat")
 		var begin, leave *httptest.ResponseRecorder
 		together(
-			func() { begin = call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", nil) },
+			func() { begin = call(api, http.MethodPost, "/api/games/"+g.game.Id+"/begin", g.beginBody()) },
 			func() {
 				leave = call(api, http.MethodDelete, "/api/collections/users/records/"+g.players["cat"].Id, nil)
 			},
@@ -273,8 +272,8 @@ func TestDoubleBegin(t *testing.T) {
 		path := "/api/games/" + g.game.Id + "/begin"
 		var a, b *httptest.ResponseRecorder
 		together(
-			func() { a = call(api, http.MethodPost, path, nil) },
-			func() { b = call(api, http.MethodPost, path, nil) },
+			func() { a = call(api, http.MethodPost, path, g.beginBody()) },
+			func() { b = call(api, http.MethodPost, path, g.beginBody()) },
 		)
 		codes := []int{a.Code, b.Code}
 		slices.Sort(codes)

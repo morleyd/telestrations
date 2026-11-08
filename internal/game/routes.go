@@ -35,20 +35,26 @@ func BindRoutes(se *core.ServeEvent) {
 	// host's live (realtime-mutated) roster, so a late joiner could keep the
 	// default position 0 and scramble the whole rotation. Doing it here in a
 	// single transaction, from the authoritative DB roster, removes that race.
+	// Only the game's host starts it, like End Game and Play again.
 	se.Router.POST("/api/games/{gameId}/begin", func(e *core.RequestEvent) error {
 		gameID := e.Request.PathValue("gameId")
-		if gameID == "" {
-			return e.BadRequestError("Missing game id.", nil)
+		if _, err := requireGameCode(e, gameID); err != nil {
+			return err
 		}
 
 		// Optional explicit seating order (the host's drag order). Absent/empty
-		// body is fine — we fall back to join order.
+		// order is fine — we fall back to join order.
 		body := struct {
-			Order []string `json:"order"`
+			HostID string   `json:"host_id"`
+			Order  []string `json:"order"`
 		}{}
 		_ = e.BindBody(&body)
+		host, err := e.App.FindRecordById("users", body.HostID)
+		if err != nil || host.GetString("game_id") != gameID || !host.GetBool("is_host") {
+			return e.ForbiddenError("Only the host can do that.", nil)
+		}
 
-		err := e.App.RunInTransaction(func(txApp core.App) error {
+		err = e.App.RunInTransaction(func(txApp core.App) error {
 			game, err := txApp.FindRecordById("games", gameID)
 			if err != nil {
 				return e.BadRequestError("Invalid game.", err)

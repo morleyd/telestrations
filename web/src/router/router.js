@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, START_LOCATION } from "vue-router";
 import { log } from "@/services/log";
+import { setGameCode } from "@/services/pocketbase";
 
 const routes = [
   {
@@ -97,6 +98,12 @@ router.beforeEach(async (to, from) => {
     return false
   }
   return true
+})
+
+// The game in the address is the one this tab's requests carry the code of
+// (see setGameCode). The home page has none until the player joins or makes one.
+router.beforeResolve((to) => {
+  setGameCode(to.params.gameCode)
 })
 
 router.onError((err, to) => {

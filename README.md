@@ -85,7 +85,15 @@ Turns the host skipped are hidden on the review page. A skipped opening word is
 the exception: it's shown with a "Skipped by the host" banner.
 
 There are no accounts, so these controls (like the rest of the game) trust the
-people on your network: they stop mistakes, not a determined cheat.
+people in the game: they stop mistakes, not a determined cheat.
+
+## Who can see a game
+
+A game's code is the key to it. The server shows a game, its players, stories
+and drawings only to requests that carry the code (the web app sends it in an
+`X-Game-Code` header), and the same goes for live updates. Without it, a game
+might as well not exist. Changing or deleting a game, a story or a turn is the
+server's alone.
 
 ## Drawing
 

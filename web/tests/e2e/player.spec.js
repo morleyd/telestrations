@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { avatarColor, initials, sameName } from '../../src/services/player.js'
-import { createGame, gameByCode, joinGame, PB_URL, startGame, submitJoin } from './helpers.js'
+import { createGame, gameByCode, joinGame, PB_URL, startGame, submitJoin, withCode } from './helpers.js'
 
 // Players' names and avatars: a name keeps its capitals but matches in any
 // capitals, initials fit the circle, and the avatar picker can be found.
@@ -200,6 +200,7 @@ test('an avatar that isn\'t a face is refused, and never drawn', async ({ page, 
   const { id: gameId } = await gameByCode(request, code)
   const join = await request.post(`${PB_URL}/api/collections/users/records`, {
     data: { username: 'eve', game_id: gameId, avatar: '<svg onload="window.pwned = true"></svg>' },
+    headers: withCode(code),
   })
   expect(join.status()).toBe(400)
 

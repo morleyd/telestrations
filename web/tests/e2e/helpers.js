@@ -145,18 +145,24 @@ export function storyItem(page, name) {
 // Backend the suite runs against (see playwright.config.js).
 export const PB_URL = `http://127.0.0.1:${PB_PORT}`
 
-// What the backend has saved: a collection's records, read through its API.
-export async function records(request, collection, filter, sort = '') {
+// The header a request needs to see the game with this code (see
+// internal/game/access.go).
+export const withCode = (code) => ({ 'X-Game-Code': code.toLowerCase() })
+
+// What the backend has saved: a collection's records in the game with this
+// code, read through its API.
+export async function records(request, code, collection, filter, sort = '') {
   const query = new URLSearchParams({ perPage: 500, sort, filter })
-  return (await (await request.get(`${PB_URL}/api/collections/${collection}/records?${query}`)).json()).items
+  const resp = await request.get(`${PB_URL}/api/collections/${collection}/records?${query}`, { headers: withCode(code) })
+  return (await resp.json()).items
 }
 
 export const gameByCode = async (request, code) =>
-  (await records(request, 'games', `game_code="${code.toLowerCase()}"`))[0]
+  (await records(request, code, 'games', `game_code="${code.toLowerCase()}"`))[0]
 
 // The game's players' ids, by name
 export async function playerIds(request, code) {
-  const users = await records(request, 'users', `game_id.game_code="${code}"`)
+  const users = await records(request, code, 'users', `game_id.game_code="${code}"`)
   return Object.fromEntries(users.map((u) => [u.username, u.id]))
 }
 
@@ -169,7 +175,7 @@ export async function playerIds(request, code) {
 export async function expectStoriesAlternate(request, code, players, { stories = players } = {}) {
   const { id: gameId } = await gameByCode(request, code)
   const byStory = {}
-  for (const t of await records(request, 'results', `game_id="${gameId}"`, 'turn_number')) {
+  for (const t of await records(request, code, 'results', `game_id="${gameId}"`, 'turn_number')) {
     (byStory[t.starter_id] ||= []).push(t)
   }
   expect(Object.keys(byStory)).toHaveLength(stories)
@@ -205,7 +211,7 @@ export async function lookAtTable(page) {
 // Seats in rotation order (stories pass seat 0 -> 1 -> ...), mapped back to the
 // test's pages by username. Seating is decided server-side at begin.
 export async function seatedPages(request, code, pagesByName) {
-  const users = await records(request, 'users', `game_id.game_code="${code}"`, 'position,id')
+  const users = await records(request, code, 'users', `game_id.game_code="${code}"`, 'position,id')
   return users.map((u) => ({ name: u.username, id: u.id, page: pagesByName[u.username] }))
 }
 

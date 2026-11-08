@@ -86,8 +86,9 @@ func TestGameSettingsLockedAfterCreate(t *testing.T) {
 		"rounds": 5, "endless": true, "isStarted": true, "ends_at": time.Now(), "roundDuration": 30,
 		"game_code": other.game.GetString("game_code"),
 	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("update: %d %s", rec.Code, rec.Body)
+	// Changing a game is the server's alone (migration 1784800000).
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("update: %d %s, want 403", rec.Code, rec.Body)
 	}
 	game, err := app.FindRecordById("games", g.game.Id)
 	if err != nil {

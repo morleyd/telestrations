@@ -158,7 +158,7 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pb, pbService } from '@/services/pocketbase'
+import { pb, pbService, gameHeaders } from '@/services/pocketbase'
 import { log } from '@/services/log'
 import { gameProgress, storyProgress, waitingOn } from '@/services/progress'
 import { reviewTurns, ranOutOfTime, turnBanner } from '@/services/story'
@@ -333,7 +333,10 @@ export default {
     pb.collection('turns').subscribe('*', () => {
       this.refresh()
       this.getMe()
-    }, { filter: pb.filter("game_id.game_code = {:code}", { code: this.$route.params.gameCode }) })
+    }, {
+      filter: pb.filter("game_id.game_code = {:code}", { code: this.$route.params.gameCode }),
+      headers: gameHeaders(this.$route.params.gameCode),
+    })
     this.refresh()
     this.readGame()
   },
@@ -370,10 +373,12 @@ export default {
       // takes everyone across to it.
       pb.collection('games').subscribe(this.gameId, (e) => {
         this.getMe()
-        if (e.record?.next_game && !this.game?.nextGame) this.nextGameStarted(e.record.next_game)
-      })
+        if (e.record?.next_game && !this.game?.nextGame) {
+          this.nextGameStarted(e.record.next_game, e.record.next_game_code)
+        }
+      }, { headers: gameHeaders(this.$route.params.gameCode) })
       if (game.nextGame && this.inThisGame) {
-        this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId)).notFound
+        this.joinOffer = !(await pbService.users.getNextSeat(this.userStore.userId, game.nextGameCode)).notFound
       }
     },
     // Where this viewer stands in the game, for "Back to game" and what the
@@ -404,12 +409,12 @@ export default {
       this.getMe()
       if (this.game?.nextGame) return
       const { data: game } = await pbService.games.checkGameStatus(this.$route.params.gameCode)
-      if (game?.nextGame && !this.game?.nextGame) this.nextGameStarted(game.nextGame)
+      if (game?.nextGame && !this.game?.nextGame) this.nextGameStarted(game.nextGame, game.nextGameCode)
     },
-    // The host started the next game while this page was open: take the
-    // player across.
-    nextGameStarted(nextGame) {
-      this.game = { ...this.game, nextGame }
+    // The host started the next game (nextGame, whose code is nextGameCode)
+    // while this page was open: take the player across.
+    nextGameStarted(nextGame, nextGameCode) {
+      this.game = { ...this.game, nextGame, nextGameCode }
       this.movingAcross = true
       this.followNextGame()
     },
@@ -429,7 +434,7 @@ export default {
           return
         }
         this.showPlayAgain = false
-        this.nextGameStarted(resp.data.game_id)
+        this.nextGameStarted(resp.data.game_id, resp.data.game_code)
       } finally {
         this.startingAgain = false
       }
@@ -439,7 +444,7 @@ export default {
     async followNextGame() {
       if (this.following || !this.inThisGame) return
       this.following = true
-      const { data: seat, notFound, errMsg } = await pbService.users.getNextSeat(this.userStore.userId)
+      const { data: seat, notFound, errMsg } = await pbService.users.getNextSeat(this.userStore.userId, this.game.nextGameCode)
       if (!seat) {
         this.following = false
         // Not found: they weren't carried over (dropped). Otherwise they can

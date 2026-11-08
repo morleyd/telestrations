@@ -78,19 +78,22 @@ func TestDrawingOverTheCapIsRefusedAndLogged(t *testing.T) {
 	wantLogged(t, writeFailures(), g.players["ben"].Id, "huge.png", "maximum allowed file size")
 }
 
-// The turns update rule is open, so an edit's failure is logged too.
-func TestDrawingEditOverTheCapIsLogged(t *testing.T) {
-	app, writeFailures := loggedApp(t, writeFailure)
+// Editing a turn is the server's alone (migration 1784800000), so an edit
+// never gets as far as the size check, even from the game's own players.
+func TestDrawingEditIsRefused(t *testing.T) {
+	app := newTestApp(t)
 	api := serveAPI(t, app)
 	g := newGame(t, app, "ann", "ben")
 	g.play(t, "ann", "ann")
 	turn := g.drawWithFile(t, "ann", "ben")
 
 	rec := upload(api, http.MethodPatch, turnsPath+"/"+turn.Id, nil, "huge.png", bigPicture(11<<20))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("editing in an 11 MB drawing: %d %s, want refused", rec.Code, rec.Body)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("editing in an 11 MB drawing: %d %s, want 403", rec.Code, rec.Body)
 	}
-	wantLogged(t, writeFailures(), g.players["ben"].Id, "huge.png", "maximum allowed file size")
+	if after, _ := app.FindRecordById("turns", turn.Id); after.GetString("drawing") != turn.GetString("drawing") {
+		t.Error("the edit replaced the drawing")
+	}
 }
 
 // The log binds ahead of the other request hooks, so it sees a failure in

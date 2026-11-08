@@ -87,7 +87,8 @@ func TestDrawingTakesPngsAndAvifs(t *testing.T) {
 	}
 }
 
-// The turns update rule is open, so an edit is checked like a new turn.
+// Editing a turn is the server's alone (migration 1784800000), so no edit
+// can swap a TIFF in.
 func TestDrawingEditRefusesATiff(t *testing.T) {
 	app := newTestApp(t)
 	api := serveAPI(t, app)
@@ -95,8 +96,8 @@ func TestDrawingEditRefusesATiff(t *testing.T) {
 	g.play(t, "ann", "ann")
 	turn := g.drawWithFile(t, "ann", "ben")
 	rec := upload(api, http.MethodPatch, turnsPath+"/"+turn.Id, nil, "scan.tiff", tiffHeader)
-	if code, _ := refusal(rec); rec.Code != http.StatusBadRequest || code != codeBadPicture {
-		t.Fatalf("editing in a TIFF: %d %s, want refused as %s", rec.Code, rec.Body, codeBadPicture)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("editing in a TIFF: %d %s, want 403", rec.Code, rec.Body)
 	}
 }
 

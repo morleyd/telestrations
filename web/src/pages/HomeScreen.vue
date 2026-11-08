@@ -64,7 +64,7 @@
 <script>
 import { mapStores } from 'pinia'
 import { useUserStore } from '@/stores/user';
-import { pbService } from '@/services/pocketbase'
+import { pbService, setGameCode } from '@/services/pocketbase'
 import { defaultSettings, gameFields } from '@/services/settings'
 import { oneAtATime } from '@/services/oneAtATime'
 export default {
@@ -96,6 +96,8 @@ export default {
         this.$emit("snack", errMsg, "error")
         return
       }
+      // Everything below is in this game, which takes its code
+      setGameCode(this.gameCode)
 
       // A failed read isn't a free name: joining on it would seat them twice.
       const found = await pbService.users.getUser(validation.username, game.gameId)
