@@ -88,9 +88,15 @@ func deleteExpiredGames(app core.App, now time.Time) (int, error) {
 // delete's own transaction: a lobby that's started (or a game that's moved on)
 // while the job runs is kept, not deleted on what was read a moment before.
 func expireGame(app core.App, gameID string, now time.Time) (bool, error) {
+	return expireGameBy(app, gameID, now, gameExpired)
+}
+
+// expireGameBy is expireGame with rule deciding whether the game is past
+// keeping, asked inside the delete's transaction.
+func expireGameBy(app core.App, gameID string, now time.Time, rule func(core.App, string, time.Time) (bool, error)) (bool, error) {
 	deleted := false
 	err := app.RunInTransaction(func(tx core.App) error {
-		expired, err := gameExpired(tx, gameID, now)
+		expired, err := rule(tx, gameID, now)
 		if err != nil || !expired {
 			return err
 		}

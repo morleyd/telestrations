@@ -264,42 +264,54 @@ func rowCount(t *testing.T, app core.App, collection, gameID string) int {
 // player are put back.
 func TestOneUndeletableGameLeavesTheRestToExpire(t *testing.T) {
 	app := newTestApp(t)
-	// Made first, so the sweep reaches it first.
-	stuck := newGame(t, app, "ann", "ben")
-	stuck.play(t, "ann", "ann")
-	stuck.play(t, "ben", "ben")
-	fine := newGame(t, app, "cat", "dan")
-	fine.play(t, "cat", "cat")
+	a := newGame(t, app, "ann", "ben")
+	a.play(t, "ann", "ann")
+	a.play(t, "ben", "ben")
+	b := newGame(t, app, "cat", "dan")
+	b.play(t, "cat", "cat")
 
+	// The sweep's order isn't fixed, so the stuck game is whichever it reaches
+	// first: a sweep that stopped at the first failure would leave the other.
+	stuck := ""
 	app.OnRecordDelete("users").BindFunc(func(e *core.RecordEvent) error {
-		if e.Record.GetString("game_id") == stuck.game.Id {
+		if stuck == "" {
+			stuck = e.Record.GetString("game_id")
+		}
+		if e.Record.GetString("game_id") == stuck {
 			return errors.New("refused")
 		}
 		return e.Next()
 	})
-	before := map[string]int{}
-	for _, col := range []string{"turns", "stories", "users"} {
-		before[col] = rowCount(t, app, col, stuck.game.Id)
-		if before[col] == 0 {
-			t.Fatalf("fixture: no %s in the stuck game", col)
+	before := map[string]map[string]int{}
+	for _, id := range []string{a.game.Id, b.game.Id} {
+		before[id] = map[string]int{}
+		for _, col := range []string{"turns", "stories", "users"} {
+			before[id][col] = rowCount(t, app, col, id)
+			if before[id][col] == 0 {
+				t.Fatalf("fixture: no %s in game %s", col, id)
+			}
 		}
 	}
 
 	n, err := deleteExpiredGames(app, later(8*24*time.Hour))
+	fine := a.game.Id
+	if stuck == a.game.Id {
+		fine = b.game.Id
+	}
 	if n != 1 {
 		t.Errorf("%d deleted, want 1", n)
 	}
-	if err == nil || !strings.Contains(err.Error(), stuck.game.Id) || strings.Contains(err.Error(), fine.game.Id) {
+	if err == nil || stuck == "" || !strings.Contains(err.Error(), stuck) || strings.Contains(err.Error(), fine) {
 		t.Errorf("error %v, want one naming only the stuck game", err)
 	}
-	if exists(t, app, "games", fine.game.Id) {
+	if exists(t, app, "games", fine) {
 		t.Error("the other game didn't expire")
 	}
-	if !exists(t, app, "games", stuck.game.Id) {
+	if !exists(t, app, "games", stuck) {
 		t.Error("the stuck game was deleted anyway")
 	}
-	for col, want := range before {
-		if got := rowCount(t, app, col, stuck.game.Id); got != want {
+	for col, want := range before[stuck] {
+		if got := rowCount(t, app, col, stuck); got != want {
 			t.Errorf("stuck game's %s: %d left, want %d (rolled back)", col, got, want)
 		}
 	}
@@ -349,6 +361,19 @@ func TestPublicModeSaysHowLongGamesAreKept(t *testing.T) {
 func TestExpiryDecidesInsideTheDelete(t *testing.T) {
 	app := newTestApp(t)
 	g := newLobby(t, app, "ann")
+	asked := false
+	rule := func(tx core.App, gameID string, now time.Time) (bool, error) {
+		asked = true
+		if !tx.IsTransactional() {
+			t.Error("the rule was asked outside the delete's transaction")
+		}
+		return gameExpired(tx, gameID, now)
+	}
+	if deleted, err := expireGameBy(app, g.game.Id, later(2*time.Hour), rule); err != nil || !deleted || !asked {
+		t.Fatalf("an hour idle: deleted %v, rule asked %v (%v)", deleted, asked, err)
+	}
+
+	g = newLobby(t, app, "ann")
 	deleted, err := expireGame(app, g.game.Id, time.Now())
 	if err != nil || deleted || !exists(t, app, "games", g.game.Id) {
 		t.Fatalf("a live lobby: deleted %v (%v)", deleted, err)
