@@ -74,8 +74,9 @@ jobs:
       - run: make frontend
       - run: go test ./...
       # The concurrent soaks are too slow under the race detector to run on
-      # every PR, so -race gets the -short suite.
-      - run: go test -race -short ./...
+      # every PR, so -race gets the -short suite. Even that takes most of go
+      # test's default 10 minutes on a hosted runner, so it gets longer.
+      - run: go test -race -short -timeout 25m ./...
         if: ${{ !cancelled() }}
 
   test-e2e:

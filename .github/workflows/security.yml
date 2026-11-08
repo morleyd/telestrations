@@ -1,0 +1,47 @@
+name: Security
+
+# Known-vulnerability scans of the Go modules and the web app's npm packages.
+# Advisory, like the checks in ci.yml. They also run weekly, because a new
+# advisory can turn a dependency we already ship red without any change here.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  govulncheck:
+    name: Go vulnerabilities (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Reports only vulnerabilities our code can reach, not every advisory in
+      # a module we require.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./cmd/... ./internal/... ./web
+
+  npm-audit:
+    name: npm vulnerabilities (npm audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # Reads package-lock.json; nothing needs installing.
+      - run: npm audit --audit-level=moderate
