@@ -166,9 +166,18 @@ type codeGuesses struct {
 
 	mu     sync.Mutex
 	misses map[string]*guessWindow
-	seed   maphash.Seed
-	now    func() time.Time
+	// The map is swept for windows that have run out once it holds more than
+	// sweepAt, which is then set to twice what's left (never less than
+	// minSweepAt): sweeping on every miss would walk the whole map under mu
+	// each time many windows are running.
+	sweepAt int
+	seed    maphash.Seed
+	now     func() time.Time
 }
+
+// minSweepAt is the least sweepAt ever is: the map isn't swept until it holds
+// more windows than this.
+const minSweepAt = 10000
 
 type guessWindow struct {
 	start time.Time
@@ -178,7 +187,7 @@ type guessWindow struct {
 }
 
 func newCodeGuesses(max int, window time.Duration) *codeGuesses {
-	return &codeGuesses{max: max, window: window, misses: map[string]*guessWindow{}, seed: maphash.MakeSeed(), now: time.Now}
+	return &codeGuesses{max: max, window: window, misses: map[string]*guessWindow{}, sweepAt: minSweepAt, seed: maphash.MakeSeed(), now: time.Now}
 }
 
 func (c *codeGuesses) middleware(e *core.RequestEvent) error {
@@ -210,10 +219,14 @@ func (c *codeGuesses) current(ip string) *guessWindow {
 	return w
 }
 
+// blocked reports whether ip has used up its allowance in its current window.
+// It only looks: a window is made by a miss, so asking about a right code
+// doesn't grow the map.
 func (c *codeGuesses) blocked(ip string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.current(ip).codes) >= c.max
+	w := c.misses[ip]
+	return w != nil && c.now().Sub(w.start) < c.window && len(w.codes) >= c.max
 }
 
 // miss counts the wrong code from ip, unless ip has tried it already in this
@@ -227,13 +240,15 @@ func (c *codeGuesses) miss(ip, code string) bool {
 		return false
 	}
 	w.codes[h] = true
-	// Forget windows that have run out, so the map can't grow without end.
-	if len(c.misses) > 10000 {
+	// Forget windows that have run out once the map holds more than sweepAt,
+	// so it can't grow without end.
+	if len(c.misses) > c.sweepAt {
 		for k, v := range c.misses {
 			if c.now().Sub(v.start) >= c.window {
 				delete(c.misses, k)
 			}
 		}
+		c.sweepAt = max(minSweepAt, 2*len(c.misses))
 	}
 	return len(w.codes) == c.max
 }

@@ -208,21 +208,77 @@ func TestACodeGuessBlockLiftsAfterItsWindow(t *testing.T) {
 	}
 }
 
+// addrAt is the i-th of a run of distinct addresses.
+func addrAt(i int) string {
+	return fmt.Sprintf("10.%d.%d.%d", i>>16, i>>8&255, i&255)
+}
+
 // The windows that have run out are forgotten once there are more than
-// 10000, so addresses that come and go can't grow the map without end.
+// minSweepAt, so addresses that come and go can't grow the map without end.
 func TestCodeGuessesForgetOldWindows(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	c := guessesAt(30, time.Minute, &now)
-	for i := range 10001 {
-		c.miss(fmt.Sprintf("10.%d.%d.%d", i>>16, i>>8&255, i&255), "zzzzz")
+	for i := range minSweepAt - 1 {
+		c.miss(addrAt(i), "zzzzz")
 	}
 	now = now.Add(30 * time.Second)
 	c.miss("198.51.100.7", "zzzzz") // half way through its window
 	now = now.Add(30 * time.Second)
-	c.miss("198.51.100.8", "zzzzz")
+	c.miss("198.51.100.8", "zzzzz") // takes the map past minSweepAt
 
 	if len(c.misses) != 2 || c.misses["198.51.100.7"] == nil || c.misses["198.51.100.8"] == nil {
 		t.Fatalf("%d windows kept, want the 2 still running", len(c.misses))
+	}
+}
+
+// After a sweep, the next waits for the map to double, even once the windows
+// it kept have run out: many addresses guessing at once don't make every miss
+// walk the whole map.
+func TestCodeGuessesSweepAgainOnlyOnceTheMapDoubles(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	c := guessesAt(30, time.Minute, &now)
+	live := minSweepAt + 1
+	for i := range live { // the last one sweeps, and every window is running
+		c.miss(addrAt(i), "zzzzz")
+	}
+	now = now.Add(time.Minute) // now every one of them has run out
+	c.miss("198.51.100.7", "zzzzz")
+	if len(c.misses) != live+1 {
+		t.Fatalf("%d windows after one more miss, want %d: it swept again before the map doubled", len(c.misses), live+1)
+	}
+	// The miss that takes it past double sweeps, and the run-out windows go.
+	for i := live; ; i++ {
+		n := len(c.misses)
+		c.miss(addrAt(i), "zzzzz")
+		if len(c.misses) < n {
+			if n != 2*live {
+				t.Fatalf("swept at %d windows, want %d", n+1, 2*live+1)
+			}
+			break
+		}
+		if n > 3*live {
+			t.Fatal("never swept")
+		}
+	}
+	for ip, w := range c.misses {
+		if w.start.Before(now) {
+			t.Fatalf("%s's run-out window is still kept once the map doubled (%d windows)", ip, len(c.misses))
+		}
+	}
+}
+
+// Only a wrong code makes a window: every request about a game asks whether
+// its address is blocked, and those with a right code shouldn't fill the map.
+func TestAskingAboutARightCodeMakesNoWindow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	c := guessesAt(30, time.Minute, &now)
+	for i := range 100 {
+		if c.blocked(addrAt(i)) {
+			t.Fatalf("%s blocked with no wrong codes", addrAt(i))
+		}
+	}
+	if len(c.misses) != 0 {
+		t.Fatalf("%d windows after only asking, want none", len(c.misses))
 	}
 }
 
