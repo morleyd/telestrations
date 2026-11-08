@@ -158,7 +158,8 @@ internet can't, so it runs in public mode, set from the environment:
 
 - `PUBLIC_MODE=1` (or `true`, `yes`, `on`) turns it on; `0`, `false`, `no`,
   `off` or unset leaves it off. Any other value (a typo, say) stops the server
-  rather than starting it in home mode.
+  rather than starting it in home mode. The Docker image sets `PUBLIC_MODE=1`;
+  run it with `-e PUBLIC_MODE=0` for home mode.
 - `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 20 characters) are the only
   superuser. The server won't start without them; it creates or updates that
   superuser on every start and removes any other. It prints no setup link.
@@ -189,8 +190,10 @@ internet can't, so it runs in public mode, set from the environment:
 Everywhere, public or not, a name is at most 24 characters and a word or guess
 at most 200.
 
-Without `PUBLIC_MODE`, none of this applies but those text limits. The plan for hosting the game is
-in [docs/hosting-plan.md](docs/hosting-plan.md).
+Without `PUBLIC_MODE` (`make run`, say), none of this applies but those text
+limits.
+[DEPLOY.md](DEPLOY.md) puts the game on Fly.io in public mode, and
+[docs/hosting-plan.md](docs/hosting-plan.md) is the plan the work followed.
 
 ## Development
 

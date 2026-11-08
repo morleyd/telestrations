@@ -11,6 +11,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/cron"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 // Expiry (expiry.go): a public server deletes a game keepAfterFinish after
@@ -381,5 +382,36 @@ func TestExpiryDecidesInsideTheDelete(t *testing.T) {
 	deleted, err = expireGame(app, g.game.Id, later(2*time.Hour))
 	if err != nil || !deleted || exists(t, app, "games", g.game.Id) {
 		t.Fatalf("an hour idle: deleted %v (%v)", deleted, err)
+	}
+}
+
+// The expiry job clears logs older than logDays itself, rather than relying on
+// PocketBase's own cleanup, which a stopped machine can miss.
+func TestExpiryDeletesOldLogs(t *testing.T) {
+	app := newTestApp(t)
+	servePublic(t, app, publicMode(false))
+	old := &core.Log{Created: types.NowDateTime().AddDate(0, 0, -logDays-1), Message: "old"}
+	recent := &core.Log{Created: types.NowDateTime(), Message: "recent"}
+	for _, l := range []*core.Log{old, recent} {
+		l.Id = core.GenerateDefaultRandomId()
+		if err := app.AuxSave(l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var job *cron.Job
+	for _, j := range app.Cron().Jobs() {
+		if j.Id() == "gameExpiry" {
+			job = j
+		}
+	}
+	if job == nil {
+		t.Fatal("no gameExpiry job")
+	}
+	job.Run()
+	if _, err := app.FindLogById(old.Id); err == nil {
+		t.Errorf("a log older than %d days is still there", logDays)
+	}
+	if _, err := app.FindLogById(recent.Id); err != nil {
+		t.Errorf("a recent log was deleted: %v", err)
 	}
 }
