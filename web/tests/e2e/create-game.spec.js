@@ -36,3 +36,35 @@ test('the waiting room reports the host is there', async ({ page }) => {
   await createGame(page)
   await report
 })
+
+// A locked phone's timers stop, so the waiting room reports again as soon as
+// the page is back on screen rather than at its next beat.
+test('the waiting room reports again when the page is shown', async ({ page }) => {
+  let reports = 0
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/presence')) reports++
+  })
+  // Settled: no report for a while, so the page's own (on opening, and when
+  // realtime connects) are all in before it's hidden and shown.
+  const settled = async () => {
+    let last = -1
+    await expect.poll(() => { const same = reports === last; last = reports; return same },
+      { intervals: [1500], timeout: 15_000 }).toBe(true)
+    return reports
+  }
+  await createGame(page)
+  await expect.poll(() => reports).toBeGreaterThan(0)
+
+  const before = await settled()
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  expect(await settled(), 'a hidden page reported').toBe(before)
+
+  await page.evaluate(() => {
+    delete document.visibilityState
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(() => reports).toBeGreaterThan(before)
+})

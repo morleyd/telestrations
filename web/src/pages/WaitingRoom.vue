@@ -77,7 +77,9 @@ import { oneAtATime } from '@/services/oneAtATime'
 
 // A public server deletes a lobby nobody started after an hour with nothing
 // happening in it (internal/game/expiry.go). A device waiting here says so now
-// and then, which keeps the lobby while people wait in it.
+// and then, which keeps the lobby while people wait in it. A phone locked or
+// switched away stops the timer, so it also says so as soon as the page is
+// back on screen or reconnects.
 const LOBBY_PRESENCE_MS = 5 * 60 * 1000
 
 export default {
@@ -132,10 +134,13 @@ export default {
     if (this.left) return
     this.reportLobbyPresence()
     this.presenceTimer = setInterval(() => this.reportLobbyPresence(), LOBBY_PRESENCE_MS)
+    this.onVisibility = () => { if (document.visibilityState === 'visible') this.reportLobbyPresence() }
+    document.addEventListener('visibilitychange', this.onVisibility)
   },
   unmounted() {
     this.left = true
     clearInterval(this.presenceTimer)
+    document.removeEventListener('visibilitychange', this.onVisibility)
     pb.collection('users').unsubscribe();
     pb.collection('games').unsubscribe();
     pb.realtime.unsubscribe('PB_CONNECT');
@@ -188,8 +193,12 @@ export default {
     // roster as it is now.
     async catchUp() {
       const { data: game } = await pbService.games.checkGameStatus(this.gameCode)
+      if (this.left) return
       if (game?.isStarted) this.toGame()
-      else this.refreshRoster()
+      else {
+        this.reportLobbyPresence()
+        this.refreshRoster()
+      }
     },
     // Someone joined, left, or changed their name or look. If it's this player
     // gone (the host removed them), they're a visitor again: the join dialog.
