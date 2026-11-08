@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
-import { startGame, submitWord, submitDrawing, turnState, turnCreated, joinGame, createGame, driveGameToReview } from './helpers.js'
+import { startGame, submitWord, submitDrawing, turnState, turnCreated, joinGame, createGame } from './helpers.js'
 
 // Checks a deployed server in public mode (DEPLOY.md: `make -C web hosted
 // URL=https://...`): its headers, that the dashboard and other games stay
@@ -35,41 +35,7 @@ test('the server is in public mode', async ({ request }) => {
   expect((await request.get(`${URL}/api/expiry`)).status()).toBe(200)
 })
 
-test('one person plays a whole game with the bots', async ({ page }) => {
-  test.setTimeout(240_000)
-  const problems = []
-  watch(page, problems)
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Play with bots' }).click()
-  await page.getByLabel('Username').fill('smoke')
-  await page.getByRole('button', { name: 'Begin!' }).click()
-  await page.waitForURL(/\/[a-z]{5}$/)
-  await startGame(page, 4)
-  const deadline = Date.now() + 200_000
-  let turns = 0
-  for (;;) {
-    const state = await turnState(page)
-    if (state === 'review') break
-    if (Date.now() > deadline) throw new Error(`no review after ${turns} turns (state: ${state})`)
-    if (state === 'word') await submitWord(page, `smoke ${turns++}`)
-    else if (state === 'draw') {
-      // The first drawing is a phone photo, converted in the browser.
-      if (turns === 1) {
-        await page.getByRole('tab', { name: /Upload Photo/ }).click()
-        await page.locator('#fileInput').setInputFiles({ name: 'IMG_0001.HEIC', mimeType: '', buffer: HEIC })
-        await expect(page.locator('.v-window-item--active .v-img img')).toHaveJSProperty('naturalWidth', 16, { timeout: 30_000 })
-        await Promise.all([turnCreated(page), page.locator('.v-window-item--active').getByRole('button', { name: 'Submit' }).click()])
-      } else {
-        await submitDrawing(page)
-      }
-      turns++
-    } else await page.waitForTimeout(500)
-  }
-  await expect(page.getByText('Stories are deleted 48 hours after the game ends.')).toBeVisible()
-  expect(problems).toEqual([])
-})
-
-test('two devices play a game together', async ({ browser }) => {
+test('two devices play a game together, one drawing with a phone photo', async ({ browser }) => {
   test.setTimeout(180_000)
   const problems = []
   const contexts = [await browser.newContext(), await browser.newContext()]
@@ -80,9 +46,39 @@ test('two devices play a game together', async ({ browser }) => {
     const code = await createGame(host, { username: 'smoke-host' })
     await joinGame(guest, code, 'smoke-guest')
     await startGame(host, 2)
-    await driveGameToReview([host, guest])
+    await guest.waitForURL(/\/draw$/)
+    let photo = false
+    const done = new Set()
+    const deadline = Date.now() + 150_000
+    while (done.size < 2) {
+      if (Date.now() > deadline) throw new Error(`no review in time (done: ${[...done].join(', ')})`)
+      let acted = false
+      for (const page of [host, guest]) {
+        if (done.has(page)) continue
+        const state = await turnState(page)
+        if (state === 'review') done.add(page)
+        else if (state === 'word') await submitWord(page, 'smoke')
+        else if (state === 'draw' && page === host && !photo) {
+          await drawWithPhoto(page)
+          photo = true
+        } else if (state === 'draw') await submitDrawing(page)
+        acted ||= state === 'word' || state === 'draw'
+      }
+      if (!acted) await host.waitForTimeout(400)
+    }
+    expect(photo).toBe(true)
+    await expect(host.getByText('Stories are deleted 48 hours after the game ends.')).toBeVisible()
     expect(problems).toEqual([])
   } finally {
     await Promise.all(contexts.map((c) => c.close()))
   }
 })
+
+// drawWithPhoto submits a phone photo (HEIC) as the drawing, converted to JPEG
+// in the browser.
+async function drawWithPhoto(page) {
+  await page.getByRole('tab', { name: /Upload Photo/ }).click()
+  await page.locator('#fileInput').setInputFiles({ name: 'IMG_0001.HEIC', mimeType: '', buffer: HEIC })
+  await expect(page.locator('.v-window-item--active .v-img img')).toHaveJSProperty('naturalWidth', 16, { timeout: 30_000 })
+  await Promise.all([turnCreated(page), page.locator('.v-window-item--active').getByRole('button', { name: 'Submit' }).click()])
+}

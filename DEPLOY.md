@@ -60,15 +60,15 @@ What's in the repo:
 
 - Open `https://doodle-drift.fly.dev`. The first visit after a quiet spell
   waits a few seconds while the machine starts.
-- From the repo, in a browser, against the real server: its headers, a game
-  against the bots (with a phone photo), and a two-device game, with no
+- From the repo, in a browser, against the real server: its headers, and a
+  two-device game with a phone photo for a drawing, with no
   Content-Security-Policy violations:
 
   ```sh
   make -C web hosted URL=https://doodle-drift.fly.dev
   ```
 
-  The checks play two games from your address, well inside the rate limits.
+  The checks play one game from your address, well inside the rate limits.
 - Play a real game with two devices: your phone and a laptop, or a friend.
 
 ## Day to day
