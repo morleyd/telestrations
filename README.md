@@ -9,9 +9,9 @@ somewhere unexpected.
 
 ![Four friends play a game: a word, a drawing, a guess, and the story at the end](docs/demo.gif)
 
-**Play it:** [doodle-drift.fly.dev](https://doodle-drift.fly.dev). On your
-own, press **Play with bots**; with friends, press **New Game** and send them
-the code.
+**Play it:** [doodle-drift.fly.dev](https://doodle-drift.fly.dev). Press
+**New Game** and send your friends the code; each plays on their own phone or
+laptop.
 
 ## What makes it different
 
@@ -20,9 +20,6 @@ the code.
   Here each notebook moves on the moment its player is done. Notebooks pile
   up in front of slow players and can be taken in any order, and the waiting
   screen shows the table: who's holding what, who's working, who's away.
-- **Play with bots.** One person can play a whole game. The bots draw simple
-  doodles and guess, close but not always right, which is where the drift
-  comes from.
 - **Built to be robust, not just to work.** The turn rotation lives in SQL
   views, every write is checked against it inside a transaction, and races
   between players (two submits at once, a drop mid-turn, a join as the game
@@ -38,8 +35,8 @@ the code.
 - **Server:** Go on [PocketBase](https://pocketbase.io) (SQLite, REST and
   realtime). The game's rules are record hooks and write guards
   (`internal/game`); whose turn it is comes from SQL views over the turns
-  (`internal/migrations`). Host controls, End Game, Play again, bots and
-  expiry are all server-side. The server checks a turn's timeout, but each
+  (`internal/migrations`). Host controls, End Game, Play again and expiry
+  are all server-side. The server checks a turn's timeout, but each
   player's page starts it when their timer runs out.
 - **Web app:** Vue 3 and Vuetify, built with Vite and embedded in the binary.
   An MS-Paint-style drawing tool, live updates over server-sent events, and
@@ -61,7 +58,7 @@ From July 2026 I worked on it with Claude, an AI coding assistant. I chose
 what to build and how it should behave, ran the playtests where the bugs
 turned up, reviewed the changes, and decided what shipped; Claude wrote most
 of the code and tests from then on, including the work to host it publicly
-(access by game code, limits, expiry, the bots, and this README's GIF). The
+(access by game code, limits, expiry, and this README's GIF). The
 commit history and the pull requests show the work as it happened.
 
 ## Playing it
@@ -70,19 +67,7 @@ commit history and the pull requests show the work as it happened.
 
 **New Game** makes a game and shows its five-letter code; friends join with
 **Join Game** and the code. The host sets the seating order and presses
-**Begin**. **Play with bots** does the same with three bots already seated.
-
-### Playing with bots
-
-Bots are players the server plays (`internal/game/bots.go`): each takes a
-few seconds over a turn, opens with a word, draws one of a dozen doodles
-(`doodles.go`; one that matches the word if it can, any if not), and
-guesses. A bot's guess at another bot's doodle is close but not always the
-same; a person's drawing gets a wild guess. That's the drift.
-
-Bots only play while a person in the game has been around in the last ten
-minutes, so a game everyone has left goes quiet and expires like any other.
-They come along to Play again, and count as players everywhere else.
+**Begin**.
 
 ### Drawing
 
@@ -245,8 +230,8 @@ server's alone.
 
 - `cmd/doodledrift`: the server's `main`. It puts the pieces below together.
 - `internal/game`: the game itself: the record hooks and write guards, the
-  host controls, End Game and Play again, the API routes, public mode, bots,
-  and the Go tests.
+  host controls, End Game and Play again, the API routes, public mode, and
+  the Go tests.
 - `internal/migrations`: the database schema and the views the turn rotation
   runs on.
 - `web`: the Vue app; `web/embed.go` embeds its build (`web/dist`) in the
@@ -274,7 +259,7 @@ In dev, the frontend points at `http://127.0.0.1:8090/` unless you set
   from the migrations, through the real routes and guards: write races (two
   requests landing together), the refusal codes the client acts on, the
   rotation views, random whole games, migrations, skips and timeouts, access
-  by game code, public mode's limits and expiry, bots, the client log and
+  by game code, public mode's limits and expiry, the client log and
   static serving. `-short` skips the concurrent soaks and plays fewer random
   games; `MODEL_SEED=<n>` replays one random game. `make test-race` runs them
   under the race detector, as CI does.

@@ -25,24 +25,24 @@ This file is the plan and its status; it changes as each PR lands.
 | 2 | [#43](https://github.com/morleyd/telestrations/issues/43) | Delete games 48 h after they finish, or after 7 days idle | [#55](https://github.com/morleyd/telestrations/pull/55) |
 | 2 | [#44](https://github.com/morleyd/telestrations/issues/44) | Security headers, same-origin CORS | [#56](https://github.com/morleyd/telestrations/pull/56) |
 | 1 | [#38](https://github.com/morleyd/telestrations/issues/38) | Rename to Doodle Drift | [#57](https://github.com/morleyd/telestrations/pull/57) |
-| 3 | [#45](https://github.com/morleyd/telestrations/issues/45) | Play with bots | [#58](https://github.com/morleyd/telestrations/pull/58) |
+| 3 | [#45](https://github.com/morleyd/telestrations/issues/45) | Play with bots (dropped for now) | [#58](https://github.com/morleyd/telestrations/pull/58), closed |
 | 3 | [#46](https://github.com/morleyd/telestrations/issues/46) | A scripted GIF for the README | [#59](https://github.com/morleyd/telestrations/pull/59) |
 | 4 | [#47](https://github.com/morleyd/telestrations/issues/47) | Host on Fly.io (David deploys) | [#60](https://github.com/morleyd/telestrations/pull/60) |
 | 5 | [#48](https://github.com/morleyd/telestrations/issues/48) | README for visitors | [#61](https://github.com/morleyd/telestrations/pull/61) |
 
-The PRs are stacked: each builds on the one before, in the order above, so
-they merge in that order. Phase 2 went first, and the rename after it, so it
-renamed the new code too.
+The PRs were stacked, each on the one before, and merged in the order above.
+Phase 2 went first, and the rename after it, so it renamed the new code too.
+#58 (bots) was closed rather than merged; #59 and #60 were reworked to stand
+without it.
 
 ## What's left for David
 
-1. Merge the PRs in order, with merge commits.
+1. Merge #61, the last PR.
 2. Rename the GitHub repo to `doodle-drift` (see #57).
 3. Deploy, following [DEPLOY.md](../DEPLOY.md), then
    `make -C web hosted URL=https://doodle-drift.fly.dev` and a two-device
    game.
-4. Draw the logo; it goes where the old one was (see #57).
-5. Set the repo's description and topics (see #61), and add the game to the
+4. Set the repo's description and topics (see #61), and add the game to the
    portfolio site.
 
 Not planned for now: [#49](https://github.com/morleyd/telestrations/issues/49),
@@ -50,8 +50,8 @@ turn alerts (browser notifications).
 
 ## Decisions
 
-- **Name:** Doodle Drift. David draws the new logo; until then the header is
-  text only.
+- **Name:** Doodle Drift, with David's logo (a microphone and pen nib in a
+  D) in the header, on the home screen and as the favicon.
 - **Host:** Fly.io. One small machine that stops when idle, a small volume
   for `pb_data`, the free `*.fly.dev` address. No domain for now. No ads.
 - **Game codes:** stay 5 letters, drawn from `crypto/rand`. With each game's
@@ -66,8 +66,9 @@ turn alerts (browser notifications).
 - **Players per game:** up to 30 by default, adjustable by env var.
 - **Rate limits:** per address, generous enough for a party behind one home
   router (#54 lists them).
-- **Bots:** server-side, drawing a dozen doodles in Go, guessing from word
-  lists. No AI service, nothing that costs per game.
+- **Bots:** not for now (#58 closed). If they come back, it's as **Replace
+  with bot** when the host drops a player: a bot takes over that seat and the
+  turns it owes. #58's comments have the playtest notes.
 - **Expiry** is worked out from each game's own records rather than stored
   timestamps, and also runs when the server starts, since Fly.io stops it
   while idle.
