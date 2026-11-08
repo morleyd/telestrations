@@ -65,7 +65,7 @@ test-race: ## Go tests under the race detector, as CI runs them
 e2e: ## Browser tests (Playwright; on NixOS use web/run-e2e.sh)
 	$(WEB) e2e
 
-readme-gif: ## Re-record docs/demo.gif: a game against the bots, in a browser
+readme-gif: ## Re-record docs/demo.gif: a four-player game, in browsers
 	$(WEB) readme-gif
 	go run ./tools/readmegif -frames web/test-results/readme-gif -out docs/demo.gif
 

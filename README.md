@@ -3,7 +3,7 @@
 A drawing-telephone party game: a PocketBase (Go) backend with an embedded
 Vue/Vuetify frontend.
 
-![One person plays a game against three bots: a word, a drawing, a guess, and the story at the end](docs/demo.gif)
+![Four friends play a game: a word, a drawing, a guess, and the story at the end](docs/demo.gif)
 
 ## Play on your local network
 
@@ -217,10 +217,11 @@ In dev, the frontend points at `http://127.0.0.1:8090/` unless you set
   `make test-race` runs them under the race detector, as CI does.
 - `make lint` runs gofmt, `go vet` and ESLint.
 - Rotation soak test: see `sim/README.md`.
-- The GIF at the top: `make readme-gif` plays a game against the bots in a
-  browser (`web/tests/e2e/readme-gif.spec.js`, skipped in ordinary runs),
-  keeps a screenshot at each moment worth showing, and turns them into
-  `docs/demo.gif` (`tools/readmegif`). Re-make it after changing the UI.
+- The GIF at the top: `make readme-gif` plays a four-player game, each
+  player in their own browser (`web/tests/e2e/readme-gif.spec.js`, skipped
+  in ordinary runs). It keeps a screenshot of one player's screen at each
+  moment worth showing, and turns them into `docs/demo.gif`
+  (`tools/readmegif`). Re-make it after changing the UI.
 
 CI (`.github/workflows/ci.yml`) runs gofmt, `go vet`, ESLint, the Go tests and
 the E2E suite on every PR and every push to master. The checks are advisory:
