@@ -76,7 +76,7 @@ test('record the README GIF', async ({ page, browser }) => {
   const drewFor = new Map() // a drawing's file -> the prompt it drew
   const wrote = new Set()
   const done = new Set()
-  let sawTable = false
+  let filmedTable = false
   const deadline = Date.now() + 240_000
   while (done.size < players.length) {
     if (Date.now() > deadline) throw new Error(`no review in time (done: ${[...done].join(', ')})`)
@@ -87,17 +87,22 @@ test('record the README GIF', async ({ page, browser }) => {
       if (state === 'review') {
         done.add(p.name)
       } else if (state === 'word') {
-        await writeTurn(p, wrote.has(p.name) ? await guessFor(p.page, drewFor) : WORDS[p.name], frame)
+        const guessing = wrote.has(p.name)
+        await writeTurn(p, guessing ? await guessFor(p.page, drewFor) : WORDS[p.name], frame, guessing)
         wrote.add(p.name)
         acted = true
       } else if (state === 'draw') {
         const prompt = await p.page.locator('.drawing-prompt-text').innerText()
         drewFor.set(await drawTurn(p, prompt, frame), prompt)
         acted = true
-      } else if (p.filmed && !sawTable && await page.getByText('Around the table').isVisible().catch(() => false)) {
-        await page.waitForTimeout(600)
-        await frame(1800) // the table, notebooks on their way round
-        sawTable = true
+        // After Pablo's first drawing, the next notebook is still with a
+        // friend: the table, everyone's words written and notebooks going round.
+        if (p.filmed && !filmedTable) {
+          await expect(page.getByText('Waiting for a notebook')).toBeVisible()
+          await page.waitForTimeout(800)
+          await frame(2400)
+          filmedTable = true
+        }
       }
     }
     if (!acted) await page.waitForTimeout(400)
@@ -118,12 +123,14 @@ test('record the README GIF', async ({ page, browser }) => {
 })
 
 // writeTurn types text (an opening word or a guess) and submits it; on camera,
-// it's typed key by key.
-async function writeTurn({ page, filmed }, text, frame) {
+// it's typed key by key, after a look at the drawing when guessing.
+async function writeTurn({ page, filmed }, text, frame, guessing) {
   const box = page.locator('textarea').first()
   if (filmed) {
-    await page.waitForTimeout(600) // a drawing to guess loads
-    await frame(2000)
+    if (guessing) {
+      await page.waitForTimeout(600) // the drawing loads
+      await frame(2000)
+    }
     await box.pressSequentially(text, { delay: 40 })
     await frame(1400)
   } else {
